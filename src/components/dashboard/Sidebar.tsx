@@ -6,7 +6,7 @@ import {
   Newspaper, LogOut, Settings, ChevronRight,
   PanelLeftClose, PanelLeftOpen, Sun, Moon, Languages,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTheme } from '@/context/ThemeContext';
@@ -20,14 +20,23 @@ const menuItems = [
   { nameEn: 'Settings',      nameAr: 'الإعدادات',      icon: Settings,        path: '/dashboard/settings' },
 ];
 
-const navContainer = {
+const navContainer: Variants = {
   hidden: {},
   show: { transition: { staggerChildren: 0.06, delayChildren: 0.1 } },
 };
-const navItemVariant = {
+
+const navItemVariant: Variants = {
   hidden: { opacity: 0, x: -8 },
-  show:  { opacity: 1, x: 0, transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] } },
+  show: {
+    opacity: 1,
+    x: 0,
+    transition: {
+      duration: 0.35,
+      ease: [0.22, 1, 0.36, 1] as const,
+    },
+  },
 };
+
 
 export default function Sidebar() {
   const pathname = usePathname();
