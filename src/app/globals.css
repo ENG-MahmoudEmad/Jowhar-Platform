@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+/* ─── Font + Brand tokens ─── */
+@theme {
+  --font-display: var(--font-montserrat), sans-serif;
+  --font-sans:    var(--font-inter), ui-sans-serif, system-ui;
+  --font-arabic:  var(--font-cairo), sans-serif;
+
+  --color-brand:       #458482;
+  --color-brand-hover: #366b69;
+  --color-brand-light: #5ea8a4;
+}
+
+/* ─── Light mode ─── */
+:root {
+  --background:       #F9F9F3;
+  --background-alt:   #F0F0E8;
+  --foreground:       #1a1a2e;
+  --foreground-muted: #6b7280;
+  --card:             #FFFFFF;
+  --card-border:      rgba(0, 0, 0, 0.07);
+  --sidebar-bg:       #F9F9F3;
+  --sidebar-border:   rgba(0, 0, 0, 0.07);
+  --divider:          rgba(0, 0, 0, 0.06);
+  --input-bg:         #FFFFFF;
+  --input-border:     rgba(0, 0, 0, 0.10);
+  --hover-bg:         rgba(0, 0, 0, 0.04);
+  --scrollbar-track:  #F0F0E8;
+  --scrollbar-thumb:  #d1d5db;
+  --orb-1:            rgba(69, 132, 130, 0.07);
+  --orb-2:            rgba(94, 168, 164, 0.05);
+  --orb-3:            rgba(45, 92, 90, 0.04);
+}
+
+/* ─── Dark mode ─── */
+.dark {
+  --background:       #0d1117;
+  --background-alt:   #161b22;
+  --foreground:       #e6edf3;
+  --foreground-muted: #64748b;
+  --card:             #161b22;
+  --card-border:      rgba(255, 255, 255, 0.06);
+  --sidebar-bg:       #0d1117;
+  --sidebar-border:   rgba(255, 255, 255, 0.05);
+  --divider:          rgba(255, 255, 255, 0.05);
+  --input-bg:         #0d1117;
+  --input-border:     rgba(255, 255, 255, 0.08);
+  --hover-bg:         rgba(255, 255, 255, 0.04);
+  --scrollbar-track:  #0d1117;
+  --scrollbar-thumb:  #21262d;
+  --orb-1:            rgba(69, 132, 130, 0.12);
+  --orb-2:            rgba(94, 168, 164, 0.07);
+  --orb-3:            rgba(45, 92, 90, 0.08);
+}
+
+/* ─── Base ─── */
+@layer base {
+  body {
+    background-color: var(--background);
+    color:            var(--foreground);
+    @apply antialiased;
+  }
+
+  /* Smooth theme transitions — color props only */
+  *, *::before, *::after {
+    transition-property: background-color, border-color, color, fill, stroke;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
+  }
+
+  /* Arabic font override */
+  :lang(ar) {
+    font-family: var(--font-arabic);
+    letter-spacing: 0;
+  }
+  :lang(ar) h1,
+  :lang(ar) h2,
+  :lang(ar) h3,
+  :lang(ar) h4 {
+    font-family: var(--font-arabic);
+    font-weight: 700;
+  }
+}
+
+/* ─── Dashboard animated background ─── */
+@layer utilities {
+
+  .dashboard-bg {
+    position: relative;
+    overflow: hidden;
+  }
+  .dashboard-bg > * { position: relative; z-index: 1; }
+
+  .dashboard-bg::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 80% 10%, var(--orb-1), transparent),
+      radial-gradient(ellipse 50% 40% at 10% 80%, var(--orb-2), transparent),
+      radial-gradient(ellipse 40% 35% at 50% 50%, var(--orb-3), transparent);
+    animation: bg-drift 30s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  @keyframes bg-drift {
+    0%   { background-position: 80% 10%, 10% 80%, 50% 50%; opacity: 1;    }
+    50%  { background-position: 70% 20%, 20% 70%, 45% 55%; opacity: 0.85; }
+    100% { background-position: 85% 5%,  5%  85%, 55% 45%; opacity: 1;    }
+  }
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar       { width: 5px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #458482; }
+
+/* ─── Autofill fix ─── */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow:      0 0 0 1000px var(--input-bg) inset !important;
+  -webkit-text-fill-color: var(--foreground) !important;
+  transition:              background-color 5000s ease-in-out 0s;
+  caret-color:             var(--foreground);
+}
+
+/* ─── Hide browser native input icons ─── */
+input::-ms-reveal,
+input::-ms-clear,
+input::-webkit-contacts-auto-fill-button,
+input::-webkit-credentials-auto-fill-button {
+  display:        none !important;
+  visibility:     hidden !important;
+  pointer-events: none !important;
+  position:       absolute;
+  right:          0;
+}
