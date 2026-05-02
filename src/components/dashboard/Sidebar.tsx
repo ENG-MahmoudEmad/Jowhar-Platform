@@ -37,7 +37,6 @@ const navItemVariant: Variants = {
   },
 };
 
-
 export default function Sidebar() {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(true);
@@ -136,9 +135,12 @@ export default function Sidebar() {
             <motion.div key={it.path} variants={navItemVariant}>
               <Link href={it.path} className="block group/item relative">
                 <div
-                  className={`relative h-11 flex items-center rounded-xl overflow-hidden
-                    ${isOpen ? (isRTL ? 'flex-row-reverse' : '') : 'justify-center'}`}
-                  style={{ color: isActive ? textMain : textIdle }}
+                  className="relative h-11 flex items-center rounded-xl overflow-hidden"
+                  style={{
+                    color:          isActive ? textMain : textIdle,
+                    flexDirection:  isOpen && isRTL ? 'row-reverse' : 'row',
+                    justifyContent: !isOpen ? 'center' : 'flex-start',
+                  }}
                 >
                   {isActive && (
                     <motion.div layoutId="activeNav"
@@ -245,10 +247,12 @@ export default function Sidebar() {
           },
         ].map((btn, i) => (
           <button key={i} onClick={btn.onClick}
-            className={`w-full h-10 flex items-center rounded-xl transition-colors duration-150 cursor-pointer
-              ${isRTL ? 'flex-row-reverse' : ''}
-              ${!isOpen ? 'justify-center' : ''}`}
-            style={{ color: textIdle }}
+            className="w-full h-10 flex items-center rounded-xl transition-colors duration-150 cursor-pointer"
+            style={{
+              color:          textIdle,
+              flexDirection:  isOpen && isRTL ? 'row-reverse' : 'row',
+              justifyContent: !isOpen ? 'center' : 'flex-start',
+            }}
             onMouseEnter={e => { e.currentTarget.style.color = textMain; e.currentTarget.style.background = hoverBg; }}
             onMouseLeave={e => { e.currentTarget.style.color = textIdle; e.currentTarget.style.background = 'transparent'; }}
           >
@@ -365,3 +369,14 @@ export default function Sidebar() {
     </motion.aside>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

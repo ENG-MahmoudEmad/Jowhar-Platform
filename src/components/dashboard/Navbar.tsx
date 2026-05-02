@@ -19,89 +19,122 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  const t = {
-    welcome: lang === 'ar' ? 'مرحباً،' : 'Welcome back,',
-    search:  lang === 'ar' ? 'بحث في المهام والمشاريع...' : 'SEARCH TASKS OR PROJECTS...',
-  };
+  const searchPlaceholder = lang === 'ar' ? 'بحث في المهام والمشاريع...' : 'SEARCH TASKS OR PROJECTS...';
+  const welcomeText       = lang === 'ar' ? 'مرحباً،' : 'Welcome back,';
 
   const textMain  = 'var(--foreground)';
   const textMuted = 'var(--foreground-muted)';
-  const inputBorder = 'var(--input-border)';
 
   return (
     <header
-      className="h-16 sm:h-20 sticky top-0 z-40 flex items-center justify-between px-4 sm:px-6 lg:px-10"
+      className="h-16 sm:h-20 sticky top-0 z-40 flex items-center px-4 sm:px-6 lg:px-10"
       style={{
+        /* In RTL: search on left, greeting on right — achieved by reversing the row */
+        flexDirection:        isRTL ? 'row-reverse' : 'row',
+        justifyContent:       'space-between',
         background:           isDark ? 'rgba(13,17,23,0.85)' : 'rgba(249,249,243,0.85)',
         borderBottom:         `1px solid var(--divider)`,
         backdropFilter:       'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        flexDirection:        isRTL ? 'row-reverse' : 'row',
+        gap:                  '1rem',
       }}
     >
-      {/* ─── Greeting side ─── */}
-      <div className="flex items-center gap-3 sm:gap-4"
-        style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}>
 
+      {/* ── Side A: hamburger + greeting
+            LTR → left side   (flex-start)
+            RTL → right side  (visually, because row is reversed) ── */}
+      <div
+        className="flex items-center gap-3 min-w-0"
+        style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
+      >
         {/* Mobile hamburger */}
-        <button onClick={onMenuClick}
-          className="lg:hidden w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer"
-          style={{ color: textMuted, background: 'var(--hover-bg)' }}>
+        <button
+          onClick={onMenuClick}
+          className="lg:hidden w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all cursor-pointer"
+          style={{ color: textMuted, background: 'var(--hover-bg)' }}
+          onMouseEnter={e => e.currentTarget.style.color = textMain}
+          onMouseLeave={e => e.currentTarget.style.color = textMuted}
+        >
           <Menu className="w-5 h-5" />
         </button>
 
-        <div className="flex flex-col gap-0.5"
-          style={{ alignItems: isRTL ? 'flex-end' : 'flex-start' }}>
-
-          <div className="flex items-center gap-2"
-            style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}>
-            <span className="text-sm font-medium" style={{ color: textMuted }}>
-              {t.welcome}
+        {/* Greeting block */}
+        <div
+          className="flex flex-col gap-0.5 min-w-0"
+          style={{ alignItems: isRTL ? 'flex-end' : 'flex-start' }}
+        >
+          {/* Welcome + name row */}
+          <div
+            className="flex items-center gap-1.5"
+            style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
+          >
+            <span
+              className="text-sm font-medium whitespace-nowrap"
+              style={{
+                color:      textMuted,
+                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+              }}
+            >
+              {welcomeText}
             </span>
-            {/* الاسم يبقى إنجليزي دايماً */}
-            <span className="font-bold text-sm tracking-wide uppercase flex items-center gap-1"
-              style={{ color: textMain, flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+            {/* Name always English */}
+            <span
+              className="font-bold text-sm tracking-wide uppercase flex items-center gap-1 whitespace-nowrap"
+              style={{ color: textMain }}
+            >
               Alwaqee
-              <Sparkles size={13} className="text-[#458482]" />
+              <Sparkles size={13} className="text-[#458482] shrink-0" />
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: textMuted, flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+          {/* Date row */}
+          <div
+            className="flex items-center gap-1.5 text-[10px] font-bold tracking-widest"
+            style={{
+              color:         textMuted,
+              flexDirection: isRTL ? 'row-reverse' : 'row',
+              textTransform: lang === 'ar' ? 'none' : 'uppercase',
+            }}
+          >
             <CalendarIcon size={11} className="text-[#458482]/70 shrink-0" />
-            <span>{today}</span>
+            <span className="truncate">{today}</span>
           </div>
         </div>
       </div>
 
-      {/* ─── Search + Bell side ─── */}
-      <div className="flex items-center gap-3 sm:gap-5"
-        style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}>
-
-        {/* Search */}
-        <div className="relative group hidden md:block">
+      {/* ── Side B: search + bell
+            LTR → right side
+            RTL → left side  (visually, because row is reversed) ── */}
+      <div
+        className="flex items-center gap-3 sm:gap-4 shrink-0"
+        style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
+      >
+        {/* Search — hidden on small screens */}
+        <div className="relative hidden md:block">
+          {/* Icon position flips with RTL */}
           <Search
-            className="absolute top-1/2 -translate-y-1/2 transition-colors"
+            className="absolute top-1/2 -translate-y-1/2 transition-colors pointer-events-none"
             style={{
+              [isRTL ? 'right' : 'left']: '14px',
               color: textMuted,
-              [isRTL ? 'right' : 'left']: '1rem',
             }}
             size={13}
           />
           <input
             type="text"
-            placeholder={t.search}
-            className="rounded-full py-2.5 text-[10px] font-bold tracking-widest outline-none transition-all w-56 lg:w-72"
+            placeholder={searchPlaceholder}
+            dir={isRTL ? 'rtl' : 'ltr'}
+            className="rounded-full py-2.5 text-[10px] font-bold tracking-widest outline-none transition-all w-52 lg:w-64"
             style={{
               background:   isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
-              border:       `1px solid ${inputBorder}`,
+              border:       `1px solid var(--input-border)`,
               color:        textMain,
-              paddingLeft:  isRTL ? '1rem'    : '2.75rem',
-              paddingRight: isRTL ? '2.75rem' : '1rem',
-              direction:    isRTL ? 'rtl' : 'ltr',
+              paddingLeft:  isRTL ? '14px'   : '36px',
+              paddingRight: isRTL ? '36px'   : '14px',
+              fontFamily:   lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
             }}
-            onFocus={e => e.currentTarget.style.borderColor = 'rgba(69,132,130,0.5)'}
-            onBlur={e  => e.currentTarget.style.borderColor = inputBorder}
+            onFocus={e  => e.currentTarget.style.borderColor = 'rgba(69,132,130,0.5)'}
+            onBlur={e   => e.currentTarget.style.borderColor = 'var(--input-border)'}
           />
         </div>
 
@@ -109,7 +142,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="relative p-2.5 rounded-xl transition-all cursor-pointer"
+          className="relative p-2.5 rounded-xl transition-all cursor-pointer shrink-0"
           style={{
             background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
             border:     `1px solid var(--card-border)`,

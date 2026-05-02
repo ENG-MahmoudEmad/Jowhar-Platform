@@ -68,15 +68,25 @@ export default function DashboardLayout({
             exit={{ x: isRTL ? '100%' : '-100%' }}
             transition={{ type: 'spring', stiffness: 300, damping: 32 }}
             className={`fixed top-0 ${isRTL ? 'right-0' : 'left-0'} h-full z-50 lg:hidden`}
+            style={{ maxWidth: '85vw' }}
           >
-            {/* Close button */}
+            {/* Close button — sits above the sidebar */}
             <button
               onClick={() => setDrawerOpen(false)}
-              className={`absolute top-4 ${isRTL ? 'left-3' : 'right-3'} z-10 w-8 h-8 rounded-lg flex items-center justify-center text-[var(--foreground-muted)] hover:text-[var(--foreground)] hover:bg-[var(--hover-bg)] transition-all`}
+              className={`absolute top-4 ${isRTL ? 'left-3' : 'right-3'} z-[60] w-8 h-8 rounded-lg flex items-center justify-center transition-all`}
+              style={{
+                background: 'var(--hover-bg)',
+                color: 'var(--foreground-muted)',
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--foreground)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--foreground-muted)'}
             >
               <X className="w-4 h-4" />
             </button>
-            <Sidebar />
+            {/* Sidebar fills the drawer, capped at 85vw */}
+            <div style={{ width: '288px', maxWidth: '85vw', height: '100%', overflow: 'hidden' }}>
+              <Sidebar />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -95,4 +105,4 @@ export default function DashboardLayout({
       </div>
     </div>
   );
-}
+} 
