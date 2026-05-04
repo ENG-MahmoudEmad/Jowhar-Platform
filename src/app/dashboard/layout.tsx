@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 import Sidebar from '@/components/dashboard/Sidebar';
 import Navbar from '@/components/dashboard/Navbar';
@@ -14,6 +15,9 @@ export default function DashboardLayout({
 }) {
   const { applyRTLToPage, lang, isRTL } = useLang();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [resumeKey, setResumeKey] = useState(0);
+  const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     applyRTLToPage();
@@ -29,6 +33,18 @@ export default function DashboardLayout({
     document.body.style.overflow = drawerOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [drawerOpen]);
+
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      setDrawerOpen(false);
+      setResumeKey(key => key + 1);
+      router.refresh();
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, [router]);
 
   return (
     <div className="flex h-screen overflow-hidden dashboard-bg" style={{ background: 'var(--background)' }}>
@@ -105,7 +121,7 @@ export default function DashboardLayout({
       {/* ─── Main: Navbar + content ─── */}
       <div className="dashboard-bg-layer flex-1 flex flex-col min-w-0 overflow-hidden">
         <Navbar onMenuClick={() => setDrawerOpen(true)} />
-        <main className="flex-1 overflow-y-auto">
+        <main key={`${pathname}-${resumeKey}`} className="flex-1 overflow-y-auto">
           <div className="p-4 sm:p-6 lg:p-8">
             {children}
           </div>

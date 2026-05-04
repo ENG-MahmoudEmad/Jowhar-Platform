@@ -99,7 +99,7 @@ export default function TeamProgress() {
         {teamMembers.map((member, index) => (
           <motion.div
             key={member.id}
-            initial={{ opacity: 0, x: isRTL ? 10 : -10 }}
+            initial={false}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: index * 0.08, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
             className="p-4 sm:p-5 transition-colors"
@@ -185,7 +185,7 @@ export default function TeamProgress() {
                 }}
               >
                 <motion.div
-                  initial={{ width: 0 }}
+                  initial={false}
                   animate={{ width: `${member.progress}%` }}
                   transition={{ delay: index * 0.08 + 0.2, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                   className="absolute top-0 h-full rounded-full"

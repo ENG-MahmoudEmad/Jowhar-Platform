@@ -262,7 +262,7 @@ export default function ProjectCalendar() {
           <AnimatePresence mode="wait">
             <motion.div
               key={view}
-              initial={{ opacity: 0, y: 6 }}
+              initial={false}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.25 }}
@@ -356,7 +356,7 @@ export default function ProjectCalendar() {
                         return (
                           <motion.div
                             key={task.id}
-                            initial={{ scaleX: 0, opacity: 0 }}
+                            initial={false}
                             animate={{ scaleX: 1, opacity: 0.9 }}
                             transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1], delay: mIdx * 0.04 }}
                             whileHover={{ opacity: 1 }}

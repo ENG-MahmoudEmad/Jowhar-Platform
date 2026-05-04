@@ -24,6 +24,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
 
   return (
     <header
+      dir={isRTL ? 'rtl' : 'ltr'}
       className="h-16 sm:h-20 sticky top-0 z-40"
       style={{
         background:           isDark ? 'rgba(13,17,23,0.85)' : 'rgba(249,249,243,0.85)',
@@ -36,7 +37,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
           We achieve this by reversing the row direction.
         */
         display:        'flex',
-        flexDirection:  isRTL ? 'row-reverse' : 'row',
+        flexDirection:  'row',
         alignItems:     'center',
         justifyContent: 'space-between',
         padding:        '0 1rem',
@@ -50,7 +51,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
           display:       'flex',
           alignItems:    'center',
           gap:           '0.75rem',
-          flexDirection: isRTL ? 'row-reverse' : 'row',
+          flexDirection: 'row',
           minWidth:      0,
         }}
       >
@@ -58,7 +59,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
         <button
           onClick={onMenuClick}
           className="xl:hidden w-9 h-9 rounded-xl flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-          style={{ color: textMuted, background: 'var(--hover-bg)' }}
+          style={{ color: textMuted, background: 'var(--hover-bg)', order: 0 }}
           onMouseEnter={e => e.currentTarget.style.color = textMain}
           onMouseLeave={e => e.currentTarget.style.color = textMuted}
         >
@@ -66,10 +67,10 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
         </button>
 
         {/* Text */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: isRTL ? 'flex-end' : 'flex-start', minWidth: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-start', minWidth: 0, order: 1 }}>
 
           {/* مرحباً / Welcome back + name */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexDirection: 'row' }}>
             <span
               className="text-sm font-medium whitespace-nowrap"
               style={{
@@ -95,7 +96,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
               display:       'flex',
               alignItems:    'center',
               gap:           '5px',
-              flexDirection: isRTL ? 'row-reverse' : 'row',
+              flexDirection: 'row',
               color:         textMuted,
               fontSize:      '10px',
               fontWeight:    700,
@@ -114,7 +115,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
           display:       'flex',
           alignItems:    'center',
           gap:           '0.75rem',
-          flexDirection: isRTL ? 'row-reverse' : 'row',
+          flexDirection: 'row',
           flexShrink:    0,
         }}
       >
