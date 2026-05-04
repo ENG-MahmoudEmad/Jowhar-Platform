@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useLang } from '@/context/LangContext';
-import { useTheme } from '@/context/ThemeContext';
 import Sidebar from '@/components/dashboard/Sidebar';
 import Navbar from '@/components/dashboard/Navbar';
-import { Menu, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function DashboardLayout({
@@ -14,36 +13,33 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { applyRTLToPage, lang, isRTL } = useLang();
-  const { theme } = useTheme();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  /* ── Apply RTL to <html> whenever lang changes (dashboard only) ── */
   useEffect(() => {
     applyRTLToPage();
-  }, [lang]);
+  }, [applyRTLToPage, lang]);
 
-  /* ── Close drawer on resize to desktop ── */
   useEffect(() => {
-    const handler = () => { if (window.innerWidth >= 1024) setDrawerOpen(false); };
+    const handler = () => { if (window.innerWidth >= 1280) setDrawerOpen(false); };
     window.addEventListener('resize', handler);
     return () => window.removeEventListener('resize', handler);
   }, []);
 
-  /* ── Lock body scroll when drawer is open ── */
   useEffect(() => {
     document.body.style.overflow = drawerOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [drawerOpen]);
 
   return (
-    <div className="flex h-screen overflow-hidden dashboard-bg bg-[var(--background)] text-[var(--foreground)]">
+    <div className="flex h-screen overflow-hidden dashboard-bg" style={{ background: 'var(--background)' }}>
 
-      {/* ─── Desktop Sidebar ─── */}
-      <div className="hidden lg:flex shrink-0">
+      {/* ─── Desktop: Sidebar in flow → pushes content ─── */}
+      {/* ─── Mobile/Tablet (<xl): hidden here, shown as fixed drawer below ─── */}
+      <div className="dashboard-bg-layer hidden xl:flex shrink-0">
         <Sidebar />
       </div>
 
-      {/* ─── Mobile Drawer Backdrop ─── */}
+      {/* ─── Mobile backdrop ─── */}
       <AnimatePresence>
         {drawerOpen && (
           <motion.div
@@ -51,14 +47,19 @@ export default function DashboardLayout({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+            transition={{ duration: 0.22 }}
+            className="bg-black/60 backdrop-blur-sm xl:hidden"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 90,
+            }}
             onClick={() => setDrawerOpen(false)}
           />
         )}
       </AnimatePresence>
 
-      {/* ─── Mobile Drawer ─── */}
+      {/* ─── Mobile drawer — fixed, above everything, NOT in flow ─── */}
       <AnimatePresence>
         {drawerOpen && (
           <motion.div
@@ -67,14 +68,24 @@ export default function DashboardLayout({
             animate={{ x: 0 }}
             exit={{ x: isRTL ? '100%' : '-100%' }}
             transition={{ type: 'spring', stiffness: 300, damping: 32 }}
-            className={`fixed top-0 ${isRTL ? 'right-0' : 'left-0'} h-full z-50 lg:hidden`}
-            style={{ maxWidth: '85vw' }}
+            className="xl:hidden"
+            style={{
+              position: 'fixed',
+              top:      0,
+              bottom:   0,
+              zIndex:   100,
+              width:    '288px',
+              maxWidth: '85vw',
+              [isRTL ? 'right' : 'left']: 0,
+            }}
           >
-            {/* Close button — sits above the sidebar */}
+            {/* Close button inside drawer */}
             <button
               onClick={() => setDrawerOpen(false)}
-              className={`absolute top-4 ${isRTL ? 'left-3' : 'right-3'} z-[60] w-8 h-8 rounded-lg flex items-center justify-center transition-all`}
+              className="absolute z-10 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer"
               style={{
+                top: '1rem',
+                [isRTL ? 'left' : 'right']: '0.75rem',
                 background: 'var(--hover-bg)',
                 color: 'var(--foreground-muted)',
               }}
@@ -83,20 +94,17 @@ export default function DashboardLayout({
             >
               <X className="w-4 h-4" />
             </button>
-            {/* Sidebar fills the drawer, capped at 85vw */}
-            <div style={{ width: '288px', maxWidth: '85vw', height: '100%', overflow: 'hidden' }}>
-              <Sidebar />
+
+            <div style={{ width: '288px', maxWidth: '85vw', height: '100%' }}>
+              <Sidebar showCollapseButton={false} />
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ─── Main content ─── */}
-      <div className="flex-1 flex flex-col min-w-0">
-
-        {/* Navbar with mobile menu button */}
+      {/* ─── Main: Navbar + content ─── */}
+      <div className="dashboard-bg-layer flex-1 flex flex-col min-w-0 overflow-hidden">
         <Navbar onMenuClick={() => setDrawerOpen(true)} />
-
         <main className="flex-1 overflow-y-auto">
           <div className="p-4 sm:p-6 lg:p-8">
             {children}
@@ -105,4 +113,4 @@ export default function DashboardLayout({
       </div>
     </div>
   );
-} 
+}

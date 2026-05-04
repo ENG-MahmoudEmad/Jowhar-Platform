@@ -11,12 +11,12 @@ export default function DashboardPage() {
         <TeamProgress />
       </section>
 
-      {/* Calendar + Deadline — 2/3 + 1/3 */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+      {/* Calendar + Deadline — 2/3 + 1/3 — items-stretch makes heights equal */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+        <div className="lg:col-span-2 flex flex-col">
           <ProjectCalendar />
         </div>
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 flex flex-col">
           <DeadlineCountdown />
         </div>
       </section>

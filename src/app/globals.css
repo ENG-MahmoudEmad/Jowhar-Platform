@@ -89,7 +89,11 @@
     position: relative;
     overflow: hidden;
   }
-  .dashboard-bg > * { position: relative; z-index: 1; }
+
+  .dashboard-bg-layer {
+    position: relative;
+    z-index: 1;
+  }
 
   .dashboard-bg::before {
     content: '';

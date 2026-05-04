@@ -11,34 +11,40 @@ interface Deadline {
   id:        number;
   title:     string;
   titleAr:   string;
-  deadline:  Date;
+  /* Store as ms-from-epoch offsets, computed once client-side */
+  offsetMs:  number;  // deadline = mount-time + offsetMs
+  windowMs:  number;  // total task duration window
   baseColor: string;
-  totalMs:   number;
 }
 
-const fromNow = (h: number) => new Date(Date.now() + h * 3_600_000);
-const WINDOW  = (h: number) => h * 3_600_000;
-const DOTS_VIS = 4;
+/* ─── Config — no Date.now() at module level ─── */
+const DEADLINE_CONFIG: Omit<Deadline, 'offsetMs' | 'windowMs'>[] = [
+  { id: 1, title: 'Character Rigging', titleAr: 'تحريك الشخصية', baseColor: '#458482' },
+  { id: 2, title: 'Storyboard Final',  titleAr: 'القصة المصوّرة',  baseColor: '#3b82f6' },
+  { id: 3, title: 'VFX Compositing',   titleAr: 'تركيب المؤثرات', baseColor: '#a855f7' },
+  { id: 4, title: 'Sound Design',      titleAr: 'تصميم الصوت',    baseColor: '#6366f1' },
+  { id: 5, title: 'Color Grading',     titleAr: 'تصحيح الألوان',  baseColor: '#14b8a6' },
+  { id: 6, title: 'Motion Graphics',   titleAr: 'رسوم متحركة',    baseColor: '#8b5cf6' },
+];
 
-const DEADLINES: Deadline[] = [
-  { id: 1, title: 'Character Rigging', titleAr: 'تحريك الشخصية', deadline: fromNow(32),  baseColor: '#458482', totalMs: WINDOW(40) },
-  { id: 2, title: 'Storyboard Final',  titleAr: 'القصة المصوّرة',  deadline: fromNow(51),  baseColor: '#3b82f6', totalMs: WINDOW(60) },
-  { id: 3, title: 'VFX Compositing',   titleAr: 'تركيب المؤثرات', deadline: fromNow(3.5), baseColor: '#a855f7', totalMs: WINDOW(10) },
-  { id: 4, title: 'Sound Design',      titleAr: 'تصميم الصوت',    deadline: fromNow(0.5), baseColor: '#6366f1', totalMs: WINDOW(5)  },
-  { id: 5, title: 'Color Grading',     titleAr: 'تصحيح الألوان',  deadline: fromNow(12),  baseColor: '#14b8a6', totalMs: WINDOW(20) },
-  { id: 6, title: 'Motion Graphics',   titleAr: 'رسوم متحركة',    deadline: fromNow(8),   baseColor: '#8b5cf6', totalMs: WINDOW(24) },
+/* Offsets in milliseconds */
+const OFFSETS = [
+  { offsetMs: 32 * 3600_000, windowMs: 40 * 3600_000 }, // safe  — teal
+  { offsetMs: 51 * 3600_000, windowMs: 60 * 3600_000 }, // safe  — blue
+  { offsetMs:  3.5* 3600_000,windowMs: 10 * 3600_000 }, // warn  — purple→yellow
+  { offsetMs:  0.5* 3600_000,windowMs:  5 * 3600_000 }, // danger— indigo→red
+  { offsetMs: 12 * 3600_000, windowMs: 20 * 3600_000 }, // safe  — cyan
+  { offsetMs:  8 * 3600_000, windowMs: 24 * 3600_000 }, // safe  — violet
 ];
 
 type Urgency = 'safe' | 'warning' | 'danger';
 
-function getUrgency(dl: Deadline): Urgency {
-  const remaining = dl.deadline.getTime() - Date.now();
-  const pct       = 1 - remaining / dl.totalMs;
+function getUrgency(remaining: number, windowMs: number): Urgency {
+  const pct = 1 - remaining / windowMs;
   if (pct >= 0.85) return 'danger';
   if (pct >= 0.50) return 'warning';
   return 'safe';
 }
-
 function urgencyColor(u: Urgency, base: string) {
   if (u === 'danger')  return '#ef4444';
   if (u === 'warning') return '#f59e0b';
@@ -73,23 +79,45 @@ function Ring({ progress, color, glow }: { progress: number; color: string; glow
   );
 }
 
-/* ─── Component ─── */
+const DOTS_VIS = 4;
+
+/* ─── Main ─── */
 export default function DeadlineCountdown() {
   const { theme }       = useTheme();
   const { lang, isRTL } = useLang();
   const isDark = theme === 'dark';
 
-  const [activeIdx, setActiveIdx] = useState(0);
-  const [dotOffset, setDotOffset] = useState(0);
-  const [hovered,   setHovered]   = useState(false);
-  const [, setTick]               = useState(0);
+  /* ── mounted guard — prevents hydration mismatch ── */
+  const [mounted,    setMounted]    = useState(false);
+  const [deadlines,  setDeadlines]  = useState<Deadline[]>([]);
+  const [activeIdx,  setActiveIdx]  = useState(0);
+  const [dotOffset,  setDotOffset]  = useState(0);
+  const [hovered,    setHovered]    = useState(false);
+  const [now,        setNow]        = useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(id);
+    /* Build deadlines relative to actual client time */
+    const base = Date.now();
+    const dls  = DEADLINE_CONFIG.map((cfg, i) => ({
+      ...cfg,
+      offsetMs: OFFSETS[i].offsetMs,
+      windowMs: OFFSETS[i].windowMs,
+      deadlineAt: base + OFFSETS[i].offsetMs, // absolute ms
+    }));
+    // Store as array with deadlineAt
+    (window as any).__jowharDeadlines = dls;
+    setDeadlines(dls as any);
+    setNow(base);
+    setMounted(true);
   }, []);
 
-  const total = DEADLINES.length;
+  useEffect(() => {
+    if (!mounted) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [mounted]);
+
+  const total = DEADLINE_CONFIG.length;
 
   const goTo = (idx: number) => {
     const next = ((idx % total) + total) % total;
@@ -97,21 +125,6 @@ export default function DeadlineCountdown() {
     if (next < dotOffset) setDotOffset(next);
     else if (next >= dotOffset + DOTS_VIS) setDotOffset(next - DOTS_VIS + 1);
   };
-
-  const goPrev = () => goTo(activeIdx - 1);
-  const goNext = () => goTo(activeIdx + 1);
-
-  const dl        = DEADLINES[activeIdx];
-  const remaining = Math.max(0, dl.deadline.getTime() - Date.now());
-  const progress  = 1 - remaining / dl.totalMs;
-  const urgency   = getUrgency(dl);
-  const color     = urgencyColor(urgency, dl.baseColor);
-  const glow      = urgencyGlow(urgency, dl.baseColor);
-
-  const h = Math.floor(remaining / 3_600_000);
-  const m = Math.floor((remaining % 3_600_000) / 60_000);
-  const s = Math.floor((remaining % 60_000) / 1_000);
-  const p = (n: number) => String(n).padStart(2, '0');
 
   /* palette */
   const bg       = isDark ? 'var(--card)'           : '#ffffff';
@@ -121,83 +134,85 @@ export default function DeadlineCountdown() {
   const innerBg  = isDark ? '#0a0f1a'               : '#f0f0e8';
   const textMain = 'var(--foreground)';
   const textMuted= 'var(--foreground-muted)';
-  const arrowBg  = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const arrowBg  = isDark ? 'rgba(255,255,255,0.06)': 'rgba(0,0,0,0.06)';
 
   const tx = {
     for:      lang === 'ar' ? 'الموعد النهائي لـ' : 'Deadline for',
     expired:  lang === 'ar' ? 'انتهى!'            : "Time's up!",
     critical: lang === 'ar' ? '⚠ عاجل'            : '⚠ Critical',
     soon:     lang === 'ar' ? '⏳ قريباً'           : '⏳ Soon',
-    hu:       lang === 'ar' ? 'س' : 'h',
-    mu:       lang === 'ar' ? 'د' : 'm',
-    su:       lang === 'ar' ? 'ث' : 's',
+    hu: lang === 'ar' ? 'س' : 'h',
+    mu: lang === 'ar' ? 'د' : 'm',
+    su: lang === 'ar' ? 'ث' : 's',
   };
 
-  const visibleDots = DEADLINES.slice(dotOffset, dotOffset + DOTS_VIS);
+  /* ── Before mount: render stable skeleton (no dates) ── */
+  if (!mounted || deadlines.length === 0) {
+    return (
+      <div className="w-full rounded-2xl overflow-hidden flex flex-col"
+        style={{ background: bg, border: `1px solid ${border}`, userSelect: 'none', WebkitUserSelect: 'none' }}>
+        <div className="px-5 py-4 shrink-0" style={{ background: headerBg, borderBottom: `1px solid ${divider}` }}>
+          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: textMuted }}>{tx.for}</p>
+          <div className="h-4 w-32 rounded mt-1" style={{ background: 'var(--hover-bg)' }}/>
+        </div>
+        <div className="flex flex-col items-center justify-center" style={{ height: '220px' }}>
+          <div className="w-[170px] h-[170px] rounded-full" style={{ background: 'var(--hover-bg)', opacity: 0.3 }}/>
+        </div>
+        <div style={{ height: '32px' }}/>
+        <div className="pb-5 flex justify-center" style={{ height: '48px' }}/>
+      </div>
+    );
+  }
+
+  /* ── Active deadline ── */
+  const dl         = deadlines[activeIdx] as any;
+  const deadlineAt = dl.deadlineAt as number;
+  const remaining  = Math.max(0, deadlineAt - now);
+  const progress   = 1 - remaining / dl.windowMs;
+  const urgency    = getUrgency(remaining, dl.windowMs);
+  const color      = urgencyColor(urgency, dl.baseColor);
+  const glow       = urgencyGlow(urgency, dl.baseColor);
+
+  const h = Math.floor(remaining / 3_600_000);
+  const m = Math.floor((remaining % 3_600_000) / 60_000);
+  const s = Math.floor((remaining % 60_000) / 1_000);
+  const p = (n: number) => String(n).padStart(2, '0');
+
+  const visibleDots = deadlines.slice(dotOffset, dotOffset + DOTS_VIS) as any[];
   const hasMore     = total > DOTS_VIS;
 
   return (
-    /* 
-      Fixed height layout so ring never shifts:
-      - header: fixed
-      - ring area: fixed height
-      - badge area: fixed height (reserved always)
-      - dots: fixed
-    */
     <div
-      className="w-full rounded-2xl overflow-hidden flex flex-col relative"
+      className="w-full h-full rounded-2xl overflow-hidden flex flex-col relative"
       style={{
-        background: bg,
-        border: `1px solid ${border}`,
-        /* no user-select anywhere inside */
-        userSelect: 'none',
+        background:       bg,
+        border:           `1px solid ${border}`,
+        userSelect:       'none',
         WebkitUserSelect: 'none',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-
       {/* ─── Hover arrows ─── */}
       <AnimatePresence>
         {hovered && (
           <>
-            <motion.button key="prev"
-              initial={{ opacity: 0, x: isRTL ? 8 : -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: isRTL ? 8 : -8 }}
-              transition={{ duration: 0.15 }}
-              onClick={isRTL ? goNext : goPrev}
-              className="absolute z-20 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
-              style={{
-                top: '50%', transform: 'translateY(-50%)',
-                left: isRTL ? 'auto' : '10px',
-                right: isRTL ? '10px' : 'auto',
-                background: arrowBg, color: textMuted, border: `1px solid ${divider}`,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'; e.currentTarget.style.color = textMain; }}
-              onMouseLeave={e => { e.currentTarget.style.background = arrowBg; e.currentTarget.style.color = textMuted; }}
-            >
-              {isRTL ? <ChevronRight className="w-4 h-4"/> : <ChevronLeft className="w-4 h-4"/>}
-            </motion.button>
-
-            <motion.button key="next"
-              initial={{ opacity: 0, x: isRTL ? -8 : 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: isRTL ? -8 : 8 }}
-              transition={{ duration: 0.15 }}
-              onClick={isRTL ? goPrev : goNext}
-              className="absolute z-20 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
-              style={{
-                top: '50%', transform: 'translateY(-50%)',
-                right: isRTL ? 'auto' : '10px',
-                left: isRTL ? '10px' : 'auto',
-                background: arrowBg, color: textMuted, border: `1px solid ${divider}`,
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'; e.currentTarget.style.color = textMain; }}
-              onMouseLeave={e => { e.currentTarget.style.background = arrowBg; e.currentTarget.style.color = textMuted; }}
-            >
-              {isRTL ? <ChevronLeft className="w-4 h-4"/> : <ChevronRight className="w-4 h-4"/>}
-            </motion.button>
+            {[
+              { key: 'prev', onClick: () => goTo(isRTL ? activeIdx + 1 : activeIdx - 1), side: isRTL ? { right: '10px' } : { left: '10px' }, icon: isRTL ? ChevronRight : ChevronLeft },
+              { key: 'next', onClick: () => goTo(isRTL ? activeIdx - 1 : activeIdx + 1), side: isRTL ? { left: '10px'  } : { right: '10px' }, icon: isRTL ? ChevronLeft  : ChevronRight },
+            ].map(({ key, onClick, side, icon: Icon }) => (
+              <motion.button key={key}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                onClick={onClick}
+                className="absolute z-20 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
+                style={{ top: '50%', transform: 'translateY(-50%)', background: arrowBg, color: textMuted, border: `1px solid ${divider}`, ...side }}
+                onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'; e.currentTarget.style.color = textMain; }}
+                onMouseLeave={e => { e.currentTarget.style.background = arrowBg; e.currentTarget.style.color = textMuted; }}
+              >
+                <Icon className="w-4 h-4"/>
+              </motion.button>
+            ))}
           </>
         )}
       </AnimatePresence>
@@ -215,21 +230,16 @@ export default function DeadlineCountdown() {
             initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.2 }}
             className="text-sm font-bold mt-0.5 truncate"
-            style={{
-              /* task title uses the current urgency color */
-              color: color,
-              textAlign: isRTL ? 'right' : 'left',
-              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-            }}>
+            style={{ color, textAlign: isRTL ? 'right' : 'left',
+              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
             {lang === 'ar' ? dl.titleAr : dl.title}
           </motion.h3>
         </AnimatePresence>
       </div>
 
-      {/* ─── Ring area — fixed height so nothing shifts ─── */}
-      <div className="flex flex-col items-center justify-center px-3"
-        style={{ height: '220px', flexShrink: 0 }}>
-
+      {/* ─── Ring — fixed 220px height ─── */}
+      <div className="flex flex-col items-center justify-center px-3 shrink-0"
+        style={{ height: '220px' }}>
         <AnimatePresence mode="wait">
           <motion.div key={dl.id}
             initial={{ opacity: 0, scale: 0.9 }}
@@ -238,21 +248,15 @@ export default function DeadlineCountdown() {
             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
             className="relative flex items-center justify-center"
             style={{ width: 170, height: 170, flexShrink: 0 }}>
-
-            <Ring progress={progress} color={color} glow={glow} />
-
+            <Ring progress={progress} color={color} glow={glow}/>
             <div className="relative z-10 w-[118px] h-[118px] rounded-full flex flex-col items-center justify-center"
               style={{ background: innerBg, boxShadow: `0 0 32px ${glow}, inset 0 1px 0 rgba(255,255,255,0.04)` }}>
               {remaining > 0 ? (
                 <>
                   <span className="text-[22px] font-black font-mono leading-none tabular-nums"
-                    style={{ color, letterSpacing: '-0.03em' }}>
-                    {p(h)}:{p(m)}
-                  </span>
+                    style={{ color, letterSpacing: '-0.03em' }}>{p(h)}:{p(m)}</span>
                   <span className="text-sm font-bold font-mono tabular-nums mt-0.5"
-                    style={{ color, opacity: 0.75 }}>
-                    {p(s)}
-                  </span>
+                    style={{ color, opacity: 0.75 }}>{p(s)}</span>
                   <div className="flex items-center gap-2 mt-1">
                     {[tx.hu, tx.mu, tx.su].map((lbl, i) => (
                       <span key={i} className="text-[8px] font-black uppercase"
@@ -262,24 +266,20 @@ export default function DeadlineCountdown() {
                 </>
               ) : (
                 <span className="text-[10px] font-black uppercase tracking-wide text-center px-3"
-                  style={{ color: '#ef4444' }}>
-                  {tx.expired}
-                </span>
+                  style={{ color: '#ef4444' }}>{tx.expired}</span>
               )}
             </div>
-
             {urgency !== 'safe' && (
               <motion.div className="absolute inset-0 rounded-full pointer-events-none"
                 animate={{ opacity: [0.1, 0.5, 0.1], scale: [1, 1.04, 1] }}
                 transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                style={{ border: `2px solid ${color}`, borderRadius: '50%' }}
-              />
+                style={{ border: `2px solid ${color}`, borderRadius: '50%' }}/>
             )}
           </motion.div>
         </AnimatePresence>
       </div>
 
-      {/* ─── Badge area — FIXED HEIGHT always reserved ─── */}
+      {/* ─── Badge — fixed 32px ─── */}
       <div className="flex items-center justify-center shrink-0" style={{ height: '32px' }}>
         <AnimatePresence mode="wait">
           {urgency !== 'safe' ? (
@@ -289,14 +289,14 @@ export default function DeadlineCountdown() {
               className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest"
               style={{
                 background: urgency === 'danger' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
-                color:      urgency === 'danger' ? '#ef4444'              : '#f59e0b',
+                color:      urgency === 'danger' ? '#ef4444' : '#f59e0b',
                 border:     `1px solid ${urgency === 'danger' ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.25)'}`,
+                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
               }}>
               {urgency === 'danger' ? tx.critical : tx.soon}
             </motion.div>
           ) : (
-            /* invisible placeholder keeps the space */
-            <motion.div key="empty" className="h-6 w-1 opacity-0" />
+            <div key="empty" style={{ height: '24px', width: '1px', opacity: 0 }}/>
           )}
         </AnimatePresence>
       </div>
@@ -304,17 +304,16 @@ export default function DeadlineCountdown() {
       {/* ─── Dots ─── */}
       <div className="pb-5 pt-2 flex flex-col items-center gap-2 shrink-0">
         <div className="flex items-center gap-2">
-
           {hasMore && dotOffset > 0 && (
             <div className="w-1.5 h-1.5 rounded-full opacity-20" style={{ background: textMuted }}/>
           )}
-
           <AnimatePresence mode="popLayout">
-            {visibleDots.map((item) => {
-              const urg   = getUrgency(item);
-              const clr   = urgencyColor(urg, item.baseColor);
+            {visibleDots.map((item: any) => {
+              const rem  = Math.max(0, item.deadlineAt - now);
+              const urg  = getUrgency(rem, item.windowMs);
+              const clr  = urgencyColor(urg, item.baseColor);
               const isAct = item.id === dl.id;
-              const gIdx  = DEADLINES.findIndex(d => d.id === item.id);
+              const gIdx  = deadlines.findIndex((d: any) => d.id === item.id);
               return (
                 <motion.button key={item.id}
                   layout
@@ -334,12 +333,10 @@ export default function DeadlineCountdown() {
               );
             })}
           </AnimatePresence>
-
           {hasMore && dotOffset + DOTS_VIS < total && (
             <div className="w-1.5 h-1.5 rounded-full opacity-20" style={{ background: textMuted }}/>
           )}
         </div>
-
         <span className="text-[9px] font-bold" style={{ color: textMuted }}>
           {activeIdx + 1} / {total}
         </span>

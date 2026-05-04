@@ -19,38 +19,45 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  const searchPlaceholder = lang === 'ar' ? 'بحث في المهام والمشاريع...' : 'SEARCH TASKS OR PROJECTS...';
-  const welcomeText       = lang === 'ar' ? 'مرحباً،' : 'Welcome back,';
-
   const textMain  = 'var(--foreground)';
   const textMuted = 'var(--foreground-muted)';
 
   return (
     <header
-      className="h-16 sm:h-20 sticky top-0 z-40 flex items-center px-4 sm:px-6 lg:px-10"
+      className="h-16 sm:h-20 sticky top-0 z-40"
       style={{
-        /* In RTL: search on left, greeting on right — achieved by reversing the row */
-        flexDirection:        isRTL ? 'row-reverse' : 'row',
-        justifyContent:       'space-between',
         background:           isDark ? 'rgba(13,17,23,0.85)' : 'rgba(249,249,243,0.85)',
         borderBottom:         `1px solid var(--divider)`,
         backdropFilter:       'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        gap:                  '1rem',
+        /* 
+          Use a simple flex row always.
+          In RTL: greeting on RIGHT, search+bell on LEFT.
+          We achieve this by reversing the row direction.
+        */
+        display:        'flex',
+        flexDirection:  isRTL ? 'row-reverse' : 'row',
+        alignItems:     'center',
+        justifyContent: 'space-between',
+        padding:        '0 1rem',
+        gap:            '0.75rem',
       }}
     >
 
-      {/* ── Side A: hamburger + greeting
-            LTR → left side   (flex-start)
-            RTL → right side  (visually, because row is reversed) ── */}
+      {/* ── Greeting block (LEFT in LTR, RIGHT in RTL) ── */}
       <div
-        className="flex items-center gap-3 min-w-0"
-        style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
+        style={{
+          display:       'flex',
+          alignItems:    'center',
+          gap:           '0.75rem',
+          flexDirection: isRTL ? 'row-reverse' : 'row',
+          minWidth:      0,
+        }}
       >
         {/* Mobile hamburger */}
         <button
           onClick={onMenuClick}
-          className="lg:hidden w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all cursor-pointer"
+          className="xl:hidden w-9 h-9 rounded-xl flex items-center justify-center shrink-0 cursor-pointer transition-colors"
           style={{ color: textMuted, background: 'var(--hover-bg)' }}
           onMouseEnter={e => e.currentTarget.style.color = textMain}
           onMouseLeave={e => e.currentTarget.style.color = textMuted}
@@ -58,16 +65,11 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Greeting block */}
-        <div
-          className="flex flex-col gap-0.5 min-w-0"
-          style={{ alignItems: isRTL ? 'flex-end' : 'flex-start' }}
-        >
-          {/* Welcome + name row */}
-          <div
-            className="flex items-center gap-1.5"
-            style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
-          >
+        {/* Text */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: isRTL ? 'flex-end' : 'flex-start', minWidth: 0 }}>
+
+          {/* مرحباً / Welcome back + name */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexDirection: isRTL ? 'row-reverse' : 'row' }}>
             <span
               className="text-sm font-medium whitespace-nowrap"
               style={{
@@ -75,7 +77,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
                 fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
               }}
             >
-              {welcomeText}
+              {lang === 'ar' ? 'مرحباً،' : 'Welcome back,'}
             </span>
             {/* Name always English */}
             <span
@@ -87,13 +89,17 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
             </span>
           </div>
 
-          {/* Date row */}
+          {/* Date */}
           <div
-            className="flex items-center gap-1.5 text-[10px] font-bold tracking-widest"
             style={{
-              color:         textMuted,
+              display:       'flex',
+              alignItems:    'center',
+              gap:           '5px',
               flexDirection: isRTL ? 'row-reverse' : 'row',
-              textTransform: lang === 'ar' ? 'none' : 'uppercase',
+              color:         textMuted,
+              fontSize:      '10px',
+              fontWeight:    700,
+              letterSpacing: '0.08em',
             }}
           >
             <CalendarIcon size={11} className="text-[#458482]/70 shrink-0" />
@@ -102,35 +108,40 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
         </div>
       </div>
 
-      {/* ── Side B: search + bell
-            LTR → right side
-            RTL → left side  (visually, because row is reversed) ── */}
+      {/* ── Search + Bell (RIGHT in LTR, LEFT in RTL) ── */}
       <div
-        className="flex items-center gap-3 sm:gap-4 shrink-0"
-        style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
+        style={{
+          display:       'flex',
+          alignItems:    'center',
+          gap:           '0.75rem',
+          flexDirection: isRTL ? 'row-reverse' : 'row',
+          flexShrink:    0,
+        }}
       >
-        {/* Search — hidden on small screens */}
+        {/* Search */}
         <div className="relative hidden md:block">
-          {/* Icon position flips with RTL */}
           <Search
-            className="absolute top-1/2 -translate-y-1/2 transition-colors pointer-events-none"
+            className="absolute top-1/2 -translate-y-1/2 pointer-events-none"
             style={{
               [isRTL ? 'right' : 'left']: '14px',
               color: textMuted,
+              width: 13, height: 13,
             }}
-            size={13}
           />
           <input
             type="text"
-            placeholder={searchPlaceholder}
+            placeholder={lang === 'ar' ? 'بحث في المهام والمشاريع...' : 'SEARCH TASKS OR PROJECTS...'}
             dir={isRTL ? 'rtl' : 'ltr'}
-            className="rounded-full py-2.5 text-[10px] font-bold tracking-widest outline-none transition-all w-52 lg:w-64"
+            className="rounded-full py-2.5 outline-none transition-all w-52 lg:w-64"
             style={{
               background:   isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
               border:       `1px solid var(--input-border)`,
               color:        textMain,
-              paddingLeft:  isRTL ? '14px'   : '36px',
-              paddingRight: isRTL ? '36px'   : '14px',
+              fontSize:     '10px',
+              fontWeight:   700,
+              letterSpacing:'0.08em',
+              paddingLeft:  isRTL ? '14px' : '36px',
+              paddingRight: isRTL ? '36px' : '14px',
               fontFamily:   lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
             }}
             onFocus={e  => e.currentTarget.style.borderColor = 'rgba(69,132,130,0.5)'}
@@ -142,7 +153,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="relative p-2.5 rounded-xl transition-all cursor-pointer shrink-0"
+          className="relative p-2.5 rounded-xl cursor-pointer shrink-0"
           style={{
             background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
             border:     `1px solid var(--card-border)`,
