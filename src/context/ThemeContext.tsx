@@ -16,13 +16,20 @@ const ThemeContext = createContext<ThemeContextType>({
   toggleTheme: () => {},
 });
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
+function getStoredTheme(fallback: Theme): Theme {
+  if (typeof window === 'undefined') return fallback;
+  const saved = window.localStorage.getItem('jowhar-theme');
+  return saved === 'light' || saved === 'dark' ? saved : fallback;
+}
 
-  useEffect(() => {
-    const saved = localStorage.getItem('jowhar-theme') as Theme | null;
-    if (saved) setTheme(saved);
-  }, []);
+export function ThemeProvider({
+  children,
+  initialTheme = 'dark',
+}: {
+  children: React.ReactNode;
+  initialTheme?: Theme;
+}) {
+  const [theme, setTheme] = useState<Theme>(() => getStoredTheme(initialTheme));
 
   useEffect(() => {
     const root = document.documentElement;
@@ -34,6 +41,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.classList.remove('light');
     }
     localStorage.setItem('jowhar-theme', theme);
+    document.cookie = `jowhar-theme=${theme}; path=/; max-age=31536000; samesite=lax`;
   }, [theme]);
 
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');

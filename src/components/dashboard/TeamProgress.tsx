@@ -40,6 +40,7 @@ export default function TeamProgress() {
 
   return (
     <div
+      dir={isRTL ? 'rtl' : 'ltr'}
       className="w-full rounded-2xl overflow-hidden"
       style={{
         background:       bg,
@@ -54,18 +55,18 @@ export default function TeamProgress() {
         style={{
           background:    headerBg,
           borderBottom:  `1px solid ${divider}`,
-          flexDirection: isRTL ? 'row-reverse' : 'row',
+          flexDirection: 'row',
         }}
       >
         <div
           className="flex items-center gap-3"
-          style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
+          style={{ flexDirection: 'row' }}
         >
           <div className="p-2 rounded-lg shrink-0"
             style={{ background: 'rgba(69,132,130,0.1)' }}>
             <Users size={18} className="text-[#458482]" />
           </div>
-          <div style={{ textAlign: isRTL ? 'right' : 'left' }}>
+          <div style={{ textAlign: 'start' }}>
             <h2
               className="text-sm font-bold uppercase tracking-widest"
               style={{
@@ -114,12 +115,12 @@ export default function TeamProgress() {
               {/* ── Top row: avatar+name ←→ stats ── */}
               <div
                 className="flex items-center justify-between"
-                style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
+                style={{ flexDirection: 'row' }}
               >
                 {/* Avatar + name (always English) + role */}
                 <div
                   className="flex items-center gap-3 min-w-0"
-                  style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}
+                  style={{ flexDirection: 'row' }}
                 >
                   <div
                     className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 transition-colors"
@@ -133,7 +134,7 @@ export default function TeamProgress() {
                   </div>
                   <div
                     className="min-w-0"
-                    style={{ textAlign: isRTL ? 'right' : 'left' }}
+                    style={{ textAlign: 'start' }}
                   >
                     {/* Name: always English */}
                     <h4 className="text-sm font-bold truncate" style={{ color: textMain }}>
@@ -154,7 +155,7 @@ export default function TeamProgress() {
                 </div>
 
                 {/* Stats: percentage + task count — flips side in RTL */}
-                <div style={{ textAlign: isRTL ? 'left' : 'right', flexShrink: 0 }}>
+                <div style={{ textAlign: 'end', flexShrink: 0 }}>
                   <span
                     className="text-xs font-mono font-bold"
                     style={{ color: textMain }}
@@ -209,7 +210,7 @@ export default function TeamProgress() {
         <button
           className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#458482] transition-all cursor-pointer hover:gap-3"
           style={{
-            flexDirection: isRTL ? 'row-reverse' : 'row',
+            flexDirection: 'row',
             fontFamily:    lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
             textTransform: lang === 'ar' ? 'none' : 'uppercase',
           }}

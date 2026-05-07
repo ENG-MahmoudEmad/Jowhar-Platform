@@ -5,10 +5,21 @@
 import { ThemeProvider } from "@/context/ThemeContext";
 import { LangProvider }  from "@/context/LangContext";
 
-export default function Providers({ children }: { children: React.ReactNode }) {
+type Theme = 'dark' | 'light';
+type Lang = 'en' | 'ar';
+
+export default function Providers({
+  children,
+  initialTheme,
+  initialLang,
+}: {
+  children: React.ReactNode;
+  initialTheme: Theme;
+  initialLang: Lang;
+}) {
   return (
-    <ThemeProvider>
-      <LangProvider>
+    <ThemeProvider initialTheme={initialTheme}>
+      <LangProvider initialLang={initialLang}>
         {children}
       </LangProvider>
     </ThemeProvider>

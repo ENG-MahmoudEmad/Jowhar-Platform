@@ -150,9 +150,10 @@ export default function DeadlineCountdown() {
   if (!mounted || deadlines.length === 0) {
     return (
       <div className="w-full rounded-2xl overflow-hidden flex flex-col"
+        dir={isRTL ? 'rtl' : 'ltr'}
         style={{ background: bg, border: `1px solid ${border}`, userSelect: 'none', WebkitUserSelect: 'none' }}>
         <div className="px-5 py-4 shrink-0" style={{ background: headerBg, borderBottom: `1px solid ${divider}` }}>
-          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: textMuted }}>{tx.for}</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: textMuted, textAlign: 'start' }}>{tx.for}</p>
           <div className="h-4 w-32 rounded mt-1" style={{ background: 'var(--hover-bg)' }}/>
         </div>
         <div className="flex flex-col items-center justify-center" style={{ height: '220px' }}>
@@ -183,6 +184,7 @@ export default function DeadlineCountdown() {
 
   return (
     <div
+      dir={isRTL ? 'rtl' : 'ltr'}
       className="w-full h-full rounded-2xl overflow-hidden flex flex-col relative"
       style={{
         background:       bg,
@@ -221,7 +223,7 @@ export default function DeadlineCountdown() {
       <div className="px-5 py-4 shrink-0"
         style={{ background: headerBg, borderBottom: `1px solid ${divider}` }}>
         <p className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: textMuted, textAlign: isRTL ? 'right' : 'left',
+          style={{ color: textMuted, textAlign: 'start',
             fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
           {tx.for}
         </p>
@@ -230,7 +232,7 @@ export default function DeadlineCountdown() {
             initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.2 }}
             className="text-sm font-bold mt-0.5 truncate"
-            style={{ color, textAlign: isRTL ? 'right' : 'left',
+            style={{ color, textAlign: 'start',
               fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
             {lang === 'ar' ? dl.titleAr : dl.title}
           </motion.h3>

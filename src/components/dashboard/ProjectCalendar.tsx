@@ -165,6 +165,7 @@ export default function ProjectCalendar() {
 
   return (
     <div
+      dir={isRTL ? 'rtl' : 'ltr'}
       className="w-full rounded-2xl overflow-hidden"
       style={{
         background:        bg,
@@ -180,12 +181,12 @@ export default function ProjectCalendar() {
         style={{
           background:    headerBg,
           borderBottom:  `1px solid ${divider}`,
-          flexDirection: isRTL ? 'row-reverse' : 'row',
+          flexDirection: 'row',
         }}
       >
         {/* Title + nav */}
         <div className="flex items-center gap-2"
-          style={{ flexDirection: isRTL ? 'row-reverse' : 'row' }}>
+          style={{ flexDirection: 'row' }}>
           <h2
             className="text-sm font-bold uppercase tracking-widest"
             style={{ color: textMain, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
@@ -285,7 +286,7 @@ export default function ProjectCalendar() {
                       style={{
                         borderRight:   isRTL ? 'none' : `1px solid ${divider}`,
                         borderLeft:    isRTL ? `1px solid ${divider}` : 'none',
-                        flexDirection: isRTL ? 'row-reverse' : 'row',
+                        flexDirection: 'row',
                       }}
                     >
                       <div
@@ -297,7 +298,7 @@ export default function ProjectCalendar() {
                       {/* Always English name */}
                       <span
                         className="text-[10px] font-bold truncate"
-                        style={{ color: textMain, textAlign: isRTL ? 'right' : 'left' }}
+                        style={{ color: textMain, textAlign: 'start' }}
                       >
                         {member.name}
                       </span>
@@ -336,55 +337,56 @@ export default function ProjectCalendar() {
                         const pos = getBarPct(task);
                         if (!pos) return null;
 
-                        const barStyle: React.CSSProperties = {
+                        const barWrapStyle: React.CSSProperties = {
                           position:  'absolute',
                           height:    `${BAR_H}px`,
                           top:       '50%',
-                          transform: 'translateY(-50%)',   /* ← centred on track */
                           width:     `${pos.widthPct}%`,
-                          background: task.color,
-                          borderRadius: '999px',
-                          opacity:   0.88,
-                          cursor:    'default',
-                          boxShadow: `0 2px 8px ${task.color}50`,
-                          transformOrigin: isRTL ? 'right center' : 'left center',
+                          transform: 'translateY(-50%)',
                         };
 
-                        if (isRTL) barStyle.right = `${pos.startPct}%`;
-                        else       barStyle.left  = `${pos.startPct}%`;
+                        if (isRTL) barWrapStyle.right = `${pos.startPct}%`;
+                        else       barWrapStyle.left  = `${pos.startPct}%`;
 
                         return (
-                          <motion.div
-                            key={task.id}
-                            initial={false}
-                            animate={{ scaleX: 1, opacity: 0.9 }}
-                            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1], delay: mIdx * 0.04 }}
-                            whileHover={{ opacity: 1 }}
-                            style={{
-                              ...barStyle,
-                              display:      'flex',
-                              alignItems:   'center',
-                              overflow:     'hidden',
-                              paddingLeft:  isRTL ? '6px' : '8px',
-                              paddingRight: isRTL ? '8px' : '6px',
-                            }}
-                          >
-                            <span style={{
-                              fontSize:     '8px',
-                              fontWeight:   700,
-                              color:        'rgba(255,255,255,0.95)',
-                              whiteSpace:   'nowrap',
-                              overflow:     'hidden',
-                              textOverflow: 'ellipsis',
-                              letterSpacing:'0.02em',
-                              textShadow:   '0 1px 4px rgba(0,0,0,0.5)',
-                              fontFamily:   lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                              direction:    isRTL ? 'rtl' : 'ltr',
-                              pointerEvents:'none',
-                            }}>
-                              {lang === 'ar' ? task.titleAr : task.title}
-                            </span>
-                          </motion.div>
+                          <div key={task.id} style={barWrapStyle}>
+                            <motion.div
+                              initial={false}
+                              animate={{ scaleX: 1, opacity: 0.9 }}
+                              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1], delay: mIdx * 0.04 }}
+                              whileHover={{ opacity: 1 }}
+                              style={{
+                                width:       '100%',
+                                height:      '100%',
+                                display:     'flex',
+                                alignItems:  'center',
+                                overflow:    'hidden',
+                                background:  task.color,
+                                borderRadius:'999px',
+                                cursor:      'default',
+                                boxShadow:   `0 2px 8px ${task.color}50`,
+                                transformOrigin: isRTL ? 'right center' : 'left center',
+                                paddingLeft:  isRTL ? '6px' : '8px',
+                                paddingRight: isRTL ? '8px' : '6px',
+                              }}
+                            >
+                              <span style={{
+                                fontSize:     '8px',
+                                fontWeight:   700,
+                                color:        'rgba(255,255,255,0.95)',
+                                whiteSpace:   'nowrap',
+                                overflow:     'hidden',
+                                textOverflow: 'ellipsis',
+                                letterSpacing:'0.02em',
+                                textShadow:   '0 1px 4px rgba(0,0,0,0.5)',
+                                fontFamily:   lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                                direction:    isRTL ? 'rtl' : 'ltr',
+                                pointerEvents:'none',
+                              }}>
+                                {lang === 'ar' ? task.titleAr : task.title}
+                              </span>
+                            </motion.div>
+                          </div>
                         );
                       })}
                     </div>

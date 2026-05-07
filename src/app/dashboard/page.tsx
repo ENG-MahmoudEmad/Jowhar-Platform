@@ -1,6 +1,7 @@
-import TeamProgress       from '@/components/dashboard/TeamProgress';
-import ProjectCalendar    from '@/components/dashboard/ProjectCalendar';
-import DeadlineCountdown  from '@/components/dashboard/DeadlineCountdown';
+import TeamProgress      from '@/components/dashboard/TeamProgress'
+import ProjectCalendar   from '@/components/dashboard/ProjectCalendar'
+import DeadlineCountdown from '@/components/dashboard/DeadlineCountdown'
+import MembersCard       from '@/components/dashboard/MembersCard'
 
 export default function DashboardPage() {
   return (
@@ -11,7 +12,7 @@ export default function DashboardPage() {
         <TeamProgress />
       </section>
 
-      {/* Calendar + Deadline — 2/3 + 1/3 — items-stretch makes heights equal */}
+      {/* Calendar + Deadline — 2/3 + 1/3 */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         <div className="lg:col-span-2 flex flex-col">
           <ProjectCalendar />
@@ -21,6 +22,16 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      {/* Members + My Tasks — 1/3 + 2/3 */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+        <div className="lg:col-span-1 flex flex-col">
+          <MembersCard />
+        </div>
+        <div className="lg:col-span-2 flex flex-col">
+          {/* MyTasksCard */}
+        </div>
+      </section>
+
     </div>
-  );
+  )
 }

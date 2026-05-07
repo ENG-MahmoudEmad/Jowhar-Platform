@@ -22,16 +22,24 @@ const LangContext = createContext<LangContextType>({
   removeRTLFromPage: () => {},
 });
 
-export function LangProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLang] = useState<Lang>('en');
+function getStoredLang(fallback: Lang): Lang {
+  if (typeof window === 'undefined') return fallback;
+  const saved = window.localStorage.getItem('jowhar-lang');
+  return saved === 'ar' || saved === 'en' ? saved : fallback;
+}
 
-  useEffect(() => {
-    const saved = localStorage.getItem('jowhar-lang') as Lang | null;
-    if (saved) setLang(saved);
-  }, []);
+export function LangProvider({
+  children,
+  initialLang = 'en',
+}: {
+  children: React.ReactNode;
+  initialLang?: Lang;
+}) {
+  const [lang, setLang] = useState<Lang>(() => getStoredLang(initialLang));
 
   useEffect(() => {
     localStorage.setItem('jowhar-lang', lang);
+    document.cookie = `jowhar-lang=${lang}; path=/; max-age=31536000; samesite=lax`;
   }, [lang]);
 
   const toggleLang = () => setLang(l => l === 'en' ? 'ar' : 'en');

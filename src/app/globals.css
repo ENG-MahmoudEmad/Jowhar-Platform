@@ -93,13 +93,6 @@ textarea::-moz-selection {
     @apply antialiased;
   }
 
-  /* Smooth theme transitions — color props only */
-  *, *::before, *::after {
-    transition-property: background-color, border-color, color, fill, stroke;
-    transition-duration: 0.2s;
-    transition-timing-function: ease;
-  }
-
   /* Arabic font override */
   :lang(ar) {
     font-family: var(--font-arabic);
