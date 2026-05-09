@@ -204,8 +204,8 @@ export default function MembersCard() {
       {/* ─── Card ──────────────────────────────────────────────────────────── */}
       <div
         dir={isRTL ? 'rtl' : 'ltr'}
-        className="w-full rounded-2xl overflow-hidden cursor-pointer select-none"
-        style={{ background: bg, border: `1px solid ${border}` }}
+        className="w-full rounded-2xl overflow-hidden cursor-pointer select-none flex flex-col"
+        style={{ background: bg, border: `1px solid ${border}`, height: '372px' }}
         onClick={openModal}
       >
         {/* Header — same structure as TeamProgress */}
@@ -235,11 +235,11 @@ export default function MembersCard() {
           </div>
         </div>
 
-        {/* ── Conveyor belt — overflow:hidden clips avatars at real edges ── */}
+        {/* ── Conveyor belt ── */}
         <div
           ref={cloudRef}
-          className="relative overflow-hidden"
-          style={{ height: CLOUD_H, background: cloudBg }}
+          className="relative overflow-hidden flex-1"
+          style={{ background: cloudBg, minHeight: CLOUD_H }}
         >
           {frames.map(({ x, scale, opacity }, i) => {
             const member = MEMBERS[i]
