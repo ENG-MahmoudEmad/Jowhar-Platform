@@ -14,10 +14,10 @@ import { useLang } from '@/context/LangContext';
 
 const menuItems = [
   { nameEn: 'Tracker Tasks', nameAr: 'متابعة المهام', icon: LayoutDashboard, path: '/dashboard' },
-  { nameEn: 'My Tasks',      nameAr: 'مهامي',          icon: CheckSquare,     path: '/dashboard/my-tasks' },
-  { nameEn: 'Archive',       nameAr: 'الأرشيف',        icon: Archive,         path: '/dashboard/archive' },
-  { nameEn: 'News Feed',     nameAr: 'الأخبار',        icon: Newspaper,       path: '/dashboard/news' },
-  { nameEn: 'Settings',      nameAr: 'الإعدادات',      icon: Settings,        path: '/dashboard/settings' },
+  { nameEn: 'My Tasks',      nameAr: 'مهامي',          icon: CheckSquare,     path: '/my-tasks' },
+  { nameEn: 'Archive',       nameAr: 'الأرشيف',        icon: Archive,         path: '/archive' },
+  { nameEn: 'News Feed',     nameAr: 'الأخبار',        icon: Newspaper,       path: '/news' },
+  { nameEn: 'Settings',      nameAr: 'الإعدادات',      icon: Settings,        path: '/settings' },
 ];
 
 interface SidebarProps {

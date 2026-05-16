@@ -95,14 +95,17 @@ function NoiseDefs() {
   )
 }
 
-// ─── Trophy SVG (1st place) ───────────────────────────────────────────────────
+// ─── Trophy SVG ───────────────────────────────────────────────────────────────
+// viewBox "-8 -2 80 72" gives extra room on all sides so handles never clip
+// The left handle reaches x=5, right handle x=59 — both safely inside -8 to 72
 
 function TrophySVG({ size }: { size: number }) {
   const cfg = MEDAL[1]
   return (
     <svg
-      width={size} height={size}
-      viewBox="-4 0 72 68"
+      width={size}
+      height={size}
+      viewBox="-8 -2 80 72"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       style={{ filter: `drop-shadow(0 10px 32px ${cfg.glowColor})`, overflow: 'visible' }}
@@ -120,7 +123,7 @@ function TrophySVG({ size }: { size: number }) {
   )
 }
 
-// ─── Medal SVG (2nd & 3rd) ────────────────────────────────────────────────────
+// ─── Medal SVG ────────────────────────────────────────────────────────────────
 
 function MedalSVG({ rank, size }: { rank: 2 | 3; size: number }) {
   const cfg = MEDAL[rank]
@@ -145,55 +148,56 @@ function MedalSVG({ rank, size }: { rank: 2 | 3; size: number }) {
   )
 }
 
-// ─── Hero card (1st place) ────────────────────────────────────────────────────
+// ─── Shared card props type ───────────────────────────────────────────────────
 
-function HeroCard({
-  entry,
-  lang,
-  index,
-}: {
-  entry: LeaderEntry
+interface CardThemeProps {
   lang: string
   index: number
-}) {
+  isDark: boolean
+  textMain: string
+  textMuted: string
+  dividerColor: string
+  avatarRing: string
+}
+
+// ─── Hero card (1st place) ────────────────────────────────────────────────────
+
+function HeroCard({ entry, ...t }: { entry: LeaderEntry } & CardThemeProps) {
   const cfg = MEDAL[1]
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.12, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ delay: t.index * 0.12, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
       className="relative flex flex-col items-center rounded-[20px]"
       style={{
         flex: '1.4',
-        background: 'rgba(246,168,0,0.04)',
-        border: '1px solid rgba(246,168,0,0.2)',
+        background: t.isDark ? 'rgba(246,168,0,0.04)' : 'rgba(246,168,0,0.06)',
+        border: `1px solid ${t.isDark ? 'rgba(246,168,0,0.2)' : 'rgba(246,168,0,0.28)'}`,
         padding: '28px 20px 20px',
-        boxShadow: '0 0 60px rgba(246,168,0,0.1)',
+        boxShadow: t.isDark
+          ? '0 0 60px rgba(246,168,0,0.1)'
+          : '0 0 40px rgba(246,168,0,0.07), 0 4px 20px rgba(0,0,0,0.05)',
         overflow: 'visible',
-        clipPath: 'none',
       }}
     >
       {/* Top shimmer line */}
       <div
         className="absolute top-0 left-1/2 -translate-x-1/2"
         style={{
-          width: '80%',
-          height: '1px',
+          width: '80%', height: '1px',
           background: 'linear-gradient(90deg, transparent, rgba(246,168,0,0.6), transparent)',
         }}
       />
 
-      {/* Animated inner glow blob */}
+      {/* Animated inner glow */}
       <motion.div
         className="absolute pointer-events-none"
         style={{
-          top: -20,
-          left: '50%',
-          x: '-50%',
-          width: 260,
-          height: 160,
-          background: 'radial-gradient(ellipse 70% 55% at 50% 40%, rgba(246,168,0,0.18) 0%, transparent 70%)',
+          top: -20, left: '50%', x: '-50%',
+          width: 260, height: 160,
+          background: `radial-gradient(ellipse 70% 55% at 50% 40%, ${t.isDark ? 'rgba(246,168,0,0.18)' : 'rgba(246,168,0,0.1)'} 0%, transparent 70%)`,
           filter: 'blur(20px)',
           zIndex: 0,
         }}
@@ -205,15 +209,15 @@ function HeroCard({
         transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
       />
 
-      {/* Trophy — floating */}
+      {/* Floating trophy */}
       <motion.div
         className="mb-3 relative z-10"
         initial={{ scale: 0.6, opacity: 0 }}
         animate={{ scale: 1, opacity: 1, y: [0, -6, 0] }}
         transition={{
-          scale: { delay: index * 0.12 + 0.2, duration: 0.55, ease: [0.34, 1.56, 0.64, 1] },
-          opacity: { delay: index * 0.12 + 0.2, duration: 0.55 },
-          y: { delay: 0.8, duration: 3, repeat: Infinity, ease: 'easeInOut' },
+          scale:   { delay: t.index * 0.12 + 0.2, duration: 0.55, ease: [0.34, 1.56, 0.64, 1] },
+          opacity: { delay: t.index * 0.12 + 0.2, duration: 0.55 },
+          y:       { delay: 0.8, duration: 3, repeat: Infinity, ease: 'easeInOut' },
         }}
       >
         <TrophySVG size={cfg.trophySize} />
@@ -221,75 +225,60 @@ function HeroCard({
 
       {/* Avatar */}
       <div
-        className="rounded-full flex items-center justify-center font-extrabold text-white mb-2.5"
+        className="rounded-full flex items-center justify-center font-extrabold text-white mb-2.5 relative z-10"
         style={{
           width: 68, height: 68, fontSize: 20,
           background: entry.memberColor,
           border: `3px solid ${cfg.stops[1].color}`,
-          boxShadow: `0 0 0 2px #0a0c10, 0 4px 24px ${cfg.glowColor}`,
+          boxShadow: `0 0 0 2px ${t.avatarRing}, 0 4px 24px ${cfg.glowColor}`,
         }}
       >
         {entry.initials}
       </div>
 
       {/* Name */}
-      <p
-        className="font-extrabold tracking-wide"
-        style={{
-          fontSize: 16,
-          color: '#e6edf3',
-          fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-        }}
-      >
+      <p className="relative z-10 font-extrabold tracking-wide"
+        style={{ fontSize: 16, color: t.textMain, fontFamily: t.lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
         {entry.name}
       </p>
 
-      {/* Label */}
-      <p
-        className="font-bold tracking-widest mb-3"
+      {/* Rank label */}
+      <p className="relative z-10 font-bold tracking-widest mb-3"
         style={{
-          fontSize: 10,
+          fontSize: 10, marginTop: 4,
           background: `linear-gradient(90deg, ${cfg.stops[0].color}, ${cfg.stops[2].color})`,
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          backgroundClip: 'text',
-          textTransform: lang === 'ar' ? 'none' : 'uppercase',
+          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+          textTransform: t.lang === 'ar' ? 'none' : 'uppercase',
           letterSpacing: '0.1em',
-          marginTop: 4,
-        }}
-      >
-        {lang === 'ar' ? cfg.label.ar : cfg.label.en}
+        }}>
+        {t.lang === 'ar' ? cfg.label.ar : cfg.label.en}
       </p>
 
       {/* Divider */}
-      <div className="w-full h-px mb-3" style={{ background: 'rgba(255,255,255,0.06)' }} />
+      <div className="w-full h-px mb-3 relative z-10" style={{ background: t.dividerColor }} />
 
       {/* Stats */}
-      <div className="flex w-full">
+      <div className="flex w-full relative z-10">
         <div className="flex-1 text-center">
-          <p
-            className="font-black tabular-nums leading-none"
+          <p className="font-black tabular-nums leading-none"
             style={{
               fontSize: 26,
               background: `linear-gradient(135deg, ${cfg.stops[0].color}, ${cfg.stops[2].color})`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+            }}>
             {entry.score}
           </p>
-          <p className="mt-1 font-semibold uppercase tracking-widest" style={{ fontSize: 9, color: '#64748b' }}>
-            {lang === 'ar' ? 'النقاط' : 'Score'}
+          <p className="mt-1 font-semibold uppercase tracking-widest" style={{ fontSize: 9, color: t.textMuted }}>
+            {t.lang === 'ar' ? 'النقاط' : 'Score'}
           </p>
         </div>
-        <div className="w-px self-stretch" style={{ background: 'rgba(255,255,255,0.06)' }} />
+        <div className="w-px self-stretch" style={{ background: t.dividerColor }} />
         <div className="flex-1 text-center">
-          <p className="font-black tabular-nums leading-none" style={{ fontSize: 26, color: '#e6edf3' }}>
+          <p className="font-black tabular-nums leading-none" style={{ fontSize: 26, color: t.textMain }}>
             {entry.tasksCompleted}
           </p>
-          <p className="mt-1 font-semibold uppercase tracking-widest" style={{ fontSize: 9, color: '#64748b' }}>
-            {lang === 'ar' ? 'مهام' : 'Tasks'}
+          <p className="mt-1 font-semibold uppercase tracking-widest" style={{ fontSize: 9, color: t.textMuted }}>
+            {t.lang === 'ar' ? 'مهام' : 'Tasks'}
           </p>
         </div>
       </div>
@@ -299,37 +288,27 @@ function HeroCard({
 
 // ─── Side card (2nd & 3rd) ────────────────────────────────────────────────────
 
-function SideCard({
-  entry,
-  lang,
-  index,
-}: {
-  entry: LeaderEntry
-  lang: string
-  index: number
-}) {
+function SideCard({ entry, ...t }: { entry: LeaderEntry } & CardThemeProps) {
   const cfg = MEDAL[entry.rank]
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.12, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ delay: t.index * 0.12, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
       className="flex flex-col items-center rounded-2xl overflow-hidden"
       style={{
         flex: '1',
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.06)',
+        background: t.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+        border: `1px solid ${t.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
         padding: '20px 16px',
       }}
     >
       {/* Medal */}
-      <motion.div
-        className="mb-3"
+      <motion.div className="mb-3"
         initial={{ scale: 0.6, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: index * 0.12 + 0.2, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}
-      >
+        transition={{ delay: t.index * 0.12 + 0.2, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}>
         <MedalSVG rank={entry.rank as 2 | 3} size={cfg.trophySize} />
       </motion.div>
 
@@ -340,70 +319,55 @@ function SideCard({
           width: 56, height: 56, fontSize: 16,
           background: entry.memberColor,
           border: `3px solid ${cfg.stops[1].color}`,
-          boxShadow: `0 0 0 2px #0a0c10`,
+          boxShadow: `0 0 0 2px ${t.avatarRing}`,
         }}
       >
         {entry.initials}
       </div>
 
       {/* Name */}
-      <p
-        className="font-extrabold tracking-wide"
-        style={{
-          fontSize: 14,
-          color: '#e6edf3',
-          fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-        }}
-      >
+      <p className="font-extrabold tracking-wide"
+        style={{ fontSize: 14, color: t.textMain, fontFamily: t.lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
         {entry.name}
       </p>
 
-      {/* Label */}
-      <p
-        className="font-bold tracking-widest mb-3"
+      {/* Rank label */}
+      <p className="font-bold tracking-widest mb-3"
         style={{
-          fontSize: 10,
+          fontSize: 10, marginTop: 4,
           background: `linear-gradient(90deg, ${cfg.stops[0].color}, ${cfg.stops[2].color})`,
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          backgroundClip: 'text',
-          textTransform: lang === 'ar' ? 'none' : 'uppercase',
+          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+          textTransform: t.lang === 'ar' ? 'none' : 'uppercase',
           letterSpacing: '0.1em',
-          marginTop: 4,
-        }}
-      >
-        {lang === 'ar' ? cfg.label.ar : cfg.label.en}
+        }}>
+        {t.lang === 'ar' ? cfg.label.ar : cfg.label.en}
       </p>
 
       {/* Divider */}
-      <div className="w-full h-px mb-3" style={{ background: 'rgba(255,255,255,0.06)' }} />
+      <div className="w-full h-px mb-3" style={{ background: t.dividerColor }} />
 
       {/* Stats */}
       <div className="flex w-full">
         <div className="flex-1 text-center">
-          <p
-            className="font-black tabular-nums leading-none"
+          <p className="font-black tabular-nums leading-none"
             style={{
               fontSize: 20,
               background: `linear-gradient(135deg, ${cfg.stops[0].color}, ${cfg.stops[2].color})`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+            }}>
             {entry.score}
           </p>
-          <p className="mt-1 font-semibold uppercase tracking-widest" style={{ fontSize: 9, color: '#64748b' }}>
-            {lang === 'ar' ? 'النقاط' : 'Score'}
+          <p className="mt-1 font-semibold uppercase tracking-widest" style={{ fontSize: 9, color: t.textMuted }}>
+            {t.lang === 'ar' ? 'النقاط' : 'Score'}
           </p>
         </div>
-        <div className="w-px self-stretch" style={{ background: 'rgba(255,255,255,0.06)' }} />
+        <div className="w-px self-stretch" style={{ background: t.dividerColor }} />
         <div className="flex-1 text-center">
-          <p className="font-black tabular-nums leading-none" style={{ fontSize: 20, color: '#e6edf3' }}>
+          <p className="font-black tabular-nums leading-none" style={{ fontSize: 20, color: t.textMain }}>
             {entry.tasksCompleted}
           </p>
-          <p className="mt-1 font-semibold uppercase tracking-widest" style={{ fontSize: 9, color: '#64748b' }}>
-            {lang === 'ar' ? 'مهام' : 'Tasks'}
+          <p className="mt-1 font-semibold uppercase tracking-widest" style={{ fontSize: 9, color: t.textMuted }}>
+            {t.lang === 'ar' ? 'مهام' : 'Tasks'}
           </p>
         </div>
       </div>
@@ -414,69 +378,64 @@ function SideCard({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Leaderboard() {
+  const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
+  const isDark = theme === 'dark'
+
+  // ── Theme tokens — same pattern as ProjectCalendar ──
+  const bg         = isDark ? 'var(--card)'           : '#ffffff'
+  const border     = isDark ? 'var(--card-border)'    : 'rgba(0,0,0,0.07)'
+  const headerBg   = isDark ? 'var(--background-alt)' : '#f5f5ef'
+  const divider    = isDark ? 'var(--divider)'        : 'rgba(0,0,0,0.06)'
+  const textMain   = 'var(--foreground)'
+  const textMuted  = 'var(--foreground-muted)'
+  const avatarRing = isDark ? 'var(--card)'           : '#ffffff'
+  // Spotlight intensity: prominent in dark, subtle in light
+  const spotA      = isDark ? 0.22 : 0.09
+  const spotB      = isDark ? 0.08 : 0.03
+
+  // ── Mouse tracking ──
   const containerRef = useRef<HTMLDivElement>(null)
-
-  // Mouse tracking — raw values
-  const mouseX = useMotionValue(0)
-  const mouseY = useMotionValue(0)
-
-  // Smooth springs
+  const mouseX  = useMotionValue(0)
+  const mouseY  = useMotionValue(0)
   const springX = useSpring(mouseX, { stiffness: 60, damping: 20 })
   const springY = useSpring(mouseY, { stiffness: 60, damping: 20 })
-
-  // Subtle tilt on the whole podium
-  const rotateX = useTransform(springY, [-1, 1], [2, -2])
-  const rotateY = useTransform(springX, [-1, 1], [-3, 3])
-
-  // Glow follows mouse
+  const rotateX  = useTransform(springY, [-1, 1], [ 2, -2])
+  const rotateY  = useTransform(springX, [-1, 1], [-3,  3])
   const glowLeft = useTransform(springX, [-1, 1], ['35%', '65%'])
 
   function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
     const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return
-    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1   // -1 to 1
-    const y = ((e.clientY - rect.top)  / rect.height) * 2 - 1  // -1 to 1
-    mouseX.set(x)
-    mouseY.set(y)
+    mouseX.set(((e.clientX - rect.left)  / rect.width)  * 2 - 1)
+    mouseY.set(((e.clientY - rect.top)   / rect.height) * 2 - 1)
   }
+  function handleMouseLeave() { mouseX.set(0); mouseY.set(0) }
 
-  function handleMouseLeave() {
-    mouseX.set(0)
-    mouseY.set(0)
-  }
-
-  // podium order: 2nd — 1st — 3rd
   const podiumOrder: (1 | 2 | 3)[] = [2, 1, 3]
+  const cardTheme: Omit<CardThemeProps, 'index'> = {
+    lang, isDark, textMain, textMuted, dividerColor: divider, avatarRing,
+  }
 
   return (
     <div dir={isRTL ? 'rtl' : 'ltr'} className="w-full">
-      {/* Shared SVG defs */}
       <NoiseDefs />
 
       <div
         ref={containerRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className="relative w-full rounded-[20px] overflow-hidden"
-        style={{
-          background: '#0a0c10',
-          border: '1px solid rgba(255,255,255,0.06)',
-        }}
+        className="relative w-full rounded-2xl overflow-hidden"
+        style={{ background: bg, border: `1px solid ${border}` }}
       >
-        {/* Spotlight beam — follows mouse + breathes */}
+        {/* Spotlight — animated + follows mouse */}
         <motion.div
           className="absolute pointer-events-none"
           style={{
-            top: -80,
-            left: glowLeft,
-            x: '-50%',
-            width: 600,
-            height: 340,
-            background: 'radial-gradient(ellipse 60% 50% at 50% 30%, rgba(246,168,0,0.22) 0%, rgba(246,168,0,0.08) 40%, transparent 75%)',
-            zIndex: 0,
-            borderRadius: '50%',
-            filter: 'blur(18px)',
+            top: -80, left: glowLeft, x: '-50%',
+            width: 600, height: 340,
+            background: `radial-gradient(ellipse 60% 50% at 50% 30%, rgba(246,168,0,${spotA}) 0%, rgba(246,168,0,${spotB}) 40%, transparent 75%)`,
+            zIndex: 0, borderRadius: '50%', filter: 'blur(18px)',
           }}
           animate={{
             scaleX: [1, 1.18, 0.92, 1.12, 1],
@@ -485,32 +444,22 @@ export default function Leaderboard() {
           }}
           transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
         />
-        {/* Secondary drifting glow */}
         <motion.div
           className="absolute pointer-events-none"
           style={{
-            top: 60,
-            left: glowLeft,
-            x: '-50%',
-            width: 460,
-            height: 180,
-            background: 'radial-gradient(ellipse 70% 60% at 50% 50%, rgba(246,168,0,0.1) 0%, transparent 70%)',
-            zIndex: 0,
-            filter: 'blur(30px)',
+            top: 60, left: glowLeft, x: '-50%',
+            width: 460, height: 180,
+            background: `radial-gradient(ellipse 70% 60% at 50% 50%, rgba(246,168,0,${spotB}) 0%, transparent 70%)`,
+            zIndex: 0, filter: 'blur(30px)',
           }}
-          animate={{
-            opacity: [0.6, 1, 0.5, 0.9, 0.6],
-          }}
+          animate={{ opacity: [0.6, 1, 0.5, 0.9, 0.6] }}
           transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
         />
 
         {/* Header */}
         <div
-          className="relative flex items-center justify-between px-6 py-5 rounded-t-[20px] overflow-hidden"
-          style={{
-            borderBottom: '1px solid rgba(255,255,255,0.05)',
-            zIndex: 1,
-          }}
+          className="relative flex items-center justify-between px-6 py-5"
+          style={{ background: headerBg, borderBottom: `1px solid ${divider}`, zIndex: 1 }}
         >
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg shrink-0" style={{ background: 'rgba(69,132,130,0.1)' }}>
@@ -526,14 +475,14 @@ export default function Leaderboard() {
               <h2
                 className="text-sm font-bold tracking-widest"
                 style={{
-                  color: '#e6edf3',
+                  color: textMain,
                   textTransform: lang === 'ar' ? 'none' : 'uppercase',
                   fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
                 }}
               >
                 {lang === 'ar' ? 'لوحة المتصدرين' : 'Leaderboard'}
               </h2>
-              <p className="text-[10px] font-medium mt-0.5" style={{ color: '#64748b' }}>
+              <p className="text-[10px] font-medium mt-0.5" style={{ color: textMuted }}>
                 {lang === 'ar' ? 'أفضل أداء هذا الشهر' : 'Top performers this month'}
               </p>
             </div>
@@ -552,29 +501,17 @@ export default function Leaderboard() {
           </span>
         </div>
 
-        {/* Podium */}
+        {/* Podium — 3D tilt on mouse */}
         <motion.div
           className="relative p-6"
-          style={{
-            zIndex: 1,
-            rotateX,
-            rotateY,
-            transformPerspective: 1000,
-            transformStyle: 'preserve-3d',
-          }}
+          style={{ zIndex: 1, rotateX, rotateY, transformPerspective: 1000, transformStyle: 'preserve-3d' }}
         >
           <div className="flex items-end gap-5">
-            {podiumOrder.map((rank, i) => {
-              const entry = LEADERS.find(l => l.rank === rank)!
+            {podiumOrder.map(rank => {
+              const entry     = LEADERS.find(l => l.rank === rank)!
               const animIndex = rank === 1 ? 0 : rank === 2 ? 1 : 2
-              if (rank === 1) {
-                return (
-                  <HeroCard key={rank} entry={entry} lang={lang} index={animIndex} />
-                )
-              }
-              return (
-                <SideCard key={rank} entry={entry} lang={lang} index={animIndex} />
-              )
+              if (rank === 1) return <HeroCard key={rank} entry={entry} {...cardTheme} index={animIndex} />
+              return <SideCard key={rank} entry={entry} {...cardTheme} index={animIndex} />
             })}
           </div>
         </motion.div>

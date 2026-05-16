@@ -10,6 +10,10 @@ const authPaths = [
 
 const previewPublicPaths = [
   '/dashboard',
+  '/my-tasks',
+  '/archive',
+  '/news',
+  '/settings',
 ];
 
 export function proxy(request: NextRequest) {
