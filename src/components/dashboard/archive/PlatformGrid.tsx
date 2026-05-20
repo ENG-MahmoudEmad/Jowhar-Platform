@@ -21,7 +21,7 @@ export interface Platform {
 }
 
 /* ── Mock data ── */
-const INITIAL_PLATFORMS: Platform[] = [
+export const PLATFORMS: Platform[] = [
   {
     id: 'jowhar',  nameEn: 'Jowhar',        nameAr: 'جوهر',
     description:   'Educational content and published course materials.',
@@ -644,7 +644,7 @@ function PlatformCard({ platform, index }: { platform: Platform; index: number }
 
 /* ── Grid ── */
 export default function PlatformGrid({
-  initialPlatforms = INITIAL_PLATFORMS,
+  initialPlatforms = PLATFORMS,
   isAdmin          = true,   // ← بتربطه بالباك اند بعدين
 }: {
   initialPlatforms?: Platform[]
