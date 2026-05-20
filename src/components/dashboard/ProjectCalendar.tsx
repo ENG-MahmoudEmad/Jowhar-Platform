@@ -1,3 +1,5 @@
+//src\components\dashboard\ProjectCalendar.tsx
+
 "use client"
 
 import React, { useState, useMemo } from 'react';
@@ -164,7 +166,10 @@ export default function ProjectCalendar() {
   const MEMBER_COL = 'w-28 sm:w-36';
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 22, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 0.12, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
       dir={isRTL ? 'rtl' : 'ltr'}
       className="w-full rounded-2xl overflow-hidden"
       style={{
@@ -422,6 +427,6 @@ export default function ProjectCalendar() {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

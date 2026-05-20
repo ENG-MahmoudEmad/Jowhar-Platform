@@ -149,7 +149,11 @@ export default function DeadlineCountdown() {
   /* ── Before mount: render stable skeleton (no dates) ── */
   if (!mounted || deadlines.length === 0) {
     return (
-      <div className="w-full rounded-2xl overflow-hidden flex flex-col"
+      <motion.div
+        initial={{ opacity: 0, y: 22, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: 0.18, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full rounded-2xl overflow-hidden flex flex-col"
         dir={isRTL ? 'rtl' : 'ltr'}
         style={{ background: bg, border: `1px solid ${border}`, userSelect: 'none', WebkitUserSelect: 'none' }}>
         <div className="px-5 py-4 shrink-0" style={{ background: headerBg, borderBottom: `1px solid ${divider}` }}>
@@ -161,7 +165,7 @@ export default function DeadlineCountdown() {
         </div>
         <div style={{ height: '32px' }}/>
         <div className="pb-5 flex justify-center" style={{ height: '48px' }}/>
-      </div>
+      </motion.div>
     );
   }
 
@@ -183,7 +187,10 @@ export default function DeadlineCountdown() {
   const hasMore     = total > DOTS_VIS;
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 22, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 0.18, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
       dir={isRTL ? 'rtl' : 'ltr'}
       className="w-full h-full rounded-2xl overflow-hidden flex flex-col relative"
       style={{
@@ -343,6 +350,6 @@ export default function DeadlineCountdown() {
           {activeIdx + 1} / {total}
         </span>
       </div>
-    </div>
+    </motion.div>
   );
 }

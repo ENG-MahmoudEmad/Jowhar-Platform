@@ -152,7 +152,10 @@ export default function PersonalCalendar({
   const visibleTasks = tasks.filter(t => getBarPct(t) !== null);
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 22, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 0.18, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
       dir={isRTL ? "rtl" : "ltr"}
       className="w-full rounded-2xl overflow-hidden"
       style={{
@@ -418,6 +421,6 @@ export default function PersonalCalendar({
 
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

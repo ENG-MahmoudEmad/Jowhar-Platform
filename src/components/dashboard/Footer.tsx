@@ -15,7 +15,10 @@ export default function Footer() {
   const year      = new Date().getFullYear()
 
   return (
-    <footer
+    <motion.footer
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.5, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
       dir={isRTL ? 'rtl' : 'ltr'}
       style={{
         background:   isDark ? 'rgba(13,17,23,0.85)' : 'rgba(249,249,243,0.85)',
@@ -94,6 +97,6 @@ export default function Footer() {
       >
         {lang === 'ar' ? 'الإصدار 1.0' : 'v1.0'}
       </span>
-    </footer>
+    </motion.footer>
   )
 }

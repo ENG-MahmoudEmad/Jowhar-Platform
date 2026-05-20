@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useLang } from "@/context/LangContext";
 
 const focusStats = [
@@ -23,7 +24,10 @@ export default function TodayFocusCard() {
       }}
     >
       <div>
-        <p
+        <motion.p
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.12, duration: 0.35 }}
           className="text-[10px] font-black uppercase tracking-[0.18em] mb-2"
           style={{
             color: "var(--foreground-muted)",
@@ -33,8 +37,11 @@ export default function TodayFocusCard() {
           }}
         >
           {isArabic ? "تركيز اليوم" : "Today Focus"}
-        </p>
-        <h2
+        </motion.p>
+        <motion.h2
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.18, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           className="text-xl leading-tight"
           style={{
             fontFamily: textFont,
@@ -43,16 +50,19 @@ export default function TodayFocusCard() {
           }}
         >
           {isArabic ? "٤ مهام تحتاج انتباهك" : "4 tasks need your attention"}
-        </h2>
+        </motion.h2>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        {focusStats.map(({ value, labelEn, labelAr }) => {
+        {focusStats.map(({ value, labelEn, labelAr }, index) => {
           const label = isArabic ? labelAr : labelEn;
 
           return (
-          <div
+          <motion.div
             key={label}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.24 + index * 0.06, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
             className="rounded-xl px-3 py-4"
             style={{
               background: "var(--hover-bg)",
@@ -73,7 +83,7 @@ export default function TodayFocusCard() {
             >
               {label}
             </div>
-          </div>
+          </motion.div>
           );
         })}
       </div>

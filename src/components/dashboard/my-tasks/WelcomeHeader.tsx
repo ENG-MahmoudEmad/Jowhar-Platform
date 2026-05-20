@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useTheme } from "@/context/ThemeContext";
 import { useLang }  from "@/context/LangContext";
 import DiamondGem   from "./DiamondGem";
@@ -42,17 +43,37 @@ export default function WelcomeHeader({
       className="flex items-center gap-6"
     >
       {/* Gem */}
-      <DiamondGem
-        hue={hue}
-        sat={sat}
-        size={130}
-        floatDelay={0}
-        isDark={isDark}
-      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, rotate: -4 }}
+        animate={{ opacity: 1, scale: 1, rotate: 0 }}
+        transition={{ delay: 0.08, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <DiamondGem
+          hue={hue}
+          sat={sat}
+          size={130}
+          floatDelay={0}
+          isDark={isDark}
+        />
+      </motion.div>
 
       {/* Text block */}
-      <div className="flex flex-col" style={{ gap: "2px" }}>
-        <span
+      <motion.div
+        className="flex flex-col"
+        initial="hidden"
+        animate="show"
+        variants={{
+          hidden: {},
+          show: { transition: { staggerChildren: 0.07, delayChildren: 0.12 } },
+        }}
+        style={{ gap: "2px" }}
+      >
+        <motion.span
+          variants={{
+            hidden: { opacity: 0, y: 12 },
+            show:   { opacity: 1, y: 0 },
+          }}
+          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
           className="font-bold leading-tight"
           style={{
             fontSize:   "clamp(2rem, 4vw, 3rem)",
@@ -62,9 +83,14 @@ export default function WelcomeHeader({
           }}
         >
           {welcomeText}
-        </span>
+        </motion.span>
 
-        <span
+        <motion.span
+          variants={{
+            hidden: { opacity: 0, y: 12 },
+            show:   { opacity: 1, y: 0 },
+          }}
+          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
           className="font-black leading-tight"
           style={{
             fontSize:   "clamp(2rem, 4vw, 3rem)",
@@ -78,8 +104,8 @@ export default function WelcomeHeader({
           }}
         >
           {displayName}
-        </span>
-      </div>
+        </motion.span>
+      </motion.div>
     </div>
   );
 }

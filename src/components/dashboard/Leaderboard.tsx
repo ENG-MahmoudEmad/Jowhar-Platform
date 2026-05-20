@@ -418,7 +418,13 @@ export default function Leaderboard() {
   }
 
   return (
-    <div dir={isRTL ? 'rtl' : 'ltr'} className="w-full">
+    <motion.div
+      initial={{ opacity: 0, y: 24, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 0.42, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      dir={isRTL ? 'rtl' : 'ltr'}
+      className="w-full"
+    >
       <NoiseDefs />
 
       <div
@@ -516,6 +522,6 @@ export default function Leaderboard() {
           </div>
         </motion.div>
       </div>
-    </div>
+    </motion.div>
   )
 }

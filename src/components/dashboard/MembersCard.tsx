@@ -202,7 +202,10 @@ export default function MembersCard() {
   return (
     <>
       {/* ─── Card ──────────────────────────────────────────────────────────── */}
-      <div
+      <motion.div
+        initial={{ opacity: 0, y: 22, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: 0.26, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
         dir={isRTL ? 'rtl' : 'ltr'}
         className="w-full rounded-2xl overflow-hidden cursor-pointer select-none flex flex-col"
         style={{ background: bg, border: `1px solid ${border}`, height: '372px' }}
@@ -285,7 +288,7 @@ export default function MembersCard() {
         >
           {tx.click}
         </div>
-      </div>
+      </motion.div>
 
       {/* ─── Modal ─────────────────────────────────────────────────────────── */}
       <AnimatePresence>

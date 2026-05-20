@@ -39,7 +39,10 @@ export default function TeamProgress() {
   };
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 20, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
       dir={isRTL ? 'rtl' : 'ltr'}
       className="w-full rounded-2xl overflow-hidden"
       style={{
@@ -222,6 +225,6 @@ export default function TeamProgress() {
           />
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 }

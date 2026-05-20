@@ -108,7 +108,10 @@ export default function ActivityFeed() {
   return (
     // ─── h-full + flex flex-col → يأخذ كامل ارتفاع الـ cell تبعه في الـ grid ───
     // الـ page.tsx لازم يكون: <div className="lg:col-span-2 flex flex-col h-full">
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 22, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 0.32, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
       dir={isRTL ? 'rtl' : 'ltr'}
       className="w-full rounded-2xl overflow-hidden flex flex-col shadow-sm"
       style={{ background: bg, border: `1px solid ${border}`, height: '372px' }}
@@ -290,6 +293,6 @@ export default function ActivityFeed() {
           {lang === 'ar' ? 'عرض كل الأحداث' : 'View all activity'}
         </button>
       </div>
-    </div>
+    </motion.div>
   )
 }
