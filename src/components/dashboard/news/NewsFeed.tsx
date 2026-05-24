@@ -13,6 +13,14 @@ import NewsComposer from './NewsComposer'
 /* ─── Types ─── */
 export type NewsType = 'all' | 'announcement' | 'update' | 'alert'
 
+// أضفه بعد سطر export type NewsType
+export interface RichSegment {
+  text:   string;
+  bold?:  boolean;
+  color?: string;
+  bullet?:boolean;
+}
+
 
 export interface NewsPost {
   id:          number
