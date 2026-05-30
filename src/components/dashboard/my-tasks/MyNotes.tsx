@@ -358,18 +358,24 @@ export default function MyNotes() {
                 ? { y:"100%", opacity:1 }
                 : { x: isRTL ? "-100%" : "100%", opacity:0 }}
               transition={{ type:"spring", damping:32, stiffness:280 }}
+              /* ── drag to close on mobile ── */
+              drag={isMobile ? "y" : false}
+              dragConstraints={isMobile ? { top:0, bottom:0 } : undefined}
+              dragElastic={{ top:0, bottom:0.4 }}
+              onDragEnd={(_e, info) => {
+                if (isMobile && info.offset.y > 100) closePanel();
+              }}
               dir={isRTL?"rtl":"ltr"}
               className={
                 isMobile
-                  /* Bottom sheet */
                   ? "fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-3xl"
-                  /* Side panel */
                   : "fixed top-0 bottom-0 z-50 w-full max-w-[480px] flex flex-col"
               }
               style={isMobile ? {
                 background: panelBg,
                 borderTop: `1px solid ${border}`,
                 maxHeight: "85vh",
+                touchAction: "none",
               } : {
                 [isRTL?"left":"right"]: 0,
                 background: panelBg,
@@ -379,9 +385,12 @@ export default function MyNotes() {
             >
               {/* Drag handle — mobile only */}
               {isMobile && (
-                <div className="flex justify-center pt-3 pb-1 shrink-0">
+                <div
+                  className="flex justify-center pt-3 pb-2 shrink-0"
+                  style={{ cursor:"grab", touchAction:"none" }}
+                >
                   <div className="w-10 h-1 rounded-full"
-                    style={{ background: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)" }}
+                    style={{ background: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.15)" }}
                   />
                 </div>
               )}

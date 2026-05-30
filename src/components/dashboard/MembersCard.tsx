@@ -1,7 +1,7 @@
 "use client"
 
-import React, { useEffect, useRef, useState, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
 import { X, Pencil, Check, Users } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
@@ -15,6 +15,16 @@ interface Member {
   color: string
   bio: string
   bioAr: string
+}
+
+type Lang = 'en' | 'ar'
+type BioOverrides = Partial<Record<Lang, Record<number, string>>>
+type CardStyle = React.CSSProperties & Partial<Record<`--members-${string}`, string>>
+
+interface Frame {
+  x: number
+  scale: number
+  opacity: number
 }
 
 // ─── Demo Data ────────────────────────────────────────────────────────────────
@@ -67,6 +77,20 @@ const TOTAL_W     = MEMBERS.length * STEP       // full belt width
 const BELT_SPEED  = 0.44                        // px / rAF frame
 const DOCK_RADIUS = 110                         // px — mouse influence zone
 const DOCK_MAX    = 1.65                        // max scale at cursor
+const FADE_START  = 0.13
+
+const CARD_TRANSITION = {
+  delay: 0.26,
+  duration: 0.55,
+  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+}
+
+const MODAL_TRANSITION = {
+  type: 'spring',
+  damping: 26,
+  stiffness: 320,
+  mass: 0.8,
+} as const
 
 // ── Seeded-random Y per avatar so layout looks organic, not grid-like ──
 // Each avatar gets a unique Y locked for its lifetime (stable across renders)
@@ -80,7 +104,7 @@ const AVATAR_Y: number[] = MEMBERS.map((_, i) => {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function MembersCard() {
+function MembersCard() {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
@@ -95,6 +119,20 @@ export default function MembersCard() {
   const footerBg  = isDark ? 'rgba(13,17,23,0.5)'   : 'rgba(249,249,243,0.8)'
   const cloudBg   = isDark ? 'var(--background)'     : '#f0f0e8'
   const rowHover  = isDark ? 'rgba(255,255,255,0.03)': 'rgba(0,0,0,0.025)'
+
+  const cardStyle = useMemo<CardStyle>(() => ({
+    '--members-bg': bg,
+    '--members-border': border,
+    '--members-header-bg': headerBg,
+    '--members-divider': divider,
+    '--members-text-main': textMain,
+    '--members-text-muted': textMuted,
+    '--members-footer-bg': footerBg,
+    '--members-cloud-bg': cloudBg,
+    '--members-row-hover': rowHover,
+    background: 'var(--members-bg)',
+    border: '1px solid var(--members-border)',
+  }), [bg, border, cloudBg, divider, footerBg, headerBg, rowHover])
 
   const tx = {
     title:  lang === 'ar' ? 'الأعضاء'                 : 'Members',
@@ -115,16 +153,13 @@ export default function MembersCard() {
 
   // frames[i] = { x, scale, visible }
   // visible = avatar is inside the unmasked zone (not being clipped) → controls opacity
-  const [frames, setFrames] = useState<{ x: number; scale: number; opacity: number }[]>(
+  const [frames, setFrames] = useState<Frame[]>(
     MEMBERS.map((_, i) => ({ x: i * STEP, scale: 1, opacity: 1 }))
   )
 
   const dir = isRTL ? 1 : -1
 
   useEffect(() => {
-    const FADE_START = 0.13   // fraction of cloud width where fade begins
-    const FADE_END   = 0.0    // fully transparent at edge
-
     const tick = () => {
       offsetRef.current += BELT_SPEED * dir
       if (dir < 0 && offsetRef.current < -TOTAL_W) offsetRef.current += TOTAL_W
@@ -179,37 +214,59 @@ export default function MembersCard() {
   // ── modal ──
   const [modalOpen,  setModalOpen]  = useState(false)
   const [isAdmin,    setIsAdmin]    = useState(false)
-  const [bios, setBios] = useState<Record<number, string>>(
-    Object.fromEntries(MEMBERS.map(m => [m.id, lang === 'ar' ? m.bioAr : m.bio]))
-  )
+  const [bioOverrides, setBioOverrides] = useState<BioOverrides>({})
   const [editingId,  setEditingId]  = useState<number | null>(null)
   const [draftBio,   setDraftBio]   = useState('')
-  const [hoveredRow, setHoveredRow] = useState<number | null>(null)
 
-  const openModal  = () => setModalOpen(true)
-  const closeModal = () => { setModalOpen(false); setEditingId(null) }
-  const startEdit  = (id: number) => { setEditingId(id); setDraftBio(bios[id] || '') }
-  const saveBio    = (id: number) => {
-    setBios(p => ({ ...p, [id]: draftBio.trim() || tx.noBio }))
+  const bios = useMemo<Record<number, string>>(() => {
+    const defaults = Object.fromEntries(
+      MEMBERS.map(member => [member.id, lang === 'ar' ? member.bioAr : member.bio])
+    ) as Record<number, string>
+
+    return { ...defaults, ...(bioOverrides[lang as Lang] ?? {}) }
+  }, [bioOverrides, lang])
+
+  const openModal  = useCallback(() => setModalOpen(true), [])
+  const closeModal = useCallback(() => { setModalOpen(false); setEditingId(null) }, [])
+  const startEdit  = useCallback((id: number) => { setEditingId(id); setDraftBio(bios[id] || '') }, [bios])
+  const cancelEdit = useCallback(() => setEditingId(null), [])
+  const toggleAdmin = useCallback(() => {
+    setIsAdmin(current => !current)
     setEditingId(null)
-  }
-
-  useEffect(() => {
-    setBios(Object.fromEntries(MEMBERS.map(m => [m.id, lang === 'ar' ? m.bioAr : m.bio])))
-  }, [lang])
+  }, [])
+  const handleCardKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    openModal()
+  }, [openModal])
+  const saveBio    = useCallback((id: number) => {
+    const nextBio = draftBio.trim() || tx.noBio
+    setBioOverrides(prev => ({
+      ...prev,
+      [lang as Lang]: {
+        ...(prev[lang as Lang] ?? {}),
+        [id]: nextBio,
+      },
+    }))
+    setEditingId(null)
+  }, [draftBio, lang, tx.noBio])
 
   // ── render ──
   return (
-    <>
+    <LazyMotion features={domAnimation}>
       {/* ─── Card ──────────────────────────────────────────────────────────── */}
-      <motion.div
+      <m.div
         initial={{ opacity: 0, y: 22, scale: 0.985 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ delay: 0.26, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+        transition={CARD_TRANSITION}
         dir={isRTL ? 'rtl' : 'ltr'}
         className="w-full rounded-2xl overflow-hidden cursor-pointer select-none flex flex-col"
-        style={{ background: bg, border: `1px solid ${border}`, height: '372px' }}
+        style={{ ...cardStyle, height: '372px' }}
+        role="button"
+        tabIndex={0}
+        aria-labelledby="members-card-title"
         onClick={openModal}
+        onKeyDown={handleCardKeyDown}
       >
         {/* Header — same structure as TeamProgress */}
         <div
@@ -218,10 +275,11 @@ export default function MembersCard() {
         >
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg shrink-0" style={{ background: 'rgba(69,132,130,0.1)' }}>
-              <Users size={18} className="text-[#458482]" />
+              <Users size={18} className="text-[#458482]" aria-hidden="true" />
             </div>
             <div style={{ textAlign: 'start' }}>
               <h2
+                id="members-card-title"
                 className="text-sm font-bold tracking-widest"
                 style={{
                   color: textMain,
@@ -288,22 +346,32 @@ export default function MembersCard() {
         >
           {tx.click}
         </div>
-      </motion.div>
+      </m.div>
 
       {/* ─── Modal ─────────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {modalOpen && (
-          <motion.div
+          <m.div
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)' }}
+            style={{
+              '--members-text-main': textMain,
+              '--members-text-muted': textMuted,
+              '--members-row-hover': rowHover,
+              '--members-divider': divider,
+              background: 'rgba(0,0,0,0.55)',
+              backdropFilter: 'blur(8px)',
+            } as CardStyle}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             onClick={closeModal}
           >
-            <motion.div
+            <m.div
               dir={isRTL ? 'rtl' : 'ltr'}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="members-modal-title"
               className="flex flex-col rounded-2xl overflow-hidden w-full max-w-lg"
               style={{
                 background: bg,
@@ -316,7 +384,7 @@ export default function MembersCard() {
               initial={{ scale: 0.95, y: 16, opacity: 0 }}
               animate={{ scale: 1,    y: 0,  opacity: 1 }}
               exit={{    scale: 0.95, y: 16, opacity: 0 }}
-              transition={{ type: 'spring', damping: 26, stiffness: 320, mass: 0.8 }}
+              transition={MODAL_TRANSITION}
               onClick={e => e.stopPropagation()}
             >
               {/* Modal header */}
@@ -326,10 +394,11 @@ export default function MembersCard() {
               >
                 <div className="flex items-center gap-3">
                   <div className="p-2 rounded-xl" style={{ background: 'rgba(69,132,130,0.12)' }}>
-                    <Users size={17} className="text-[#458482]" />
+                    <Users size={17} className="text-[#458482]" aria-hidden="true" />
                   </div>
                   <div>
                     <h2
+                      id="members-modal-title"
                       className="text-sm font-bold tracking-widest"
                       style={{
                         color: textMain,
@@ -345,41 +414,28 @@ export default function MembersCard() {
                   </div>
                 </div>
                 <button
-                  className="p-2 rounded-xl transition-colors"
-                  style={{ color: textMuted, background: 'transparent' }}
-                  onMouseEnter={e => {
-                    const b = e.currentTarget as HTMLButtonElement
-                    b.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'
-                    b.style.color = textMain
-                  }}
-                  onMouseLeave={e => {
-                    const b = e.currentTarget as HTMLButtonElement
-                    b.style.background = 'transparent'
-                    b.style.color = textMuted
-                  }}
+                  type="button"
+                  aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}
+                  className="p-2 rounded-xl text-[var(--members-text-muted)] transition-colors hover:bg-[var(--members-row-hover)] hover:text-[var(--members-text-main)]"
                   onClick={closeModal}
                 >
-                  <X size={15} />
+                  <X size={15} aria-hidden="true" />
                 </button>
               </div>
 
               {/* Scrollable member list */}
               <div className="overflow-y-auto flex-1">
                 {MEMBERS.map((member, index) => (
-                  <motion.div
+                  <m.div
                     key={member.id}
                     initial={{ opacity: 0, x: isRTL ? 8 : -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: index * 0.018, duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                    className="flex items-start gap-4 px-5 py-3.5"
+                    className="flex items-start gap-4 px-5 py-3.5 transition-colors hover:bg-[var(--members-row-hover)]"
                     style={{
                       borderBottom: index < MEMBERS.length - 1 ? `1px solid ${divider}` : 'none',
-                      background: hoveredRow === member.id ? rowHover : 'transparent',
                       // instant hover — no CSS transition delay
-                      transition: 'background 0.12s ease',
                     }}
-                    onMouseEnter={() => setHoveredRow(member.id)}
-                    onMouseLeave={() => setHoveredRow(null)}
                   >
                     {/* Avatar */}
                     <div
@@ -417,24 +473,27 @@ export default function MembersCard() {
                             rows={3}
                             value={draftBio}
                             onChange={e => setDraftBio(e.target.value)}
+                            aria-label={lang === 'ar' ? `نبذة ${member.name}` : `${member.name} bio`}
                             autoFocus
                           />
                           <div className="flex gap-2">
                             <button
+                              type="button"
                               className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-opacity hover:opacity-80"
                               style={{ background: '#458482', color: '#fff' }}
                               onClick={() => saveBio(member.id)}
                             >
-                              <Check size={11} /> {tx.save}
+                              <Check size={11} aria-hidden="true" /> {tx.save}
                             </button>
                             <button
+                              type="button"
                               className="px-3 py-1.5 rounded-lg text-[11px] font-medium"
                               style={{
                                 color: textMuted,
                                 border: `1px solid ${divider}`,
                                 fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
                               }}
-                              onClick={() => setEditingId(null)}
+                              onClick={cancelEdit}
                             >
                               {tx.cancel}
                             </button>
@@ -456,27 +515,17 @@ export default function MembersCard() {
                     {/* Admin edit button */}
                     {isAdmin && editingId !== member.id && (
                       <button
-                        className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold mt-0.5"
+                        type="button"
+                        className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold mt-0.5 border border-[var(--members-divider)] text-[var(--members-text-muted)] transition-colors hover:text-[#458482] hover:border-[#458482]"
                         style={{
-                          color: textMuted,
-                          border: `1px solid ${divider}`,
                           fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                          transition: 'color 0.12s, border-color 0.12s',
-                        }}
-                        onMouseEnter={e => {
-                          const b = e.currentTarget as HTMLButtonElement
-                          b.style.color = '#458482'; b.style.borderColor = '#458482'
-                        }}
-                        onMouseLeave={e => {
-                          const b = e.currentTarget as HTMLButtonElement
-                          b.style.color = textMuted; b.style.borderColor = divider
                         }}
                         onClick={() => startEdit(member.id)}
                       >
-                        <Pencil size={10} /> {tx.edit}
+                        <Pencil size={10} aria-hidden="true" /> {tx.edit}
                       </button>
                     )}
-                  </motion.div>
+                  </m.div>
                 ))}
               </div>
 
@@ -489,13 +538,16 @@ export default function MembersCard() {
                 }}
               >
                 <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isAdmin}
                   className="relative rounded-full shrink-0"
                   style={{
                     width: 34, height: 18,
                     background: isAdmin ? '#458482' : (isDark ? '#2a2a2a' : '#d1d5db'),
                     transition: 'background 0.2s',
                   }}
-                  onClick={() => { setIsAdmin(a => !a); setEditingId(null) }}
+                  onClick={toggleAdmin}
                 >
                   <span
                     className="absolute rounded-full bg-white"
@@ -506,22 +558,25 @@ export default function MembersCard() {
                     }}
                   />
                 </button>
-                <span
+                <button
+                  type="button"
                   className="text-[11px] font-medium cursor-pointer"
                   style={{
                     color: isAdmin ? '#458482' : textMuted,
                     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
                     transition: 'color 0.2s',
                   }}
-                  onClick={() => { setIsAdmin(a => !a); setEditingId(null) }}
+                  onClick={toggleAdmin}
                 >
                   {tx.admin}
-                </span>
+                </button>
               </div>
-            </motion.div>
-          </motion.div>
+            </m.div>
+          </m.div>
         )}
       </AnimatePresence>
-    </>
+    </LazyMotion>
   )
 }
+
+export default memo(MembersCard)
