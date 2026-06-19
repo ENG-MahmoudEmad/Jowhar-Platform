@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 
 interface DiamondGemProps {
   /** HSL hue 0-360 — controls the gem colour */
@@ -16,6 +16,9 @@ interface DiamondGemProps {
   /** Extra className for the wrapper div */
   className?: string;
 }
+
+// ─── Module-level static style (zero dependency on props/state) ────────────────
+const CANVAS_STYLE: React.CSSProperties = { display: "block" };
 
 // ─── Core draw function (pure, no React deps) ────────────────────────────────
 function drawDiamond(
@@ -221,7 +224,7 @@ function drawDiamond(
 }
 
 // ─── React Component ─────────────────────────────────────────────────────────
-export default function DiamondGem({
+function DiamondGem({
   hue,
   sat = 40,
   size = 160,
@@ -232,6 +235,13 @@ export default function DiamondGem({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number>(0);
   const mouseRef  = useRef({ x: size / 2, y: size / 2, active: false });
+
+  const wrapperStyle = useMemo<React.CSSProperties>(() => ({
+    width:  size,
+    height: size,
+    filter: `drop-shadow(0 12px 24px hsla(${hue},${sat}%,40%,${isDark ? 0.4 : 0.2}))`,
+    cursor: "crosshair",
+  }), [size, hue, sat, isDark]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -279,21 +289,15 @@ export default function DiamondGem({
   }, [hue, sat, size, floatDelay, isDark]);
 
   return (
-    <div
-      className={className}
-      style={{
-        width:  size,
-        height: size,
-        filter: `drop-shadow(0 12px 24px hsla(${hue},${sat}%,40%,${isDark ? 0.4 : 0.2}))`,
-        cursor: "crosshair",
-      }}
-    >
+    <div className={className} style={wrapperStyle}>
       <canvas
         ref={canvasRef}
         width={size}
         height={size}
-        style={{ display: "block" }}
+        style={CANVAS_STYLE}
       />
     </div>
   );
 }
+
+export default memo(DiamondGem);
