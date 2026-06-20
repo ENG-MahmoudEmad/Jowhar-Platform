@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useMemo, useCallback, useEffect, memo } from "react";
+import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { Plus, Pencil, Trash2, X, Check, Search, Clock3 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useLang } from "@/context/LangContext";
@@ -43,23 +43,64 @@ const COLORS = [
   "#ec4899","#10b981","#64748b","#a855f7",
 ];
 
+/* ─── Constants ──────────────────────────────────────────────────────────────── */
+const TEXT_MAIN = "var(--foreground)";
+const TEXT_MUTED = "var(--foreground-muted)";
+
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
+// Cached rgba() — نفس hex+alpha بيتكرر كثير عبر الكومبوننت (نفس اللون، نفس الشفافية)
+const rgbaCache = new Map<string, string>();
 function rgba(hex: string, a: number) {
+  const key = `${hex}-${a}`;
+  const cached = rgbaCache.get(key);
+  if (cached) return cached;
   const r = parseInt(hex.slice(1,3),16);
   const g = parseInt(hex.slice(3,5),16);
   const b = parseInt(hex.slice(5,7),16);
-  return `rgba(${r},${g},${b},${a})`;
+  const result = `rgba(${r},${g},${b},${a})`;
+  rgbaCache.set(key, result);
+  return result;
 }
 function fmtDate(iso: string, lang: string) {
   return new Date(iso).toLocaleDateString(lang==="ar"?"ar-SA":"en-US",
     { day:"numeric", month:"short", year:"numeric" });
 }
 
-/* ─── NoteCard ───────────────────────────────────────────────────────────────── */
-function NoteCard({ note, active, isDark, textMain, textMuted, lang, onClick }: {
-  note: Note; active: boolean; isDark: boolean;
-  textMain: string; textMuted: string; lang: string; onClick: () => void;
+/* ─── Static hover handlers (zero closures, reused across the component) ────── */
+const handleHoverBgEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = "var(--hover-bg)";
+};
+const handleTransparentLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = "transparent";
+};
+const handleDeleteHoverEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = "rgba(239,68,68,0.10)";
+};
+const handleNewNoteHoverEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = rgba("#458482", 0.22);
+};
+
+/* ─── ColorDot ───────────────────────────────────────────────────────────────── */
+const ColorDot = memo(function ColorDot({ color, active, onSelect }: {
+  color: string; active: boolean; onSelect: (c: string) => void;
 }) {
+  const handleClick = useCallback(() => onSelect(color), [onSelect, color]);
+  return (
+    <button onClick={handleClick}
+      className="w-6 h-6 rounded-full cursor-pointer transition-all"
+      style={{ background:color, transform: active?"scale(1.3)":"scale(1)",
+        outline: active ? `2px solid ${color}` : "none", outlineOffset:"2px" }}
+    />
+  );
+});
+
+/* ─── NoteCard ───────────────────────────────────────────────────────────────── */
+const NoteCard = memo(function NoteCard({ note, active, isDark, textMain, textMuted, lang, onSelect }: {
+  note: Note; active: boolean; isDark: boolean;
+  textMain: string; textMuted: string; lang: string; onSelect: (note: Note) => void;
+}) {
+  const handleClick = useCallback(() => onSelect(note), [onSelect, note]);
+
   return (
     <motion.button
       layout
@@ -68,7 +109,7 @@ function NoteCard({ note, active, isDark, textMain, textMuted, lang, onClick }: 
       exit={{ opacity:0, y:-6 }}
       whileHover={{ scale: 1.012, transition:{ duration:0.15 } }}
       whileTap={{ scale: 0.985 }}
-      onClick={onClick}
+      onClick={handleClick}
       className="relative w-full overflow-hidden rounded-2xl p-4.5 text-start block"
       style={{
         background: active
@@ -119,10 +160,10 @@ function NoteCard({ note, active, isDark, textMain, textMuted, lang, onClick }: 
       </div>
     </motion.button>
   );
-}
+});
 
 /* ─── NoteForm (create / edit) ───────────────────────────────────────────────── */
-function NoteForm({ note, isDark, textMain, textMuted, inputBg, inputBorder, lang, isRTL, onSave, onCancel, saving }: {
+const NoteForm = memo(function NoteForm({ note, isDark, textMain, textMuted, inputBg, inputBorder, lang, isRTL, onSave, onCancel, saving }: {
   note: Partial<Note>; isDark: boolean; textMain: string; textMuted: string;
   inputBg: string; inputBorder: string; lang: string; isRTL: boolean;
   onSave: (d: { title:string; content:string; color:string }) => void;
@@ -132,37 +173,57 @@ function NoteForm({ note, isDark, textMain, textMuted, inputBg, inputBorder, lan
   const [content, setContent] = useState(note.content ?? "");
   const [color,   setColor]   = useState(note.color   ?? COLORS[0]);
 
-  const base: React.CSSProperties = {
+  const base = useMemo<React.CSSProperties>(() => ({
     background: inputBg, border: `1px solid ${inputBorder}`, color: textMain,
     borderRadius:"12px", outline:"none", width:"100%",
     fontFamily: lang==="ar" ? "var(--font-arabic)" : "inherit",
     direction: isRTL ? "rtl" : "ltr", fontSize:"13px",
     padding:"10px 14px", transition:"border-color 0.15s", resize:"none" as const,
-  };
+  }), [inputBg, inputBorder, textMain, lang, isRTL]);
+
+  const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setTitle(e.target.value);
+  }, []);
+  const handleContentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setContent(e.target.value);
+  }, []);
+
+  const handleInputFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    e.currentTarget.style.borderColor = color;
+  }, [color]);
+  const handleInputBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    e.currentTarget.style.borderColor = inputBorder;
+  }, [inputBorder]);
+  const handleTextareaFocus = useCallback((e: React.FocusEvent<HTMLTextAreaElement>) => {
+    e.currentTarget.style.borderColor = color;
+  }, [color]);
+  const handleTextareaBlur = useCallback((e: React.FocusEvent<HTMLTextAreaElement>) => {
+    e.currentTarget.style.borderColor = inputBorder;
+  }, [inputBorder]);
+
+  const handleSaveClick = useCallback(() => {
+    onSave({ title, content, color });
+  }, [title, content, color, onSave]);
 
   return (
     <div className="flex flex-col gap-4">
-      <input value={title} onChange={e=>setTitle(e.target.value)}
+      <input value={title} onChange={handleTitleChange}
         placeholder={lang==="ar" ? "عنوان الملاحظة..." : "Note title..."}
         style={{ ...base, fontWeight:600 }}
-        onFocus={e=>{ e.currentTarget.style.borderColor=color; }}
-        onBlur={e=>{ e.currentTarget.style.borderColor=inputBorder; }}
+        onFocus={handleInputFocus}
+        onBlur={handleInputBlur}
       />
-      <textarea value={content} onChange={e=>setContent(e.target.value)}
+      <textarea value={content} onChange={handleContentChange}
         placeholder={lang==="ar" ? "اكتب ملاحظتك هنا..." : "Write your note here..."}
         rows={6} style={base}
-        onFocus={e=>{ e.currentTarget.style.borderColor=color; }}
-        onBlur={e=>{ e.currentTarget.style.borderColor=inputBorder; }}
+        onFocus={handleTextareaFocus}
+        onBlur={handleTextareaBlur}
       />
 
       {/* Color dots */}
       <div className="flex flex-wrap gap-2">
         {COLORS.map(c => (
-          <button key={c} onClick={()=>setColor(c)}
-            className="w-6 h-6 rounded-full cursor-pointer transition-all"
-            style={{ background:c, transform: color===c?"scale(1.3)":"scale(1)",
-              outline: color===c ? `2px solid ${c}` : "none", outlineOffset:"2px" }}
-          />
+          <ColorDot key={c} color={c} active={color===c} onSelect={setColor} />
         ))}
       </div>
 
@@ -174,7 +235,7 @@ function NoteForm({ note, isDark, textMain, textMuted, inputBg, inputBorder, lan
         >
           {lang==="ar" ? "إلغاء" : "Cancel"}
         </button>
-        <button onClick={()=>onSave({title,content,color})}
+        <button onClick={handleSaveClick}
           disabled={!title.trim()||saving}
           className="px-4 py-2 rounded-xl text-[12px] font-bold cursor-pointer flex items-center gap-2"
           style={{ background:title.trim()?color:"rgba(69,132,130,0.4)", color:"#fff", opacity:saving?0.7:1 }}
@@ -187,24 +248,28 @@ function NoteForm({ note, isDark, textMain, textMuted, inputBg, inputBorder, lan
       </div>
     </div>
   );
-}
+});
 
 /* ─── Main Component ─────────────────────────────────────────────────────────── */
-export default function MyNotes() {
+function MyNotes() {
   const { theme }       = useTheme();
   const { lang, isRTL } = useLang();
   const isDark          = theme === "dark";
 
   /* palette */
-  const bg          = isDark ? "var(--card)"           : "#ffffff";
-  const border      = isDark ? "var(--card-border)"    : "rgba(0,0,0,0.07)";
-  const headerBg    = isDark ? "var(--background-alt)" : "#f5f5ef";
-  const divider     = isDark ? "var(--divider)"        : "rgba(0,0,0,0.06)";
-  const textMain    = "var(--foreground)";
-  const textMuted   = "var(--foreground-muted)";
-  const inputBg     = isDark ? "var(--input-bg)"       : "#f9f9f3";
-  const inputBorder = isDark ? "var(--input-border)"   : "rgba(0,0,0,0.10)";
-  const panelBg     = isDark ? "var(--background-alt)" : "#fafaf6";
+  const textMain  = TEXT_MAIN;
+  const textMuted = TEXT_MUTED;
+
+  const palette = useMemo(() => ({
+    bg:          isDark ? "var(--card)"           : "#ffffff",
+    border:      isDark ? "var(--card-border)"    : "rgba(0,0,0,0.07)",
+    headerBg:    isDark ? "var(--background-alt)" : "#f5f5ef",
+    divider:     isDark ? "var(--divider)"        : "rgba(0,0,0,0.06)",
+    inputBg:     isDark ? "var(--input-bg)"       : "#f9f9f3",
+    inputBorder: isDark ? "var(--input-border)"   : "rgba(0,0,0,0.10)",
+    panelBg:     isDark ? "var(--background-alt)" : "#fafaf6",
+  }), [isDark]);
+  const { bg, border, headerBg, divider, inputBg, inputBorder, panelBg } = palette;
 
   const [notes,   setNotes]   = useState<Note[]>(DEMO);
   const [selected,setSelected]= useState<Note | null>(null);
@@ -229,28 +294,31 @@ export default function MyNotes() {
     n.content.toLowerCase().includes(search.toLowerCase())
   ), [notes, search]);
 
+  /* preview list for collapsed card */
+  const preview = useMemo(() => notes.slice(0, 3), [notes]);
+
   /* ── Handlers ── */
-  const openNote = (note: Note) => {
+  const openNote = useCallback((note: Note) => {
     setSelected(note); setMode("view"); setPanelOpen(true);
-  };
-  const openCreate = () => {
+  }, []);
+  const openCreate = useCallback(() => {
     setSelected(null); setMode("create"); setPanelOpen(true);
-  };
-  const closePanel = () => {
+  }, []);
+  const closePanel = useCallback(() => {
     setPanelOpen(false);
     setTimeout(() => { setSelected(null); setMode("view"); setSearch(""); }, 300);
-  };
+  }, []);
 
-  const handleCreate = async (data: { title:string; content:string; color:string }) => {
+  const handleCreate = useCallback(async (data: { title:string; content:string; color:string }) => {
     setSaving(true);
     try {
       const created = await apiCreate(data);
       setNotes(prev => [created, ...prev]);
       setSelected(created); setMode("view");
     } finally { setSaving(false); }
-  };
+  }, []);
 
-  const handleUpdate = async (data: { title:string; content:string; color:string }) => {
+  const handleUpdate = useCallback(async (data: { title:string; content:string; color:string }) => {
     if (!selected) return;
     setSaving(true);
     try {
@@ -259,9 +327,9 @@ export default function MyNotes() {
       setNotes(prev => prev.map(n => n.id===selected.id ? merged : n));
       setSelected(merged); setMode("view");
     } finally { setSaving(false); }
-  };
+  }, [selected]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     setDeleting(id);
     try {
       await apiDelete(id);
@@ -272,9 +340,39 @@ export default function MyNotes() {
         else closePanel();
       }
     } finally { setDeleting(null); }
-  };
+  }, [notes, selected, closePanel]);
 
-  const preview = notes.slice(0, 3);
+  const handleOpenFirst = useCallback(() => {
+    if (notes.length > 0) openNote(notes[0]);
+  }, [notes, openNote]);
+
+  const handleEnterEditMode = useCallback(() => setMode("edit"), []);
+  const handleCancelEdit = useCallback(() => setMode("view"), []);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (selected) handleDelete(selected.id);
+  }, [selected, handleDelete]);
+
+  const handleSelectNote = useCallback((note: Note) => {
+    setSelected(note); setMode("view");
+  }, []);
+
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearch(e.target.value);
+  }, []);
+  const handleClearSearch = useCallback(() => setSearch(""), []);
+
+  const handleEditHoverEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (selected) e.currentTarget.style.background = rgba(selected.color, 0.12);
+  }, [selected]);
+
+  const handleNewNoteHoverLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.background = rgba("#458482", isDark ? 0.15 : 0.10);
+  }, [isDark]);
+
+  const handleDragEnd = useCallback((_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (isMobile && info.offset.y > 100) closePanel();
+  }, [isMobile, closePanel]);
 
   return (
     <>
@@ -300,11 +398,11 @@ export default function MyNotes() {
             >
               <Plus className="w-3.5 h-3.5"/>
             </button>
-            <button onClick={() => notes.length > 0 && openNote(notes[0])}
+            <button onClick={handleOpenFirst}
               className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all"
               style={{ background:"transparent", color:textMuted, border:`1px solid ${divider}` }}
-              onMouseEnter={e=>{ e.currentTarget.style.background="var(--hover-bg)"; }}
-              onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}
+              onMouseEnter={handleHoverBgEnter}
+              onMouseLeave={handleTransparentLeave}
             >
               {lang==="ar" ? "فتح" : "Open"}
             </button>
@@ -328,7 +426,7 @@ export default function MyNotes() {
                 <NoteCard key={note.id} note={note}
                   active={false} isDark={isDark}
                   textMain={textMain} textMuted={textMuted} lang={lang}
-                  onClick={() => openNote(note)}
+                  onSelect={openNote}
                 />
               ))
             )}
@@ -362,9 +460,7 @@ export default function MyNotes() {
               drag={isMobile ? "y" : false}
               dragConstraints={isMobile ? { top:0, bottom:0 } : undefined}
               dragElastic={{ top:0, bottom:0.4 }}
-              onDragEnd={(_e, info) => {
-                if (isMobile && info.offset.y > 100) closePanel();
-              }}
+              onDragEnd={handleDragEnd}
               dir={isRTL?"rtl":"ltr"}
               className={
                 isMobile
@@ -419,20 +515,20 @@ export default function MyNotes() {
                 <div className="flex items-center gap-1.5" style={{ flexDirection:"row" }}>
                   {mode==="view" && selected && (
                     <>
-                      <button onClick={()=>setMode("edit")}
+                      <button onClick={handleEnterEditMode}
                         className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
                         style={{ color:selected.color }}
-                        onMouseEnter={e=>{ e.currentTarget.style.background=rgba(selected.color,0.12); }}
-                        onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}
+                        onMouseEnter={handleEditHoverEnter}
+                        onMouseLeave={handleTransparentLeave}
                       >
                         <Pencil className="w-3.5 h-3.5"/>
                       </button>
-                      <button onClick={()=>handleDelete(selected.id)}
+                      <button onClick={handleDeleteSelected}
                         disabled={deleting===selected.id}
                         className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
                         style={{ color:"#ef4444" }}
-                        onMouseEnter={e=>{ e.currentTarget.style.background="rgba(239,68,68,0.10)"; }}
-                        onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}
+                        onMouseEnter={handleDeleteHoverEnter}
+                        onMouseLeave={handleTransparentLeave}
                       >
                         {deleting===selected.id
                           ? <span className="w-3 h-3 border-2 border-red-400/40 border-t-red-400 rounded-full animate-spin"/>
@@ -443,8 +539,8 @@ export default function MyNotes() {
                   <button onClick={closePanel}
                     className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer"
                     style={{ color:textMuted }}
-                    onMouseEnter={e=>{ e.currentTarget.style.background="var(--hover-bg)"; }}
-                    onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}
+                    onMouseEnter={handleHoverBgEnter}
+                    onMouseLeave={handleTransparentLeave}
                   >
                     <X className="w-4 h-4"/>
                   </button>
@@ -459,14 +555,14 @@ export default function MyNotes() {
                       border:`1px solid ${divider}` }}
                   >
                     <Search className="w-3.5 h-3.5 shrink-0" style={{ color:textMuted }}/>
-                    <input value={search} onChange={e=>setSearch(e.target.value)}
+                    <input value={search} onChange={handleSearchChange}
                       placeholder={lang==="ar" ? "ابحث في الملاحظات..." : "Search notes..."}
                       className="w-full bg-transparent text-[12px] outline-none"
                       style={{ color:textMain, fontFamily:lang==="ar"?"var(--font-arabic)":"inherit",
                         direction:isRTL?"rtl":"ltr" }}
                     />
                     {search && (
-                      <button onClick={()=>setSearch("")} style={{ color:textMuted }}>
+                      <button onClick={handleClearSearch} style={{ color:textMuted }}>
                         <X className="w-3 h-3"/>
                       </button>
                     )}
@@ -499,7 +595,7 @@ export default function MyNotes() {
                     >
                       <NoteForm note={selected} isDark={isDark} textMain={textMain} textMuted={textMuted}
                         inputBg={inputBg} inputBorder={inputBorder} lang={lang} isRTL={isRTL}
-                        onSave={handleUpdate} onCancel={()=>setMode("view")} saving={saving}
+                        onSave={handleUpdate} onCancel={handleCancelEdit} saving={saving}
                       />
                     </motion.div>
                   )}
@@ -558,7 +654,7 @@ export default function MyNotes() {
                               <NoteCard key={note.id} note={note}
                                 active={selected?.id===note.id} isDark={isDark}
                                 textMain={textMain} textMuted={textMuted} lang={lang}
-                                onClick={()=>{ setSelected(note); setMode("view"); }}
+                                onSelect={handleSelectNote}
                               />
                             ))
                           )}
@@ -579,8 +675,8 @@ export default function MyNotes() {
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12px] font-bold cursor-pointer transition-all"
                     style={{ background:rgba("#458482", isDark?0.15:0.10), color:"#458482",
                       border:`1px solid ${rgba("#458482",0.2)}` }}
-                    onMouseEnter={e=>{ e.currentTarget.style.background=rgba("#458482",0.22); }}
-                    onMouseLeave={e=>{ e.currentTarget.style.background=rgba("#458482",isDark?0.15:0.10); }}
+                    onMouseEnter={handleNewNoteHoverEnter}
+                    onMouseLeave={handleNewNoteHoverLeave}
                   >
                     <Plus className="w-3.5 h-3.5"/>
                     {lang==="ar" ? "ملاحظة جديدة" : "New Note"}
@@ -594,3 +690,5 @@ export default function MyNotes() {
     </>
   );
 }
+
+export default memo(MyNotes);

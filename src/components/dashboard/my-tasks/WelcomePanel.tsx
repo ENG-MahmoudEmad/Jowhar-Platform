@@ -1,3 +1,4 @@
+import { memo } from "react";
 import WelcomeHeader from "@/components/dashboard/my-tasks/WelcomeHeader";
 
 interface WelcomePanelProps {
@@ -7,7 +8,14 @@ interface WelcomePanelProps {
   sat?: number;
 }
 
-export default function WelcomePanel({
+// Fully static — doesn't depend on any prop, so it's hoisted out of the
+// component instead of being recreated as a new object every render.
+const PANEL_STYLE: React.CSSProperties = {
+  background: "linear-gradient(135deg, rgba(69,132,130,0.14), rgba(255,255,255,0.025))",
+  border: "1px solid var(--card-border)",
+};
+
+function WelcomePanel({
   name,
   nameAr,
   hue,
@@ -16,11 +24,7 @@ export default function WelcomePanel({
   return (
     <div
       className="min-h-[210px] rounded-2xl px-6 sm:px-8 py-7 flex items-center"
-      style={{
-        background:
-          "linear-gradient(135deg, rgba(69,132,130,0.14), rgba(255,255,255,0.025))",
-        border: "1px solid var(--card-border)",
-      }}
+      style={PANEL_STYLE}
     >
       <WelcomeHeader
         name={name}
@@ -31,3 +35,5 @@ export default function WelcomePanel({
     </div>
   );
 }
+
+export default memo(WelcomePanel);
