@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useMemo, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, ImageIcon, Send, Megaphone, RefreshCw, AlertTriangle } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -13,13 +13,55 @@ const TYPE_OPTIONS: { key: Exclude<NewsType, 'all'>; icon: React.ElementType; en
   { key: 'alert',        icon: AlertTriangle, en: 'Alert',        ar: 'تنبيه', color: '#ef4444' },
 ]
 
+const BACKDROP_STYLE: React.CSSProperties = { background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }
+const BACKDROP_TRANSITION = { duration: 0.2 }
+const COMPOSER_TRANSITION = { duration: 0.3, ease: [0.22, 1, 0.36, 1] as const }
+const SUBMIT_TAP = { scale: 0.97 }
+const SPINNER_ANIM = { rotate: 360 }
+const SPINNER_TRANSITION = { repeat: Infinity, duration: 1, ease: 'linear' as const }
+
+const stopPropagation = (e: React.MouseEvent) => e.stopPropagation()
+
 interface NewsComposerProps {
   open:    boolean
   onClose: () => void
   onPost:  (post: NewsPost) => void
 }
 
-export default function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
+const TypeOptionButton = memo(function TypeOptionButton({
+  option, active, isDark, inputBdr, textMuted, lang, onSelect,
+}: {
+  option: typeof TYPE_OPTIONS[number]
+  active: boolean
+  isDark: boolean
+  inputBdr: string
+  textMuted: string
+  lang: string
+  onSelect: (key: Exclude<NewsType, 'all'>) => void
+}) {
+  const Ic = option.icon
+  const handleClick = useCallback(() => onSelect(option.key), [onSelect, option.key])
+
+  const style = useMemo(() => ({
+    background: active ? `${option.color}18` : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
+    color:      active ? option.color : textMuted,
+    border:     `1px solid ${active ? `${option.color}40` : inputBdr}`,
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [active, isDark, option.color, textMuted, inputBdr, lang])
+
+  return (
+    <button
+      onClick={handleClick}
+      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold cursor-pointer transition-all"
+      style={style}
+    >
+      <Ic className="w-3.5 h-3.5" />
+      {lang === 'ar' ? option.ar : option.en}
+    </button>
+  )
+})
+
+function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
@@ -34,11 +76,13 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
 
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const bg       = isDark ? 'var(--card)'         : '#ffffff'
-  const border   = isDark ? 'var(--card-border)'  : 'rgba(0,0,0,0.08)'
-  const divider  = isDark ? 'var(--divider)'      : 'rgba(0,0,0,0.06)'
-  const inputBg  = isDark ? 'var(--input-bg)'     : '#f9f9f3'
-  const inputBdr = isDark ? 'var(--input-border)' : 'rgba(0,0,0,0.09)'
+  const colors = useMemo(() => ({
+    bg:       isDark ? 'var(--card)'         : '#ffffff',
+    border:   isDark ? 'var(--card-border)'  : 'rgba(0,0,0,0.08)',
+    divider:  isDark ? 'var(--divider)'      : 'rgba(0,0,0,0.06)',
+    inputBg:  isDark ? 'var(--input-bg)'     : '#f9f9f3',
+    inputBdr: isDark ? 'var(--input-border)' : 'rgba(0,0,0,0.09)',
+  }), [isDark])
   const textMain = 'var(--foreground)'
   const textMuted= 'var(--foreground-muted)'
 
@@ -50,19 +94,22 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
     reader.readAsDataURL(file)
   }, [])
 
-  const handleUrlBlur = () => {
-    if (imageUrl.startsWith('http')) setImage(imageUrl)
-  }
+  const handleUrlBlur = useCallback(() => {
+    setImageUrl(current => {
+      if (current.startsWith('http')) setImage(current)
+      return current
+    })
+  }, [])
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setType('announcement'); setTitleEn(''); setTitleAr('')
     setBody(''); setImage(null); setImageUrl(''); setSubmitting(false)
-  }
+  }, [])
 
-  const canSubmit = titleEn.trim() && titleAr.trim() && body.trim()
+  const canSubmit = !!(titleEn.trim() && titleAr.trim() && body.trim())
 
-  const handleSubmit = () => {
-    if (!canSubmit) return
+  const handleSubmit = useCallback(() => {
+    if (!(titleEn.trim() && titleAr.trim() && body.trim())) return
     setSubmitting(true)
     setTimeout(() => {
       onPost({
@@ -82,21 +129,32 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
       reset()
       onClose()
     }, 600)
-  }
+  }, [titleEn, titleAr, body, type, image, onPost, reset, onClose])
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%', background: inputBg, border: `1px solid ${inputBdr}`,
+  const handleFileBtnClick = useCallback(() => fileRef.current?.click(), [])
+  const handleRemoveImage = useCallback(() => { setImage(null); setImageUrl('') }, [])
+  const handleTitleEnChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setTitleEn(e.target.value), [])
+  const handleTitleArChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setTitleAr(e.target.value), [])
+  const handleBodyChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => setBody(e.target.value), [])
+  const handleImageUrlChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setImageUrl(e.target.value), [])
+
+  const inputStyle = useMemo<React.CSSProperties>(() => ({
+    width: '100%', background: colors.inputBg, border: `1px solid ${colors.inputBdr}`,
     borderRadius: '12px', padding: '9px 12px', fontSize: '12px',
     color: textMain, outline: 'none', fontFamily: 'inherit',
-  }
+  }), [colors.inputBg, colors.inputBdr])
 
-  const labelStyle: React.CSSProperties = {
+  const labelStyle = useMemo<React.CSSProperties>(() => ({
     fontSize: '10px', fontWeight: 700, textTransform: 'uppercase',
     letterSpacing: '0.1em', color: textMuted, marginBottom: '6px', display: 'block',
     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-  }
+  }), [lang])
 
-  const tx = {
+  const arLabelStyle = useMemo<React.CSSProperties>(() => ({
+    ...labelStyle, fontFamily: 'var(--font-arabic)',
+  }), [labelStyle])
+
+  const tx = useMemo(() => ({
     heading:   lang === 'ar' ? 'إضافة إعلان جديد'  : 'New Announcement',
     postType:  lang === 'ar' ? 'نوع الإعلان'        : 'Post type',
     titleEn:   lang === 'ar' ? 'العنوان (إنجليزي)' : 'Title (English)',
@@ -109,7 +167,28 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
     publish:   lang === 'ar' ? 'نشر الإعلان'        : 'Publish',
     publishing:lang === 'ar' ? 'جارٍ النشر...'     : 'Publishing...',
     required:  lang === 'ar' ? 'جميع الحقول مطلوبة' : 'All fields are required',
-  }
+  }), [lang])
+
+  const headerStyle = useMemo(() => ({ background: colors.bg, borderBottom: `1px solid ${colors.divider}` }), [colors.bg, colors.divider])
+  const composerStyle = useMemo(() => ({ background: colors.bg, border: `1px solid ${colors.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }), [colors.bg, colors.border])
+  const closeBtnStyle = useMemo(() => ({ color: textMuted, background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }), [isDark])
+  const uploadBtnStyle = useMemo(() => ({
+    background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    color: textMuted, border: `1px solid ${colors.inputBdr}`,
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [isDark, colors.inputBdr, lang])
+  const titleEnInputStyle = useMemo(() => ({ ...inputStyle, direction: 'ltr' as const }), [inputStyle])
+  const titleArInputStyle = useMemo(() => ({ ...inputStyle, direction: 'rtl' as const, fontFamily: 'var(--font-arabic)' }), [inputStyle])
+  const bodyInputStyle = useMemo(() => ({ ...inputStyle, borderRadius: '12px', resize: 'none' as const, lineHeight: '1.7' }), [inputStyle])
+  const urlInputStyle = useMemo(() => ({ ...inputStyle, direction: 'ltr' as const, fontSize: '11px' }), [inputStyle])
+  const imagePreviewStyle = useMemo(() => ({ height: '90px', borderRadius: '12px', overflow: 'hidden' as const, border: `1px solid ${colors.inputBdr}` }), [colors.inputBdr])
+  const submitBtnStyle = useMemo(() => ({
+    background: canSubmit ? '#458482' : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'),
+    color:      canSubmit ? '#ffffff'  : textMuted,
+    opacity:    submitting ? 0.7 : 1,
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+    border: 'none',
+  }), [canSubmit, isDark, submitting, lang])
 
   return (
     <AnimatePresence>
@@ -117,9 +196,9 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
         <motion.div
           key="backdrop"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          transition={BACKDROP_TRANSITION}
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }}
+          style={BACKDROP_STYLE}
           onClick={onClose}
         >
           <motion.div
@@ -127,16 +206,16 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
             initial={{ opacity: 0, scale: 0.93, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.93, y: 24 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            onClick={e => e.stopPropagation()}
+            transition={COMPOSER_TRANSITION}
+            onClick={stopPropagation}
             dir={isRTL ? 'rtl' : 'ltr'}
             className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl"
-            style={{ background: bg, border: `1px solid ${border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}
+            style={composerStyle}
           >
             {/* Header */}
             <div
               className="sticky top-0 z-10 flex items-center justify-between px-6 py-4"
-              style={{ background: bg, borderBottom: `1px solid ${divider}` }}
+              style={headerStyle}
             >
               <h2 className="text-sm font-black uppercase tracking-widest" style={{
                 color: textMain,
@@ -147,7 +226,7 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
               <button
                 onClick={onClose}
                 className="w-8 h-8 rounded-xl flex items-center justify-center cursor-pointer"
-                style={{ color: textMuted, background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
+                style={closeBtnStyle}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -159,26 +238,18 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
               <div>
                 <label style={labelStyle}>{tx.postType}</label>
                 <div className="flex gap-2">
-                  {TYPE_OPTIONS.map(t => {
-                    const Ic = t.icon
-                    const active = type === t.key
-                    return (
-                      <button
-                        key={t.key}
-                        onClick={() => setType(t.key)}
-                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold cursor-pointer transition-all"
-                        style={{
-                          background: active ? `${t.color}18` : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
-                          color:      active ? t.color : textMuted,
-                          border:     `1px solid ${active ? `${t.color}40` : inputBdr}`,
-                          fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                        }}
-                      >
-                        <Ic className="w-3.5 h-3.5" />
-                        {lang === 'ar' ? t.ar : t.en}
-                      </button>
-                    )
-                  })}
+                  {TYPE_OPTIONS.map(t => (
+                    <TypeOptionButton
+                      key={t.key}
+                      option={t}
+                      active={type === t.key}
+                      isDark={isDark}
+                      inputBdr={colors.inputBdr}
+                      textMuted={textMuted}
+                      lang={lang}
+                      onSelect={setType}
+                    />
+                  ))}
                 </div>
               </div>
 
@@ -187,19 +258,19 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
                 <div>
                   <label style={labelStyle}>{tx.titleEn}</label>
                   <input
-                    style={{ ...inputStyle, direction: 'ltr' }}
+                    style={titleEnInputStyle}
                     placeholder="Post title in English"
                     value={titleEn}
-                    onChange={e => setTitleEn(e.target.value)}
+                    onChange={handleTitleEnChange}
                   />
                 </div>
                 <div>
-                  <label style={{ ...labelStyle, fontFamily: 'var(--font-arabic)' }}>{tx.titleAr}</label>
+                  <label style={arLabelStyle}>{tx.titleAr}</label>
                   <input
-                    style={{ ...inputStyle, direction: 'rtl', fontFamily: 'var(--font-arabic)' }}
+                    style={titleArInputStyle}
                     placeholder="عنوان المنشور بالعربي"
                     value={titleAr}
-                    onChange={e => setTitleAr(e.target.value)}
+                    onChange={handleTitleArChange}
                   />
                 </div>
               </div>
@@ -210,9 +281,9 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
                 <textarea
                   rows={5}
                   value={body}
-                  onChange={e => setBody(e.target.value)}
+                  onChange={handleBodyChange}
                   placeholder={tx.bodyPh}
-                  style={{ ...inputStyle, borderRadius: '12px', resize: 'none', lineHeight: '1.7' }}
+                  style={bodyInputStyle}
                 />
               </div>
 
@@ -222,20 +293,16 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
                 <div className="flex flex-col gap-2">
                   <div className="flex gap-2">
                     <button
-                      onClick={() => fileRef.current?.click()}
+                      onClick={handleFileBtnClick}
                       className="flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-bold cursor-pointer"
-                      style={{
-                        background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
-                        color: textMuted, border: `1px solid ${inputBdr}`,
-                        fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                      }}
+                      style={uploadBtnStyle}
                     >
                       <ImageIcon className="w-3.5 h-3.5" />
                       {tx.upload}
                     </button>
                     {image && (
                       <button
-                        onClick={() => { setImage(null); setImageUrl('') }}
+                        onClick={handleRemoveImage}
                         className="px-3 py-2 rounded-xl cursor-pointer"
                         style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}
                       >
@@ -245,21 +312,21 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
                   </div>
                   <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
                   <input
-                    style={{ ...inputStyle, direction: 'ltr', fontSize: '11px' }}
+                    style={urlInputStyle}
                     placeholder={tx.orUrl}
                     value={imageUrl}
-                    onChange={e => setImageUrl(e.target.value)}
+                    onChange={handleImageUrlChange}
                     onBlur={handleUrlBlur}
                   />
                   {image && (
-                    <div style={{ height: '90px', borderRadius: '12px', overflow: 'hidden', border: `1px solid ${inputBdr}` }}>
+                    <div style={imagePreviewStyle}>
                       <img src={image} alt="preview" className="w-full h-full object-cover" />
                     </div>
                   )}
                 </div>
               </div>
 
-              <div style={{ height: '1px', background: divider }} />
+              <div style={{ height: '1px', background: colors.divider }} />
 
               {/* Submit */}
               <div className="flex items-center justify-between gap-3">
@@ -272,18 +339,12 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
                 <motion.button
                   onClick={handleSubmit}
                   disabled={!canSubmit || submitting}
-                  whileTap={{ scale: 0.97 }}
+                  whileTap={SUBMIT_TAP}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-[12px] font-bold cursor-pointer"
-                  style={{
-                    background: canSubmit ? '#458482' : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'),
-                    color:      canSubmit ? '#ffffff'  : textMuted,
-                    opacity:    submitting ? 0.7 : 1,
-                    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                    border: 'none',
-                  }}
+                  style={submitBtnStyle}
                 >
                   {submitting
-                    ? <><motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}><RefreshCw className="w-3.5 h-3.5" /></motion.div>{tx.publishing}</>
+                    ? <><motion.div animate={SPINNER_ANIM} transition={SPINNER_TRANSITION}><RefreshCw className="w-3.5 h-3.5" /></motion.div>{tx.publishing}</>
                     : <><Send className="w-3.5 h-3.5" />{tx.publish}</>
                   }
                 </motion.button>
@@ -295,3 +356,5 @@ export default function NewsComposer({ open, onClose, onPost }: NewsComposerProp
     </AnimatePresence>
   )
 }
+
+export default memo(NewsComposer)

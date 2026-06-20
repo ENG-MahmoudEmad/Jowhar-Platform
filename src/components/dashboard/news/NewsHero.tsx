@@ -1,10 +1,14 @@
 "use client"
 
+import { memo } from 'react'
 import { Newspaper } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 
-export default function NewsHero() {
+const ICON_WRAP_STYLE = { background: 'rgba(69,132,130,0.12)' }
+const ICON_STYLE = { color: '#458482' }
+
+function NewsHero() {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
@@ -16,9 +20,9 @@ export default function NewsHero() {
     >
       <div
         className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-        style={{ background: 'rgba(69,132,130,0.12)' }}
+        style={ICON_WRAP_STYLE}
       >
-        <Newspaper className="w-5 h-5" style={{ color: '#458482' }} />
+        <Newspaper className="w-5 h-5" style={ICON_STYLE} />
       </div>
 
       <div>
@@ -52,3 +56,5 @@ export default function NewsHero() {
     </div>
   )
 }
+
+export default memo(NewsHero)

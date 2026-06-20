@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useMemo, useCallback, memo } from 'react'
 import { Heart, Clock, Megaphone, RefreshCw, AlertTriangle } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTheme } from '@/context/ThemeContext'
@@ -17,6 +17,10 @@ const TYPE_META = {
 
 const PREVIEW_CHARS = 120
 
+const CARD_HOVER_LIGHT = { y: -2, borderColor: 'rgba(0,0,0,0.14)' }
+const CARD_HOVER_DARK  = { y: -2, borderColor: 'rgba(255,255,255,0.12)' }
+const CARD_TRANSITION  = { duration: 0.2 }
+
 interface NewsCardProps {
   post:    NewsPost
   liked:   boolean
@@ -25,14 +29,16 @@ interface NewsCardProps {
   onClick: (post: NewsPost) => void
 }
 
-export default function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
+function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
 
-  const bg        = isDark ? 'var(--card)'        : '#ffffff'
-  const border    = isDark ? 'var(--card-border)' : 'rgba(0,0,0,0.07)'
-  const divider   = isDark ? 'var(--divider)'     : 'rgba(0,0,0,0.06)'
+  const themeColors = useMemo(() => ({
+    bg:        isDark ? 'var(--card)'        : '#ffffff',
+    border:    isDark ? 'var(--card-border)' : 'rgba(0,0,0,0.07)',
+    divider:   isDark ? 'var(--divider)'     : 'rgba(0,0,0,0.06)',
+  }), [isDark])
   const textMuted = 'var(--foreground-muted)'
 
   const meta   = TYPE_META[post.type]
@@ -40,30 +46,63 @@ export default function NewsCard({ post, liked, likes, onLike, onClick }: NewsCa
   const title  = lang === 'ar' ? post.titleAr : post.title
   const author = lang === 'ar' ? post.authorAr : post.author
 
-  const preview = post.body.length > PREVIEW_CHARS
-    ? post.body.slice(0, PREVIEW_CHARS) + '…'
-    : post.body
-  const hasMore = post.body.length > PREVIEW_CHARS
+  const { preview, hasMore } = useMemo(() => {
+    const over = post.body.length > PREVIEW_CHARS
+    return {
+      preview: over ? post.body.slice(0, PREVIEW_CHARS) + '…' : post.body,
+      hasMore: over,
+    }
+  }, [post.body])
 
-  const handleLike = (e: React.MouseEvent) => {
+  const handleClick = useCallback(() => onClick(post), [onClick, post])
+
+  const handleLike = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     onLike()
-  }
+  }, [onLike])
+
+  const imageStyle = useMemo(() => ({
+    filter: isDark ? 'brightness(0.85)' : 'none',
+  }), [isDark])
+
+  const badgeStyle = useMemo(() => ({
+    background: `${meta.color}18`,
+    color: meta.color,
+  }), [meta.color])
+
+  const likeBtnStyle = useMemo(() => ({
+    background: liked ? 'rgba(239,68,68,0.12)' : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'),
+    color:      liked ? '#ef4444' : textMuted,
+    border:     liked ? '1px solid rgba(239,68,68,0.25)' : '1px solid transparent',
+    transition: 'all 0.2s ease',
+  }), [liked, isDark, textMuted])
+
+  const heartStyle = useMemo(() => ({
+    fill:      liked ? '#ef4444' : 'none',
+    stroke:    liked ? '#ef4444' : 'currentColor',
+    transform: liked ? 'scale(1.2)' : 'scale(1)',
+    transition:'transform 0.2s ease',
+  }), [liked])
+
+  const avatarStyle = useMemo(() => ({
+    background: post.avatarColor,
+    boxShadow: `0 2px 8px ${post.avatarColor}40`,
+  }), [post.avatarColor])
 
   return (
     <motion.div
-      onClick={() => onClick(post)}
+      onClick={handleClick}
       className="w-full rounded-2xl overflow-hidden cursor-pointer group"
-      style={{ background: bg, border: `1px solid ${border}` }}
-      whileHover={{ y: -2, borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.14)' }}
-      transition={{ duration: 0.2 }}
+      style={{ background: themeColors.bg, border: `1px solid ${themeColors.border}` }}
+      whileHover={isDark ? CARD_HOVER_DARK : CARD_HOVER_LIGHT}
+      transition={CARD_TRANSITION}
     >
       {post.image && (
         <div style={{ height: '150px', overflow: 'hidden' }}>
           <img
             src={post.image} alt={title}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            style={{ filter: isDark ? 'brightness(0.85)' : 'none' }}
+            style={imageStyle}
           />
         </div>
       )}
@@ -73,7 +112,7 @@ export default function NewsCard({ post, liked, likes, onLike, onClick }: NewsCa
         <div className="flex items-center justify-between mb-3" style={{ flexDirection: 'row' }}>
           <div
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest"
-            style={{ background: `${meta.color}18`, color: meta.color }}
+            style={badgeStyle}
           >
             <Icon className="w-3 h-3" />
             {lang === 'ar' ? meta.ar : meta.en}
@@ -108,14 +147,14 @@ export default function NewsCard({ post, liked, likes, onLike, onClick }: NewsCa
         </div>
 
         {/* Divider */}
-        <div style={{ height: '1px', background: divider, marginBottom: '12px' }} />
+        <div style={{ height: '1px', background: themeColors.divider, marginBottom: '12px' }} />
 
         {/* Footer */}
         <div className="flex items-center justify-between" style={{ flexDirection: 'row' }}>
           <div className="flex items-center gap-2" style={{ flexDirection: 'row' }}>
             <div
               className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[8px] font-black shrink-0"
-              style={{ background: post.avatarColor, boxShadow: `0 2px 8px ${post.avatarColor}40` }}
+              style={avatarStyle}
             >
               {post.avatar}
             </div>
@@ -131,21 +170,11 @@ export default function NewsCard({ post, liked, likes, onLike, onClick }: NewsCa
           <button
             onClick={handleLike}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold cursor-pointer transition-all"
-            style={{
-              background: liked ? 'rgba(239,68,68,0.12)' : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'),
-              color:      liked ? '#ef4444' : textMuted,
-              border:     liked ? '1px solid rgba(239,68,68,0.25)' : '1px solid transparent',
-              transition: 'all 0.2s ease',
-            }}
+            style={likeBtnStyle}
           >
             <Heart
               className="w-3.5 h-3.5 transition-transform"
-              style={{
-                fill:      liked ? '#ef4444' : 'none',
-                stroke:    liked ? '#ef4444' : 'currentColor',
-                transform: liked ? 'scale(1.2)' : 'scale(1)',
-                transition:'transform 0.2s ease',
-              }}
+              style={heartStyle}
             />
             <span>{likes}</span>
           </button>
@@ -154,3 +183,5 @@ export default function NewsCard({ post, liked, likes, onLike, onClick }: NewsCa
     </motion.div>
   )
 }
+
+export default memo(NewsCard)

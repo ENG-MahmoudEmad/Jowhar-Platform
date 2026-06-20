@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useCallback, memo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Plus, Newspaper } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -13,7 +13,6 @@ import NewsComposer from './NewsComposer'
 /* ─── Types ─── */
 export type NewsType = 'all' | 'announcement' | 'update' | 'alert'
 
-// أضفه بعد سطر export type NewsType
 export interface RichSegment {
   text:   string;
   bold?:  boolean;
@@ -21,13 +20,12 @@ export interface RichSegment {
   bullet?:boolean;
 }
 
-
 export interface NewsPost {
   id:          number
   type:        Exclude<NewsType, 'all'>
   title:       string
   titleAr:     string
-  body:        string          // single body, written by admin
+  body:        string
   image?:      string
   author:      string
   authorAr:    string
@@ -100,8 +98,43 @@ const INITIAL_POSTS: NewsPost[] = [
   },
 ]
 
-/* ─── Component ─── */
-export default function NewsFeed() {
+const INITIAL_LIKES_MAP: Record<number, number> = Object.fromEntries(INITIAL_POSTS.map(p => [p.id, p.likes]))
+
+const ADD_BTN_STYLE: React.CSSProperties = { background: '#458482', color: '#ffffff', border: 'none' }
+const COLUMNS_STYLE: React.CSSProperties = { columnGap: '16px' }
+const FADE_TRANSITION = { duration: 0.18 }
+const CARD_ENTRY_TRANSITION = { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
+const EMPTY_ICON_STYLE: React.CSSProperties = { color: 'var(--foreground-muted)', opacity: 0.35 }
+
+const NewsPostItem = memo(function NewsPostItem({
+  post, liked, likes, onLike, onClick,
+}: {
+  post:    NewsPost
+  liked:   boolean
+  likes:   number
+  onLike:  () => void
+  onClick: (post: NewsPost) => void
+}) {
+  return (
+    <div className="break-inside-avoid mb-4">
+      <motion.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={CARD_ENTRY_TRANSITION}
+      >
+        <NewsCard
+          post={post}
+          liked={liked}
+          likes={likes}
+          onLike={onLike}
+          onClick={onClick}
+        />
+      </motion.div>
+    </div>
+  )
+})
+
+function NewsFeed() {
   const { lang, isRTL } = useLang()
 
   const [posts,    setPosts]    = useState<NewsPost[]>(INITIAL_POSTS)
@@ -111,18 +144,16 @@ export default function NewsFeed() {
   const [composer, setComposer] = useState(false)
 
   const [likedIds, setLikedIds] = useState<Set<number>>(new Set())
-  const [likesMap, setLikesMap] = useState<Record<number, number>>(
-    Object.fromEntries(INITIAL_POSTS.map(p => [p.id, p.likes]))
-  )
+  const [likesMap, setLikesMap] = useState<Record<number, number>>(INITIAL_LIKES_MAP)
 
-  const toggleLike = (id: number) => {
+  const toggleLike = useCallback((id: number) => {
     setLikedIds(prev => {
       const next = new Set(prev)
       if (next.has(id)) { next.delete(id); setLikesMap(m => ({ ...m, [id]: (m[id] ?? 0) - 1 })) }
       else               { next.add(id);    setLikesMap(m => ({ ...m, [id]: (m[id] ?? 0) + 1 })) }
       return next
     })
-  }
+  }, [])
 
   const filtered = useMemo(() => posts.filter(p => {
     const matchType   = type === 'all' || p.type === type
@@ -131,10 +162,31 @@ export default function NewsFeed() {
     return matchType && matchSearch
   }), [posts, search, type])
 
-  const handlePost = (newPost: NewsPost) => {
+  const handlePost = useCallback((newPost: NewsPost) => {
     setPosts(prev => [newPost, ...prev])
     setLikesMap(m => ({ ...m, [newPost.id]: 0 }))
-  }
+  }, [])
+
+  const handleOpenComposer = useCallback(() => setComposer(true), [])
+  const handleCloseComposer = useCallback(() => setComposer(false), [])
+  const handleCloseModal = useCallback(() => setModal(null), [])
+  const handleModalLike = useCallback(() => { setModal(m => { if (m) toggleLike(m.id); return m }) }, [toggleLike])
+
+  const handleCardLikeMap = useMemo(() => {
+    const map = new Map<number, () => void>()
+    filtered.forEach(p => map.set(p.id, () => toggleLike(p.id)))
+    return map
+  }, [filtered, toggleLike])
+
+  const addBtnTextStyle = useMemo(() => ({
+    ...ADD_BTN_STYLE,
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [lang])
+
+  const emptyTextStyle = useMemo(() => ({
+    color: 'var(--foreground-muted)',
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [lang])
 
   return (
     <div dir={isRTL ? 'rtl' : 'ltr'}>
@@ -144,12 +196,9 @@ export default function NewsFeed() {
           <NewsFilters search={search} type={type} onSearch={setSearch} onType={setType} />
         </div>
         <button
-          onClick={() => setComposer(true)}
+          onClick={handleOpenComposer}
           className="flex items-center gap-2 px-4 rounded-2xl text-[11px] font-bold cursor-pointer shrink-0"
-          style={{
-            background: '#458482', color: '#ffffff', border: 'none',
-            fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-          }}
+          style={addBtnTextStyle}
         >
           <Plus className="w-4 h-4" />
           {lang === 'ar' ? 'إضافة' : 'Add Post'}
@@ -162,28 +211,21 @@ export default function NewsFeed() {
           <motion.div
             key={`${type}-${search}`}
             className="columns-1 md:columns-2 xl:columns-3"
-            style={{ columnGap: '16px' }}
+            style={COLUMNS_STYLE}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            transition={FADE_TRANSITION}
           >
             {filtered.map(post => (
-              <div key={post.id} className="break-inside-avoid mb-4">
-                <motion.div
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
-                >
-                  <NewsCard
-                    post={post}
-                    liked={likedIds.has(post.id)}
-                    likes={likesMap[post.id] ?? post.likes}
-                    onLike={() => toggleLike(post.id)}
-                    onClick={setModal}
-                  />
-                </motion.div>
-              </div>
+              <NewsPostItem
+                key={post.id}
+                post={post}
+                liked={likedIds.has(post.id)}
+                likes={likesMap[post.id] ?? post.likes}
+                onLike={handleCardLikeMap.get(post.id)!}
+                onClick={setModal}
+              />
             ))}
           </motion.div>
         ) : (
@@ -192,11 +234,8 @@ export default function NewsFeed() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="flex flex-col items-center justify-center py-20 gap-3"
           >
-            <Newspaper className="w-8 h-8" style={{ color: 'var(--foreground-muted)', opacity: 0.35 }} />
-            <p className="text-[11px] font-semibold" style={{
-              color: 'var(--foreground-muted)',
-              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-            }}>
+            <Newspaper className="w-8 h-8" style={EMPTY_ICON_STYLE} />
+            <p className="text-[11px] font-semibold" style={emptyTextStyle}>
               {lang === 'ar' ? 'لا توجد نتائج' : 'No posts found'}
             </p>
           </motion.div>
@@ -207,15 +246,17 @@ export default function NewsFeed() {
         post={modal}
         liked={modal ? likedIds.has(modal.id) : false}
         likes={modal ? (likesMap[modal.id] ?? modal.likes) : 0}
-        onClose={() => setModal(null)}
-        onLike={() => { if (modal) toggleLike(modal.id) }}
+        onClose={handleCloseModal}
+        onLike={handleModalLike}
       />
 
       <NewsComposer
         open={composer}
-        onClose={() => setComposer(false)}
+        onClose={handleCloseComposer}
         onPost={handlePost}
       />
     </div>
   )
-} 
+}
+
+export default memo(NewsFeed)
