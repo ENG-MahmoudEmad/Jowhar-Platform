@@ -604,7 +604,8 @@ function SectionGrid({
   }), [lang])
 
   return (
-    <div dir={isRTL ? 'rtl' : 'ltr'} className="select-none">
+    <LazyMotion features={domAnimation}>
+      <div dir={isRTL ? 'rtl' : 'ltr'} className="select-none">
 
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-5">
@@ -708,6 +709,7 @@ function SectionGrid({
         )}
       </AnimatePresence>
     </div>
+    </LazyMotion>
   )
 }
 
