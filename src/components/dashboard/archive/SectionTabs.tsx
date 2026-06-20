@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useMemo, useCallback, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, X, FolderOpen } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -48,8 +48,24 @@ const INITIAL_SECTIONS: Section[] = [
   },
 ]
 
+/* ── Static style/handler constants (zero re-creation per render) ── */
+const MODAL_OVERLAY_STYLE: React.CSSProperties = {
+  background: 'rgba(0,0,0,0.6)',
+  backdropFilter: 'blur(8px)',
+  cursor: 'pointer',
+}
+
+const handleCloseBtnEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = 'var(--hover-bg)'
+}
+const handleCloseBtnLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = 'transparent'
+}
+
+const TAB_UNDERLINE_TRANSITION = { duration: 0.25, ease: [0.22, 1, 0.36, 1] as const }
+
 /* ── Add Section Modal ── */
-function AddSectionModal({
+const AddSectionModal = memo(function AddSectionModal({
   color,
   onClose,
   onAdd,
@@ -67,7 +83,7 @@ function AddSectionModal({
   const [description,   setDescription]   = useState('')
   const [descriptionAr, setDescriptionAr] = useState('')
 
-  const tx = {
+  const tx = useMemo(() => ({
     title:   lang === 'ar' ? 'إضافة تقسيم جديد'    : 'Add New Section',
     nameEn:  lang === 'ar' ? 'الاسم بالإنجليزي'     : 'English Name',
     nameAr:  lang === 'ar' ? 'الاسم بالعربي'        : 'Arabic Name',
@@ -75,9 +91,9 @@ function AddSectionModal({
     descAr:  lang === 'ar' ? 'الوصف بالعربي'        : 'Arabic Description',
     add:     lang === 'ar' ? 'إضافة التقسيم'        : 'Add Section',
     cancel:  lang === 'ar' ? 'إلغاء'                : 'Cancel',
-  }
+  }), [lang])
 
-  const inputStyle = {
+  const inputStyle = useMemo(() => ({
     background:   isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
     border:       `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.10)'}`,
     color:        'var(--foreground)',
@@ -86,9 +102,9 @@ function AddSectionModal({
     fontSize:     '12px',
     width:        '100%',
     outline:      'none',
-  }
+  }), [isDark])
 
-  const labelStyle = {
+  const labelStyle = useMemo(() => ({
     fontSize:      '10px',
     fontWeight:    700,
     color:         'var(--foreground-muted)',
@@ -97,9 +113,9 @@ function AddSectionModal({
     textTransform: 'uppercase' as const,
     letterSpacing: '0.08em',
     fontFamily:    lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-  }
+  }), [lang])
 
-  const handleAdd = () => {
+  const handleAdd = useCallback(() => {
     if (!nameEn.trim() || !nameAr.trim()) return
     const slug = nameEn.toLowerCase().replace(/\s+/g, '-')
     onAdd({
@@ -111,7 +127,28 @@ function AddSectionModal({
       itemCount:     0,
     })
     onClose()
-  }
+  }, [nameEn, nameAr, description, descriptionAr, onAdd, onClose])
+
+  const headerIconStyle = useMemo(() => ({
+    background: `linear-gradient(135deg, ${color}, ${color}99)`,
+  }), [color])
+
+  const isValid = !!(nameEn.trim() && nameAr.trim())
+
+  const addBtnStyle = useMemo(() => ({
+    background: !isValid ? 'var(--hover-bg)' : `linear-gradient(135deg, ${color}, ${color}cc)`,
+    color:      !isValid ? 'var(--foreground-muted)' : '#ffffff',
+    cursor:     !isValid ? 'not-allowed' : 'pointer',
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+    transition: 'filter 0.18s',
+  }), [isValid, color, lang])
+
+  const handleAddBtnEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (isValid) e.currentTarget.style.filter = 'brightness(1.1)'
+  }, [isValid])
+  const handleAddBtnLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.filter = 'brightness(1)'
+  }, [])
 
   return (
     <motion.div
@@ -119,7 +156,7 @@ function AddSectionModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', cursor: 'pointer' }}
+      style={MODAL_OVERLAY_STYLE}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <motion.div
@@ -140,8 +177,7 @@ function AddSectionModal({
         <div className="flex items-center justify-between px-6 py-4"
           style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={headerIconStyle}>
               <Plus className="w-4 h-4 text-white" />
             </div>
             <h2 className="text-sm font-black" style={{
@@ -155,8 +191,8 @@ function AddSectionModal({
             onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center"
             style={{ color: 'var(--foreground-muted)', cursor: 'pointer' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover-bg)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+            onMouseEnter={handleCloseBtnEnter}
+            onMouseLeave={handleCloseBtnLeave}
           >
             <X className="w-4 h-4" />
           </button>
@@ -226,17 +262,11 @@ function AddSectionModal({
           </button>
           <button
             onClick={handleAdd}
-            disabled={!nameEn.trim() || !nameAr.trim()}
+            disabled={!isValid}
             className="px-4 py-2 rounded-lg text-[11px] font-bold"
-            style={{
-              background: (!nameEn.trim() || !nameAr.trim()) ? 'var(--hover-bg)' : `linear-gradient(135deg, ${color}, ${color}cc)`,
-              color:      (!nameEn.trim() || !nameAr.trim()) ? 'var(--foreground-muted)' : '#ffffff',
-              cursor:     (!nameEn.trim() || !nameAr.trim()) ? 'not-allowed' : 'pointer',
-              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-              transition: 'filter 0.18s',
-            }}
-            onMouseEnter={e => { if (nameEn.trim() && nameAr.trim()) e.currentTarget.style.filter = 'brightness(1.1)' }}
-            onMouseLeave={e => { e.currentTarget.style.filter = 'brightness(1)' }}
+            style={addBtnStyle}
+            onMouseEnter={handleAddBtnEnter}
+            onMouseLeave={handleAddBtnLeave}
           >
             {tx.add}
           </button>
@@ -244,10 +274,83 @@ function AddSectionModal({
       </motion.div>
     </motion.div>
   )
-}
+})
+
+/* ── Single tab item (extracted for stable, isolated re-renders) ── */
+const SectionTab = memo(function SectionTab({
+  section,
+  active,
+  color,
+  isDark,
+  lang,
+  onSelect,
+}: {
+  section:  Section
+  active:   boolean
+  color:    string
+  isDark:   boolean
+  lang:     string
+  onSelect: (s: Section) => void
+}) {
+  const label = lang === 'ar' ? section.nameAr : section.nameEn
+
+  const handleClick = useCallback(() => onSelect(section), [onSelect, section])
+
+  const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!active) e.currentTarget.style.background = 'var(--hover-bg)'
+  }, [active])
+  const handleMouseLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!active) e.currentTarget.style.background = 'transparent'
+  }, [active])
+
+  const tabStyle = useMemo<React.CSSProperties>(() => ({
+    background: active
+      ? isDark ? `${color}22` : `${color}15`
+      : 'transparent',
+    color:   active ? color : 'var(--foreground-muted)',
+    border:  active
+      ? `1px solid ${color}40`
+      : `1px solid transparent`,
+    cursor:     'pointer',
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [active, isDark, color, lang])
+
+  const countBadgeStyle = useMemo<React.CSSProperties>(() => ({
+    background: active ? color + '25' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+    color:      active ? color : 'var(--foreground-muted)',
+  }), [active, color, isDark])
+
+  const underlineStyle = useMemo(() => ({ background: color }), [color])
+
+  return (
+    <button
+      onClick={handleClick}
+      className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold shrink-0 transition-all duration-200"
+      style={tabStyle}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+      {label}
+      <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black" style={countBadgeStyle}>
+        {section.itemCount}
+      </span>
+
+      {/* Active underline */}
+      {active && (
+        <motion.div
+          layoutId="tab-underline"
+          className="absolute bottom-0 inset-x-3 h-0.5 rounded-full"
+          style={underlineStyle}
+          transition={TAB_UNDERLINE_TRANSITION}
+        />
+      )}
+    </button>
+  )
+})
 
 /* ── SectionTabs ── */
-export default function SectionTabs({
+function SectionTabs({
   platformId,
   color           = '#458482',
   initialSections = INITIAL_SECTIONS,
@@ -267,21 +370,47 @@ export default function SectionTabs({
   const [activeId, setActiveId]     = useState(initialSections[0]?.id ?? '')
   const [showModal, setShowModal]   = useState(false)
 
-  const tx = {
+  const tx = useMemo(() => ({
     addSection: lang === 'ar' ? 'إضافة تقسيم' : 'Add Section',
     items:      lang === 'ar' ? 'عنصر'         : 'items',
-  }
+  }), [lang])
 
-  const handleSelect = (s: Section) => {
+  const handleSelect = useCallback((s: Section) => {
     setActiveId(s.id)
     onSectionChange?.(s)
-  }
+  }, [onSectionChange])
 
-  const handleAdd = (s: Section) => {
+  const handleAdd = useCallback((s: Section) => {
     setSections(prev => [...prev, s])
     setActiveId(s.id)
     onSectionChange?.(s)
-  }
+  }, [onSectionChange])
+
+  const handleOpenModal = useCallback(() => setShowModal(true), [])
+  const handleCloseModal = useCallback(() => setShowModal(false), [])
+
+  const activeSection = useMemo(
+    () => sections.find(s => s.id === activeId),
+    [sections, activeId]
+  )
+
+  const addSectionBtnStyle = useMemo<React.CSSProperties>(() => ({
+    background: 'transparent',
+    border:     `1px dashed ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
+    color:      'var(--foreground-muted)',
+    cursor:     'pointer',
+    transition: 'border-color 0.2s, color 0.2s',
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [isDark, lang])
+
+  const handleAddSectionEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.borderColor = color + '60'
+    e.currentTarget.style.color       = color
+  }, [color])
+  const handleAddSectionLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.borderColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'
+    e.currentTarget.style.color       = 'var(--foreground-muted)'
+  }, [isDark])
 
   return (
     <>
@@ -291,52 +420,17 @@ export default function SectionTabs({
         <div className="flex items-center gap-2 overflow-x-auto pb-1"
           style={{ scrollbarWidth: 'none' }}>
 
-          {sections.map(s => {
-            const active = s.id === activeId
-            const label  = lang === 'ar' ? s.nameAr : s.nameEn
-            return (
-              <button
-                key={s.id}
-                onClick={() => handleSelect(s)}
-                className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold shrink-0 transition-all duration-200"
-                style={{
-                  background: active
-                    ? isDark ? `${color}22` : `${color}15`
-                    : 'transparent',
-                  color:   active ? color : 'var(--foreground-muted)',
-                  border:  active
-                    ? `1px solid ${color}40`
-                    : `1px solid transparent`,
-                  cursor:     'pointer',
-                  fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                }}
-                onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--hover-bg)' }}
-                onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
-              >
-                <FolderOpen className="w-3.5 h-3.5 shrink-0" />
-                {label}
-                <span
-                  className="px-1.5 py-0.5 rounded-full text-[9px] font-black"
-                  style={{
-                    background: active ? color + '25' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-                    color:      active ? color : 'var(--foreground-muted)',
-                  }}
-                >
-                  {s.itemCount}
-                </span>
-
-                {/* Active underline */}
-                {active && (
-                  <motion.div
-                    layoutId="tab-underline"
-                    className="absolute bottom-0 inset-x-3 h-0.5 rounded-full"
-                    style={{ background: color }}
-                    transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-                  />
-                )}
-              </button>
-            )
-          })}
+          {sections.map(s => (
+            <SectionTab
+              key={s.id}
+              section={s}
+              active={s.id === activeId}
+              color={color}
+              isDark={isDark}
+              lang={lang}
+              onSelect={handleSelect}
+            />
+          ))}
 
           {/* Divider */}
           {isAdmin && (
@@ -346,24 +440,11 @@ export default function SectionTabs({
           {/* Add section button — admin only */}
           {isAdmin && (
             <button
-              onClick={() => setShowModal(true)}
+              onClick={handleOpenModal}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
-              style={{
-                background: 'transparent',
-                border:     `1px dashed ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
-                color:      'var(--foreground-muted)',
-                cursor:     'pointer',
-                transition: 'border-color 0.2s, color 0.2s',
-                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.borderColor = color + '60'
-                e.currentTarget.style.color       = color
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.borderColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'
-                e.currentTarget.style.color       = 'var(--foreground-muted)'
-              }}
+              style={addSectionBtnStyle}
+              onMouseEnter={handleAddSectionEnter}
+              onMouseLeave={handleAddSectionLeave}
             >
               <Plus className="w-3 h-3" />
               {tx.addSection}
@@ -373,9 +454,9 @@ export default function SectionTabs({
 
         {/* Active section description */}
         <AnimatePresence mode="wait">
-          {sections.filter(s => s.id === activeId).map(s => (
+          {activeSection && (
             <motion.div
-              key={s.id}
+              key={activeSection.id}
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
@@ -386,11 +467,11 @@ export default function SectionTabs({
                 fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
               }}
             >
-              {lang === 'ar' ? s.descriptionAr : s.description}
+              {lang === 'ar' ? activeSection.descriptionAr : activeSection.description}
               <span className="mx-2 opacity-30">·</span>
-              <span style={{ color }}>{s.itemCount} {tx.items}</span>
+              <span style={{ color }}>{activeSection.itemCount} {tx.items}</span>
             </motion.div>
-          ))}
+          )}
         </AnimatePresence>
 
       </div>
@@ -400,7 +481,7 @@ export default function SectionTabs({
         {showModal && (
           <AddSectionModal
             color={color}
-            onClose={() => setShowModal(false)}
+            onClose={handleCloseModal}
             onAdd={handleAdd}
           />
         )}
@@ -408,3 +489,5 @@ export default function SectionTabs({
     </>
   )
 }
+
+export default memo(SectionTabs)

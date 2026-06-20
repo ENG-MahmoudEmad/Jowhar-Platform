@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo, useCallback, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FolderOpen, ChevronRight, Layers, Plus, X, Upload, Pipette } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -93,8 +93,53 @@ declare global {
   }
 }
 
+/* ── Static style/handler constants (zero re-creation per render) ── */
+const MODAL_OVERLAY_STYLE: React.CSSProperties = {
+  background: 'rgba(0,0,0,0.6)',
+  backdropFilter: 'blur(8px)',
+  cursor: 'pointer',
+}
+
+const handleCloseBtnEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = 'var(--hover-bg)'
+}
+const handleCloseBtnLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = 'transparent'
+}
+
+const handleUploadBtnEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = 'rgba(69,132,130,0.25)'
+}
+const handleUploadBtnLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+  e.currentTarget.style.background = 'rgba(69,132,130,0.15)'
+}
+
+const UPLOAD_BTN_STYLE: React.CSSProperties = {
+  background: 'rgba(69,132,130,0.15)',
+  border:     '1px solid rgba(69,132,130,0.3)',
+  color:      '#458482',
+  cursor:     'pointer',
+  whiteSpace: 'nowrap',
+}
+
+const OPEN_BUTTON_STYLE_BASE: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.22)',
+  border:     '1px solid rgba(255,255,255,0.45)',
+  width:      'fit-content',
+  transition: 'background-color 0.18s, border-color 0.18s',
+}
+
+const handleOpenBtnEnter = (e: React.MouseEvent<HTMLDivElement>) => {
+  e.currentTarget.style.background = 'rgba(255,255,255,0.32)'
+  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.6)'
+}
+const handleOpenBtnLeave = (e: React.MouseEvent<HTMLDivElement>) => {
+  e.currentTarget.style.background = 'rgba(255,255,255,0.22)'
+  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)'
+}
+
 /* ── Add Platform Modal ── */
-function AddPlatformModal({
+const AddPlatformModal = memo(function AddPlatformModal({
   onClose,
   onAdd,
 }: {
@@ -114,7 +159,7 @@ function AddPlatformModal({
   const [thumbnailUrl,  setThumbnailUrl]  = useState('')
   const [eyedropperSupported] = useState(() => typeof window !== 'undefined' && !!window.EyeDropper)
 
-  const tx = {
+  const tx = useMemo(() => ({
     title:       lang === 'ar' ? 'إضافة منصة جديدة'        : 'Add New Platform',
     nameEn:      lang === 'ar' ? 'الاسم بالإنجليزي'         : 'English Name',
     nameEnHint:  lang === 'ar' ? 'يُستخدم كرابط URL'        : 'Used as URL slug',
@@ -128,9 +173,9 @@ function AddPlatformModal({
     add:         lang === 'ar' ? 'إضافة المنصة'             : 'Add Platform',
     cancel:      lang === 'ar' ? 'إلغاء'                    : 'Cancel',
     preview:     lang === 'ar' ? 'معاينة'                   : 'Preview',
-  }
+  }), [lang])
 
-  const handleEyeDropper = async () => {
+  const handleEyeDropper = useCallback(async () => {
     if (!window.EyeDropper) return
     try {
       const dropper = new window.EyeDropper()
@@ -139,9 +184,9 @@ function AddPlatformModal({
     } catch {
       // user cancelled
     }
-  }
+  }, [])
 
-  const handleAdd = () => {
+  const handleAdd = useCallback(() => {
     if (!nameEn.trim() || !nameAr.trim()) return
     const slug = nameEn.toLowerCase().replace(/\s+/g, '-')
     onAdd({
@@ -156,9 +201,31 @@ function AddPlatformModal({
       fileCount:     0,
     })
     onClose()
-  }
+  }, [nameEn, nameAr, description, descriptionAr, color, thumbnailUrl, onAdd, onClose])
 
-  const inputStyle = {
+  const handleEyedropperBtnEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (eyedropperSupported) e.currentTarget.style.background = 'rgba(69,132,130,0.25)'
+  }, [eyedropperSupported])
+  const handleEyedropperBtnLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    if (eyedropperSupported) e.currentTarget.style.background = 'rgba(69,132,130,0.15)'
+  }, [eyedropperSupported])
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const url = URL.createObjectURL(file)
+      setThumbnailUrl(url)
+    }
+  }, [])
+
+  const handleColorHexChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    if (/^#[0-9A-Fa-f]{0,6}$/.test(v)) setColor(v)
+  }, [])
+
+  const handleRemoveThumbnail = useCallback(() => setThumbnailUrl(''), [])
+
+  const inputStyle = useMemo(() => ({
     background:  isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
     border:      `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.10)'}`,
     color:       'var(--foreground)',
@@ -169,9 +236,9 @@ function AddPlatformModal({
     outline:     'none',
     fontFamily:  lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
     userSelect:  'text' as const,
-  }
+  }), [isDark, lang])
 
-  const labelStyle = {
+  const labelStyle = useMemo(() => ({
     fontSize:   '10px',
     fontWeight: 700,
     color:      'var(--foreground-muted)',
@@ -180,7 +247,23 @@ function AddPlatformModal({
     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
     textTransform: 'uppercase' as const,
     letterSpacing: '0.08em',
-  }
+  }), [lang])
+
+  const eyedropperBtnStyle = useMemo(() => ({
+    background: eyedropperSupported ? 'rgba(69,132,130,0.15)' : 'var(--hover-bg)',
+    border:     `1px solid ${eyedropperSupported ? 'rgba(69,132,130,0.35)' : 'var(--divider)'}`,
+    color:      eyedropperSupported ? '#458482' : 'var(--foreground-muted)',
+    cursor:     eyedropperSupported ? 'pointer' : 'not-allowed',
+    opacity:    eyedropperSupported ? 1 : 0.5,
+    whiteSpace: 'nowrap' as const,
+  }), [eyedropperSupported])
+
+  const addBtnStyle = useMemo(() => ({
+    background: (!nameEn.trim() || !nameAr.trim()) ? 'var(--hover-bg)' : 'linear-gradient(135deg, #458482, #5ea8a4)',
+    color:      (!nameEn.trim() || !nameAr.trim()) ? 'var(--foreground-muted)' : '#ffffff',
+    cursor:     (!nameEn.trim() || !nameAr.trim()) ? 'not-allowed' : 'pointer',
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [nameEn, nameAr, lang])
 
   return (
     <motion.div
@@ -188,7 +271,7 @@ function AddPlatformModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none"
-      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', cursor: 'pointer' }}
+      style={MODAL_OVERLAY_STYLE}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <motion.div
@@ -225,8 +308,8 @@ function AddPlatformModal({
           <button onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
             style={{ color: 'var(--foreground-muted)', cursor: 'pointer' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover-bg)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+            onMouseEnter={handleCloseBtnEnter}
+            onMouseLeave={handleCloseBtnLeave}
           >
             <X className="w-4 h-4" />
           </button>
@@ -323,15 +406,9 @@ function AddPlatformModal({
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition-all shrink-0"
-                style={{
-                  background: 'rgba(69,132,130,0.15)',
-                  border:     '1px solid rgba(69,132,130,0.3)',
-                  color:      '#458482',
-                  cursor:     'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(69,132,130,0.25)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(69,132,130,0.15)' }}
+                style={UPLOAD_BTN_STYLE}
+                onMouseEnter={handleUploadBtnEnter}
+                onMouseLeave={handleUploadBtnLeave}
               >
                 <Upload className="w-3.5 h-3.5" />
                 {lang === 'ar' ? 'اختر صورة' : 'Choose File'}
@@ -342,13 +419,7 @@ function AddPlatformModal({
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={e => {
-                const file = e.target.files?.[0]
-                if (file) {
-                  const url = URL.createObjectURL(file)
-                  setThumbnailUrl(url)
-                }
-              }}
+              onChange={handleFileChange}
             />
             {thumbnailUrl && (
               <div className="mt-2 flex items-center gap-2">
@@ -356,7 +427,7 @@ function AddPlatformModal({
                 <span className="text-[9px]" style={{ color: 'var(--foreground-muted)' }}>
                   {lang === 'ar' ? 'معاينة الصورة' : 'Image preview'}
                 </span>
-                <button onClick={() => setThumbnailUrl('')} className="text-[9px]" style={{ color: '#ef4444', cursor: 'pointer' }}>
+                <button onClick={handleRemoveThumbnail} className="text-[9px]" style={{ color: '#ef4444', cursor: 'pointer' }}>
                   {lang === 'ar' ? 'حذف' : 'Remove'}
                 </button>
               </div>
@@ -385,10 +456,7 @@ function AddPlatformModal({
               {/* Color hex input */}
               <input
                 value={color}
-                onChange={e => {
-                  const v = e.target.value
-                  if (/^#[0-9A-Fa-f]{0,6}$/.test(v)) setColor(v)
-                }}
+                onChange={handleColorHexChange}
                 placeholder="#458482"
                 style={{ ...inputStyle, width: '110px', fontFamily: 'monospace', fontSize: '12px' }}
               />
@@ -399,16 +467,9 @@ function AddPlatformModal({
                 disabled={!eyedropperSupported}
                 title={eyedropperSupported ? tx.eyedropper : tx.noSupport}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition-all"
-                style={{
-                  background: eyedropperSupported ? 'rgba(69,132,130,0.15)' : 'var(--hover-bg)',
-                  border:     `1px solid ${eyedropperSupported ? 'rgba(69,132,130,0.35)' : 'var(--divider)'}`,
-                  color:      eyedropperSupported ? '#458482' : 'var(--foreground-muted)',
-                  cursor:     eyedropperSupported ? 'pointer' : 'not-allowed',
-                  opacity:    eyedropperSupported ? 1 : 0.5,
-                  whiteSpace: 'nowrap',
-                }}
-                onMouseEnter={e => { if (eyedropperSupported) e.currentTarget.style.background = 'rgba(69,132,130,0.25)' }}
-                onMouseLeave={e => { if (eyedropperSupported) e.currentTarget.style.background = 'rgba(69,132,130,0.15)' }}
+                style={eyedropperBtnStyle}
+                onMouseEnter={handleEyedropperBtnEnter}
+                onMouseLeave={handleEyedropperBtnLeave}
               >
                 <Pipette className="w-3.5 h-3.5" />
                 {tx.eyedropper}
@@ -447,12 +508,7 @@ function AddPlatformModal({
             onClick={handleAdd}
             disabled={!nameEn.trim() || !nameAr.trim()}
             className="px-4 py-2 rounded-lg text-[11px] font-bold transition-all"
-            style={{
-              background: (!nameEn.trim() || !nameAr.trim()) ? 'var(--hover-bg)' : 'linear-gradient(135deg, #458482, #5ea8a4)',
-              color:      (!nameEn.trim() || !nameAr.trim()) ? 'var(--foreground-muted)' : '#ffffff',
-              cursor:     (!nameEn.trim() || !nameAr.trim()) ? 'not-allowed' : 'pointer',
-              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-            }}
+            style={addBtnStyle}
           >
             {tx.add}
           </button>
@@ -460,38 +516,31 @@ function AddPlatformModal({
       </motion.div>
     </motion.div>
   )
-}
+})
 
 /* ── Open Platform button with hover effect ── */
-function OpenButton({ label, color }: { label: string; color: string }) {
+const OpenButton = memo(function OpenButton({ label, color }: { label: string; color: string }) {
+  const style = useMemo(() => ({
+    ...OPEN_BUTTON_STYLE_BASE,
+    boxShadow: `0 10px 24px ${color}22`,
+  }), [color])
+
   return (
     <div
       className="group inline-flex h-11 items-center gap-2 rounded-lg px-4 text-[12px] font-bold text-white cursor-pointer select-none"
-      style={{
-        background: 'rgba(255,255,255,0.22)',
-        border:     '1px solid rgba(255,255,255,0.45)',
-        boxShadow:  `0 10px 24px ${color}22`,
-        width:      'fit-content',
-        transition: 'background-color 0.18s, border-color 0.18s',
-      }}
-      onMouseEnter={e => {
-        e.currentTarget.style.background = 'rgba(255,255,255,0.32)'
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.6)'
-      }}
-      onMouseLeave={e => {
-        e.currentTarget.style.background = 'rgba(255,255,255,0.22)'
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)'
-      }}
+      style={style}
+      onMouseEnter={handleOpenBtnEnter}
+      onMouseLeave={handleOpenBtnLeave}
     >
       <FolderOpen className="h-4 w-4 shrink-0" />
       <span className="leading-none">{label}</span>
       <ChevronRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" />
     </div>
   )
-}
+})
 
 /* ── Single card ── */
-function PlatformCard({ platform, index }: { platform: Platform; index: number }) {
+const PlatformCard = memo(function PlatformCard({ platform, index }: { platform: Platform; index: number }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const router          = useRouter()
@@ -500,15 +549,69 @@ function PlatformCard({ platform, index }: { platform: Platform; index: number }
 
   const name = lang === 'ar' ? platform.nameAr        : platform.nameEn
   const desc = lang === 'ar' ? platform.descriptionAr : platform.description
-  const slug = platform.nameEn.toLowerCase().replace(/\s+/g, '-')
 
-  const tx = {
+  const slug = useMemo(
+    () => platform.nameEn.toLowerCase().replace(/\s+/g, '-'),
+    [platform.nameEn]
+  )
+
+  const tx = useMemo(() => ({
     folders: lang === 'ar' ? 'مجلد'       : 'folders',
     files:   lang === 'ar' ? 'ملف'        : 'files',
     open:    lang === 'ar' ? 'فتح المنصة' : 'Open Platform',
-  }
+  }), [lang])
 
-  const firstLetter = (lang === 'ar' ? platform.nameAr : platform.nameEn).charAt(0)
+  const firstLetter = useMemo(
+    () => (lang === 'ar' ? platform.nameAr : platform.nameEn).charAt(0),
+    [lang, platform.nameAr, platform.nameEn]
+  )
+
+  const handleMouseEnter = useCallback(() => setHovered(true), [])
+  const handleMouseLeave = useCallback(() => setHovered(false), [])
+  const handleClick = useCallback(() => router.push(`/archive/${slug}`), [router, slug])
+
+  const cardStyle = useMemo<React.CSSProperties>(() => ({
+    background: isDark
+      ? `linear-gradient(145deg, #161b22, ${platform.color}15)`
+      : `linear-gradient(145deg, #ffffff, ${platform.color}10)`,
+    border:     `1px solid ${hovered
+      ? platform.color + '55'
+      : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`,
+    boxShadow:  hovered ? `0 8px 32px ${platform.color}28` : 'none',
+    transition: 'border-color 0.3s, box-shadow 0.3s',
+  }), [isDark, hovered, platform.color])
+
+  const thumbBgStyle = useMemo<React.CSSProperties>(() => ({
+    aspectRatio: '1 / 1',
+    background:  `linear-gradient(135deg, ${platform.color}22, ${platform.color}08)`,
+  }), [platform.color])
+
+  const radialStyle = useMemo<React.CSSProperties>(() => ({
+    backgroundImage: `radial-gradient(circle at 30% 50%, ${platform.color}35 0%, transparent 60%),
+                      radial-gradient(circle at 80% 20%, ${platform.color}20 0%, transparent 50%)`,
+  }), [platform.color])
+
+  const topLineStyle = useMemo<React.CSSProperties>(() => ({
+    background: `linear-gradient(${isRTL ? '270deg' : '90deg'}, ${platform.color}, transparent)`,
+  }), [isRTL, platform.color])
+
+  const chevronStyle = useMemo<React.CSSProperties>(() => ({
+    color:     platform.color,
+    transform: hovered
+      ? isRTL ? 'rotate(180deg) translateX(4px)' : 'translateX(4px)'
+      : isRTL ? 'rotate(180deg)' : 'none',
+  }), [platform.color, hovered, isRTL])
+
+  const overlayStyle = useMemo<React.CSSProperties>(() => ({
+    pointerEvents: hovered ? 'auto' : 'none',
+    cursor:        'pointer',
+    background: `linear-gradient(to top,
+      ${platform.color}ff 0%,
+      ${platform.color}f5 25%,
+      ${platform.color}dd 50%,
+      ${platform.color}99 70%,
+      transparent 100%)`,
+  }), [hovered, platform.color])
 
   return (
     <motion.div
@@ -516,32 +619,14 @@ function PlatformCard({ platform, index }: { platform: Platform; index: number }
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       className="relative rounded-2xl overflow-hidden cursor-pointer select-none"
-      style={{
-        background: isDark
-          ? `linear-gradient(145deg, #161b22, ${platform.color}15)`
-          : `linear-gradient(145deg, #ffffff, ${platform.color}10)`,
-        border:     `1px solid ${hovered
-          ? platform.color + '55'
-          : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`,
-        boxShadow:  hovered ? `0 8px 32px ${platform.color}28` : 'none',
-        transition: 'border-color 0.3s, box-shadow 0.3s',
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={() => router.push(`/archive/${slug}`)}
+      style={cardStyle}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
     >
       {/* ── Square thumbnail ── */}
-      <div
-        className="relative w-full overflow-hidden"
-        style={{
-          aspectRatio: '1 / 1',
-          background:  `linear-gradient(135deg, ${platform.color}22, ${platform.color}08)`,
-        }}
-      >
-        <div className="absolute inset-0" style={{
-          backgroundImage: `radial-gradient(circle at 30% 50%, ${platform.color}35 0%, transparent 60%),
-                            radial-gradient(circle at 80% 20%, ${platform.color}20 0%, transparent 50%)`,
-        }} />
+      <div className="relative w-full overflow-hidden" style={thumbBgStyle}>
+        <div className="absolute inset-0" style={radialStyle} />
 
         {!platform.thumbnail && (
           <div className="absolute inset-0 flex items-center justify-center select-none">
@@ -564,9 +649,7 @@ function PlatformCard({ platform, index }: { platform: Platform; index: number }
           />
         )}
 
-        <div className="absolute top-0 inset-x-0 h-0.5" style={{
-          background: `linear-gradient(${isRTL ? '270deg' : '90deg'}, ${platform.color}, transparent)`,
-        }} />
+        <div className="absolute top-0 inset-x-0 h-0.5" style={topLineStyle} />
 
         <div className="absolute bottom-3 flex items-center gap-2"
           style={{ [isRTL ? 'right' : 'left']: '12px' }}>
@@ -601,12 +684,7 @@ function PlatformCard({ platform, index }: { platform: Platform; index: number }
           }}>
             {name}
           </h3>
-          <ChevronRight className="w-4 h-4 shrink-0 transition-all duration-300" style={{
-            color:     platform.color,
-            transform: hovered
-              ? isRTL ? 'rotate(180deg) translateX(4px)' : 'translateX(4px)'
-              : isRTL ? 'rotate(180deg)' : 'none',
-          }} />
+          <ChevronRight className="w-4 h-4 shrink-0 transition-all duration-300" style={chevronStyle} />
         </div>
       </div>
 
@@ -615,16 +693,7 @@ function PlatformCard({ platform, index }: { platform: Platform; index: number }
         animate={{ opacity: hovered ? 1 : 0 }}
         transition={{ duration: 0.2 }}
         className="absolute inset-0 z-10 flex flex-col justify-end p-5"
-        style={{
-          pointerEvents: hovered ? 'auto' : 'none',
-          cursor:        'pointer',
-          background: `linear-gradient(to top,
-            ${platform.color}ff 0%,
-            ${platform.color}f5 25%,
-            ${platform.color}dd 50%,
-            ${platform.color}99 70%,
-            transparent 100%)`,
-        }}
+        style={overlayStyle}
       >
         <motion.div
           animate={{ y: hovered ? 0 : 10, opacity: hovered ? 1 : 0 }}
@@ -640,10 +709,10 @@ function PlatformCard({ platform, index }: { platform: Platform; index: number }
       </motion.div>
     </motion.div>
   )
-}
+})
 
 /* ── Grid ── */
-export default function PlatformGrid({
+function PlatformGrid({
   initialPlatforms = PLATFORMS,
   isAdmin          = true,   // ← بتربطه بالباك اند بعدين
 }: {
@@ -656,14 +725,39 @@ export default function PlatformGrid({
   const [platforms, setPlatforms] = useState<Platform[]>(initialPlatforms)
   const [showModal, setShowModal] = useState(false)
 
-  const tx = {
+  const tx = useMemo(() => ({
     title:       lang === 'ar' ? 'المنصات'       : 'Platforms',
     addPlatform: lang === 'ar' ? 'إضافة منصة'    : 'Add Platform',
-  }
+  }), [lang])
 
-  const handleAdd = (p: Platform) => {
+  const handleAdd = useCallback((p: Platform) => {
     setPlatforms(prev => [...prev, p])
-  }
+  }, [])
+
+  const handleOpenModal = useCallback(() => setShowModal(true), [])
+  const handleCloseModal = useCallback(() => setShowModal(false), [])
+
+  const handleAddBtnEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.filter = 'brightness(1.08)'
+    e.currentTarget.style.boxShadow = '0 8px 20px rgba(69,132,130,0.22)'
+  }, [])
+  const handleAddBtnLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.filter = 'brightness(1)'
+    e.currentTarget.style.boxShadow = '0 0 0 rgba(69,132,130,0)'
+  }, [])
+
+  const handleDashedCardEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.borderColor = '#45848270'
+  }, [])
+  const handleDashedCardLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.borderColor = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)'
+  }, [isDark])
+
+  const dashedCardStyle = useMemo<React.CSSProperties>(() => ({
+    background:  'transparent',
+    border:      `2px dashed ${isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)'}`,
+    transition:  'border-color 0.3s',
+  }), [isDark])
 
   return (
     <div dir={isRTL ? 'rtl' : 'ltr'} className="select-none">
@@ -683,7 +777,7 @@ export default function PlatformGrid({
         {/* Add button — admin only */}
         {isAdmin && (
           <motion.button
-            onClick={() => setShowModal(true)}
+            onClick={handleOpenModal}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold"
             style={{
               background: 'linear-gradient(135deg, #458482, #5ea8a4)',
@@ -693,14 +787,8 @@ export default function PlatformGrid({
               cursor:     'pointer',
               transition: 'filter 0.18s, box-shadow 0.18s',
             }}
-            onMouseEnter={e => {
-              e.currentTarget.style.filter = 'brightness(1.08)'
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(69,132,130,0.22)'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.filter = 'brightness(1)'
-              e.currentTarget.style.boxShadow = '0 0 0 rgba(69,132,130,0)'
-            }}
+            onMouseEnter={handleAddBtnEnter}
+            onMouseLeave={handleAddBtnLeave}
           >
             <Plus className="w-3 h-3" />
             {tx.addPlatform}
@@ -720,15 +808,11 @@ export default function PlatformGrid({
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: platforms.length * 0.06 }}
-            onClick={() => setShowModal(true)}
+            onClick={handleOpenModal}
             className="relative rounded-2xl overflow-hidden cursor-pointer flex flex-col"
-            style={{
-              background:  'transparent',
-              border:      `2px dashed ${isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)'}`,
-              transition:  'border-color 0.3s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = '#45848270' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)' }}
+            style={dashedCardStyle}
+            onMouseEnter={handleDashedCardEnter}
+            onMouseLeave={handleDashedCardLeave}
           >
             <div
               className="w-full flex flex-col items-center justify-center gap-3"
@@ -752,7 +836,7 @@ export default function PlatformGrid({
       <AnimatePresence>
         {showModal && (
           <AddPlatformModal
-            onClose={() => setShowModal(false)}
+            onClose={handleCloseModal}
             onAdd={handleAdd}
           />
         )}
@@ -760,3 +844,5 @@ export default function PlatformGrid({
     </div>
   )
 }
+
+export default memo(PlatformGrid)
