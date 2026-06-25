@@ -3,7 +3,7 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
   LayoutDashboard, CheckSquare, Archive,
-  Newspaper, LogOut, Settings, ChevronRight,
+  Newspaper, LogOut, UserCircle, ChevronRight,
   PanelLeftClose, PanelLeftOpen, Sun, Moon, Languages,
   type LucideIcon,
 } from 'lucide-react';
@@ -25,7 +25,7 @@ const menuItems: MenuItem[] = [
   { nameEn: 'My Tasks',      nameAr: 'مهامي',          icon: CheckSquare,     path: '/my-tasks' },
   { nameEn: 'Archive',       nameAr: 'الأرشيف',        icon: Archive,         path: '/archive' },
   { nameEn: 'News Feed',     nameAr: 'الأخبار',        icon: Newspaper,       path: '/news' },
-  { nameEn: 'Settings',      nameAr: 'الإعدادات',      icon: Settings,        path: '/settings' },
+  { nameEn: 'Profile',       nameAr: 'الملف الشخصي',   icon: UserCircle,      path: '/profile' },
 ];
 
 interface SidebarProps {

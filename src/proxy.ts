@@ -13,7 +13,7 @@ const previewPublicPaths = [
   '/my-tasks',
   '/archive',
   '/news',
-  '/settings',
+  '/profile',
 ];
 
 export function proxy(request: NextRequest) {

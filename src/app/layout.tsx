@@ -9,14 +9,12 @@ const inter = Inter({
   subsets: ["latin"],
   display: "swap",
 });
-
 const montserrat = Montserrat({
   variable: "--font-montserrat",
   subsets: ["latin"],
   display: "swap",
   weight: ["400", "700", "900"],
 });
-
 const cairo = Cairo({
   variable: "--font-cairo",
   subsets: ["arabic", "latin"],
@@ -30,38 +28,20 @@ export const metadata: Metadata = {
 };
 
 type Theme = "dark" | "light";
-type Lang = "en" | "ar";
+type Lang  = "en"   | "ar";
 
-const themeBootScript = `
-(function () {
-  try {
-    var theme = localStorage.getItem('jowhar-theme') || 'dark';
-    var lang = localStorage.getItem('jowhar-lang') || 'en';
-    if (theme !== 'light' && theme !== 'dark') theme = 'dark';
-    if (lang !== 'ar' && lang !== 'en') lang = 'en';
-
-    var root = document.documentElement;
-    root.classList.remove('light', 'dark');
-    root.classList.add(theme);
-    root.lang = lang;
-    root.dir = lang === 'ar' ? 'rtl' : 'ltr';
-
-    document.cookie = 'jowhar-theme=' + theme + '; path=/; max-age=31536000; samesite=lax';
-    document.cookie = 'jowhar-lang=' + lang + '; path=/; max-age=31536000; samesite=lax';
-  } catch (_) {}
-})();
-`;
+const themeBootScript = `(function(){try{var t=localStorage.getItem('jowhar-theme')||'dark';var l=localStorage.getItem('jowhar-lang')||'en';if(t!=='light'&&t!=='dark')t='dark';if(l!=='ar'&&l!=='en')l='en';var r=document.documentElement;r.classList.remove('light','dark');r.classList.add(t);r.lang=l;r.dir=l==='ar'?'rtl':'ltr';document.cookie='jowhar-theme='+t+'; path=/; max-age=31536000; samesite=lax';document.cookie='jowhar-lang='+l+'; path=/; max-age=31536000; samesite=lax';}catch(_){}})();`;
 
 export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const cookieStore = await cookies();
-  const themeCookie = cookieStore.get("jowhar-theme")?.value;
-  const langCookie = cookieStore.get("jowhar-lang")?.value;
+  const cookieStore  = await cookies();
+  const themeCookie  = cookieStore.get("jowhar-theme")?.value;
+  const langCookie   = cookieStore.get("jowhar-lang")?.value;
   const initialTheme: Theme = themeCookie === "light" ? "light" : "dark";
-  const initialLang: Lang = langCookie === "ar" ? "ar" : "en";
+  const initialLang:  Lang  = langCookie  === "ar"    ? "ar"    : "en";
 
   return (
     <html
@@ -70,9 +50,7 @@ export default async function RootLayout({
       className={`${inter.variable} ${montserrat.variable} ${cairo.variable} h-full antialiased ${initialTheme}`}
       suppressHydrationWarning
     >
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
-      </head>
+      <head dangerouslySetInnerHTML={{ __html: `<script>${themeBootScript}</script>` }} suppressHydrationWarning />
       <body className="min-h-full flex flex-col font-sans bg-[var(--background)] text-[var(--foreground)]">
         <Providers initialTheme={initialTheme} initialLang={initialLang}>
           {children}
