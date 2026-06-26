@@ -8,13 +8,14 @@ import { useLang }  from '@/context/LangContext';
 
 /* ─── Types ─── */
 interface ProfileHeroProps {
-  name:           string;        // always English — never translates
-  role:           string;        // English key  e.g. "Animator Pro"
-  roleAr?:        string;        // Arabic translation of role (set by admin)
+  name:           string;
+  role:           string;
+  roleAr?:        string;
   avatarUrl?:     string;
-  joinedDate:     string;        // ISO string  e.g. "2024-03-15"
+  joinedDate:     string;
+  memberColor?:   string;  // personal color — set by admin, read-only
   isAdmin?:       boolean;
-  canEditAvatar?: boolean;       // controlled by admin
+  canEditAvatar?: boolean;
 }
 
 /* ─── Helpers ─── */
@@ -56,6 +57,7 @@ export default function ProfileHero({
   roleAr,
   avatarUrl,
   joinedDate,
+  memberColor,
   isAdmin       = false,
   canEditAvatar = true,
 }: ProfileHeroProps) {
@@ -244,45 +246,54 @@ export default function ProfileHero({
 
         {/* Name + meta */}
         <div className="flex flex-col gap-1.5">
-          <motion.h1
+          <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-            className="text-2xl sm:text-3xl font-black tracking-tight leading-none"
-            style={{
-              color:      textMain,
-              fontFamily: 'inherit', // name is always Latin
-            }}
           >
-            {name}
-          </motion.h1>
+            <h1
+              className="text-2xl sm:text-3xl font-black tracking-tight leading-none"
+              style={{ color: textMain, fontFamily: 'inherit' }}
+            >
+              {name}
+            </h1>
+          </motion.div>
 
-          {/* Role — read-only indicator */}
+          {/* Member color block — replaces the duplicate role text */}
           <motion.div
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
             className="flex items-center gap-2"
           >
-            <span
-              className="text-xs font-bold uppercase tracking-widest"
-              style={{
-                color:      roleColor,
-                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-              }}
-            >
-              {displayRole}
-            </span>
-            <span
-              className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
-              style={{
-                background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-                color:      textMuted,
-                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-              }}
-            >
-              {lang === 'ar' ? 'لا يمكن تغييره' : 'Set by admin'}
-            </span>
+            {memberColor ? (
+              <>
+                <div
+                  className="w-5 h-5 rounded-md shrink-0"
+                  style={{
+                    background: memberColor,
+                    boxShadow:  `0 0 0 3px ${memberColor}30, 0 2px 8px ${memberColor}60`,
+                  }}
+                />
+                <span
+                  className="text-xs font-bold"
+                  style={{ color: memberColor, fontFamily: 'monospace' }}
+                >
+                  {memberColor.toUpperCase()}
+                </span>
+              </>
+            ) : (
+              /* fallback — show role if no color assigned yet */
+              <span
+                className="text-xs font-bold uppercase tracking-widest"
+                style={{
+                  color:      roleColor,
+                  fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                }}
+              >
+                {displayRole}
+              </span>
+            )}
           </motion.div>
 
           {/* Join date */}
