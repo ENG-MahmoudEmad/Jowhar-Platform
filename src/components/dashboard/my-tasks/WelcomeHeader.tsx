@@ -7,17 +7,13 @@ import { useLang }  from "@/context/LangContext";
 import DiamondGem   from "./DiamondGem";
 
 interface WelcomeHeaderProps {
-  /** Display name of the logged-in member */
-  name:   string;
-  /** Arabic display name */
+  name:    string;
   nameAr?: string;
-  /** HSL hue 0-360 — drives both gem colour and name colour */
-  hue:    number;
-  /** HSL saturation 0-100 (default 45) */
-  sat?:   number;
+  hue:     number;
+  sat?:    number;
 }
 
-// ─── Module-level constants — fully static motion/style config, zero per-render allocation ──
+// ─── Module-level constants ───────────────────────────────────────────────────
 const TEXT_BLOCK_GAP_STYLE: React.CSSProperties = { gap: "2px" };
 
 const TEXT_BLOCK_VARIANTS = {
@@ -25,30 +21,39 @@ const TEXT_BLOCK_VARIANTS = {
   show: { transition: { staggerChildren: 0.07, delayChildren: 0.12 } },
 };
 
-// Identical between the two text lines — hoisted once instead of two duplicate literals
 const LINE_VARIANTS = {
   hidden: { opacity: 0, y: 12 },
   show:   { opacity: 1, y: 0 },
 };
 const LINE_TRANSITION = { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const };
 
-const GEM_INITIAL = { opacity: 0, scale: 0.9, rotate: -4 };
-const GEM_ANIMATE = { opacity: 1, scale: 1, rotate: 0 };
+const GEM_INITIAL    = { opacity: 0, scale: 0.9, rotate: -4 };
+const GEM_ANIMATE    = { opacity: 1, scale: 1,   rotate: 0  };
 const GEM_TRANSITION = { delay: 0.08, duration: 0.55, ease: [0.22, 1, 0.36, 1] as const };
 
-function WelcomeHeader({
-  name,
-  nameAr,
-  hue,
-  sat = 45,
-}: WelcomeHeaderProps) {
+// ─── Helper ───────────────────────────────────────────────────────────────────
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100; l /= 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) =>
+    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return (
+    "#" +
+    [f(0), f(8), f(4)]
+      .map((x) => Math.round(x * 255).toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+function WelcomeHeader({ name, nameAr, hue, sat = 45 }: WelcomeHeaderProps) {
   const { theme }       = useTheme();
   const { lang, isRTL } = useLang();
   const isDark          = theme === "dark";
 
-  /* Derive a readable name-colour from hue:
-     dark mode  → light tint  (same as brand-light pattern)
-     light mode → darker shade so it's legible on white bg  */
+  const memberColor = hslToHex(hue, sat, isDark ? 55 : 45);
+
   const nameColor = isDark
     ? `hsl(${hue}, ${sat}%, 65%)`
     : `hsl(${hue}, ${sat + 10}%, 38%)`;
@@ -56,36 +61,37 @@ function WelcomeHeader({
   const displayName = lang === "ar" && nameAr ? nameAr : name;
   const welcomeText = lang === "ar" ? "مرحباً" : "Welcome";
 
-  const welcomeTextStyle = useMemo<React.CSSProperties>(() => ({
-    fontSize:   "clamp(2rem, 4vw, 3rem)",
-    color:      "var(--foreground)",
-    fontFamily: lang === "ar" ? "var(--font-arabic)" : "var(--font-display)",
-    letterSpacing: lang === "ar" ? "0" : "-0.02em",
-  }), [lang]);
+  const welcomeTextStyle = useMemo<React.CSSProperties>(
+    () => ({
+      fontSize:      "clamp(2rem, 4vw, 3rem)",
+      color:         "var(--foreground)",
+      fontFamily:    lang === "ar" ? "var(--font-arabic)" : "var(--font-display)",
+      letterSpacing: lang === "ar" ? "0" : "-0.02em",
+    }),
+    [lang]
+  );
 
-  const nameTextStyle = useMemo<React.CSSProperties>(() => ({
-    fontSize:   "clamp(2rem, 4vw, 3rem)",
-    color:      nameColor,
-    fontFamily: lang === "ar" ? "var(--font-arabic)" : "var(--font-display)",
-    letterSpacing: lang === "ar" ? "0" : "-0.02em",
-    /* subtle text-shadow glow matching gem colour */
-    textShadow: isDark
-      ? `0 0 32px hsl(${hue}, ${sat}%, 55%, 0.35)`
-      : `0 2px 12px hsl(${hue}, ${sat}%, 55%, 0.2)`,
-  }), [lang, nameColor, isDark, hue, sat]);
+  const nameTextStyle = useMemo<React.CSSProperties>(
+    () => ({
+      fontSize:      "clamp(2rem, 4vw, 3rem)",
+      color:         nameColor,
+      fontFamily:    lang === "ar" ? "var(--font-arabic)" : "var(--font-display)",
+      letterSpacing: lang === "ar" ? "0" : "-0.02em",
+      textShadow:    isDark
+        ? `0 0 32px hsl(${hue}, ${sat}%, 55%, 0.35)`
+        : `0 2px 12px hsl(${hue}, ${sat}%, 55%, 0.2)`,
+    }),
+    [lang, nameColor, isDark, hue, sat]
+  );
 
   return (
     <LazyMotion features={domAnimation}>
       <div dir={isRTL ? "rtl" : "ltr"} className="flex items-center gap-6">
+
         {/* Gem */}
-        <m.div
-          initial={GEM_INITIAL}
-          animate={GEM_ANIMATE}
-          transition={GEM_TRANSITION}
-        >
+        <m.div initial={GEM_INITIAL} animate={GEM_ANIMATE} transition={GEM_TRANSITION}>
           <DiamondGem
-            hue={hue}
-            sat={sat}
+            memberColor={memberColor}
             size={130}
             floatDelay={0}
             isDark={isDark}
@@ -118,6 +124,7 @@ function WelcomeHeader({
             {displayName}
           </m.span>
         </m.div>
+
       </div>
     </LazyMotion>
   );
