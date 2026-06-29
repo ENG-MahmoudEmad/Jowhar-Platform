@@ -1,0 +1,5 @@
+- [ ] Identify the desktop-only regression in src/components/dashboard/Leaderboard.tsx caused by previous edits.
+- [ ] Patch Leaderboard desktop layout so TrophySVG/MedalSVG render correctly on large screens.
+- [ ] Replace onMouseMove/onMouseLeave with pointer events + safe hover handling.
+- [ ] Remove/adjust 3D transform usage on desktop (preserve-3d) to prevent SVG filters from disappearing.
+- [ ] Run lint/build (npm run lint / npm run build) to ensure no TS/Next errors.

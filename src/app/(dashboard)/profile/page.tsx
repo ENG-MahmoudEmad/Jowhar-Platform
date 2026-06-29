@@ -8,14 +8,15 @@ export default function ProfilePage() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
 
-      <ProfileHero
-        name="Alwaqee"
-        role="Animator Pro"
-        roleAr="محرك محترف"
-        joinedDate="2024-03-15"
-        isAdmin={false}
-        canEditAvatar={true}
-      />
+        <ProfileHero
+          name="Alwaqee"
+          role="Animator Pro"
+          roleAr="محرك محترف"
+          joinedDate="2024-03-15"
+          memberColor="#f59e0b"   // ← أضف هذا بأي لون تبيه للتجربة
+          isAdmin={false}
+          canEditAvatar={true}
+        />
 
       <PersonalInfo
         name="Alwaqee"

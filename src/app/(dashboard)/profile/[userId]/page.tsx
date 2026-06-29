@@ -83,7 +83,7 @@ export default function MemberProfilePage({
         role={member.role}
         roleAr={member.roleAr}
         joinedDate={member.joinedDate}
-        memberColor="#000" 
+        memberColor={member.memberColor}
         isAdmin={member.isAdmin}
         canEditAvatar={CURRENT_USER_IS_ADMIN ? true : !member.restrictions.avatarLocked}
       />

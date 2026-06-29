@@ -258,14 +258,14 @@ function DeadlineCountdown() {
     {
       key: 'prev',
       label: copy.previous,
-      onClick: () => goTo(isRTL ? activeIdx + 1 : activeIdx - 1),
+      onClick: () => goTo(activeIdx - 1),
       side: isRTL ? { right: 10 } : { left: 10 },
       Icon: isRTL ? ChevronRight : ChevronLeft,
     },
     {
       key: 'next',
       label: copy.next,
-      onClick: () => goTo(isRTL ? activeIdx - 1 : activeIdx + 1),
+      onClick: () => goTo(activeIdx + 1),
       side: isRTL ? { left: 10 } : { right: 10 },
       Icon: isRTL ? ChevronLeft : ChevronRight,
     },

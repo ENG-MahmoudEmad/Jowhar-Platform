@@ -3,10 +3,8 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 
 interface DiamondGemProps {
-  /** HSL hue 0-360 — controls the gem colour */
-  hue: number;
-  /** HSL saturation 0-100 (default 40) */
-  sat?: number;
+  /** hex colour from ProfileHero — same prop */
+  memberColor?: string;
   /** Canvas render size in px (default 160) */
   size?: number;
   /** Float animation phase offset in seconds (default 0) */
@@ -19,6 +17,35 @@ interface DiamondGemProps {
 
 // ─── Module-level static style (zero dependency on props/state) ────────────────
 const CANVAS_STYLE: React.CSSProperties = { display: "block" };
+
+// ─── hex → HSL hue extractor ─────────────────────────────────────────────────
+function hexToHue(hex: string): { hue: number; sat: number } {
+  const clean = hex.replace("#", "");
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d   = max - min;
+
+  let h = 0;
+  if (d !== 0) {
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6;               break;
+      case b: h = ((r - g) / d + 4) / 6;               break;
+    }
+  }
+
+  const l   = (max + min) / 2;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+
+  return {
+    hue: Math.round(h * 360),
+    sat: Math.round(sat * 100),
+  };
+}
 
 // ─── Core draw function (pure, no React deps) ────────────────────────────────
 function drawDiamond(
@@ -52,7 +79,7 @@ function drawDiamond(
     `hsla(${h},${s}%,${l}%,${a})`;
 
   // Light mode lifts all lightness values; dark mode keeps them rich & deep
-  const lo = isDark ? 0 : 18;   // lightness offset (+18 in light mode)
+  const lo = isDark ? 0 : 18;
 
   // Mouse-driven light direction (-1..1)
   const nx = (mx / W) * 2 - 1;
@@ -225,13 +252,17 @@ function drawDiamond(
 
 // ─── React Component ─────────────────────────────────────────────────────────
 function DiamondGem({
-  hue,
-  sat = 40,
+  memberColor,
   size = 160,
   floatDelay = 0,
   isDark = true,
   className = "",
 }: DiamondGemProps) {
+  // حول hex → hue/sat داخلياً — fallback = التيل الافتراضي
+  const { hue, sat } = memberColor
+    ? hexToHue(memberColor)
+    : { hue: 162, sat: 40 };
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number>(0);
   const mouseRef  = useRef({ x: size / 2, y: size / 2, active: false });
