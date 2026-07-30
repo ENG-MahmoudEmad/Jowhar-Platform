@@ -52,6 +52,7 @@ function Footer() {
       height: '52px',
       gap: '0.75rem',
       flexShrink: 0,
+      marginTop: 'auto',
     }),
     [isDark],
   );

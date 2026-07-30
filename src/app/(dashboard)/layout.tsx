@@ -101,9 +101,15 @@ export default function DashboardLayout({
       <div className="dashboard-bg-layer flex-1 flex flex-col min-w-0 overflow-hidden">
         <Navbar onMenuClick={() => setDrawerOpen(true)} />
 
-        <main className="flex-1 overflow-y-auto">
+        {/*
+          `flex flex-col` turns the scroll area into a column, and `grow` on the
+          content below makes it absorb any leftover space — which pushes the
+          footer to the bottom on short pages (e.g. Admin Control) while still
+          letting it scroll away naturally on long ones.
+        */}
+        <main className="flex-1 overflow-y-auto flex flex-col">
           {/* Page content */}
-          <div className="p-4 sm:p-6 lg:p-8">
+          <div className="p-4 sm:p-6 lg:p-8 grow">
             {children}
           </div>
 
