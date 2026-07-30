@@ -28,7 +28,7 @@ const menuItems: MenuItem[] = [
   { nameEn: 'Archive',       nameAr: 'الأرشيف',        icon: Archive,         path: '/archive' },
   { nameEn: 'News Feed',     nameAr: 'الأخبار',        icon: Newspaper,       path: '/news' },
   { nameEn: 'Profile',       nameAr: 'الملف الشخصي',   icon: UserCircle,      path: '/profile' },
-  { nameEn: 'Admin control',       nameAr: 'لوحة تحكم الآدمن',   icon: ShieldCheck,      path: '/adminControl' },
+  { nameEn: 'Admin Control',       nameAr: 'لوحة تحكم الآدمن',   icon: ShieldCheck,      path: '/adminControl' },
 ];
 
 interface SidebarProps {

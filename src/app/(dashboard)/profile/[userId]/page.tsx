@@ -4,9 +4,8 @@ import { use } from "react"
 import ProfileHero      from "@/components/dashboard/profile/ProfileHero"
 import PersonalInfo     from "@/components/dashboard/profile/PersonalInfo"
 import SecuritySettings from "@/components/dashboard/profile/SecuritySettings"
-import AdminControls    from "@/components/dashboard/adminControl/AdminControls"
-import { type MemberRole, type AdminPermissions, type MemberRestrictions } from "@/components/dashboard/adminControl/AdminControls"
-
+import AdminControls from "@/components/dashboard/profile/AdminControls"
+import { type MemberRole, type AdminPermissions, type MemberRestrictions } from "@/components/dashboard/profile/AdminControls"
 interface MemberData {
   id:            number
   name:          string
