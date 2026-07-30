@@ -14,6 +14,7 @@ const previewPublicPaths = [
   '/archive',
   '/news',
   '/profile',
+  '/adminControl',
 ];
 
 export function proxy(request: NextRequest) {

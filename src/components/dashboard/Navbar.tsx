@@ -1,8 +1,9 @@
 "use client";
 
 import React, { memo, useCallback, useMemo } from 'react';
-import { Bell, Search, Calendar as CalendarIcon, Sparkles, Menu } from 'lucide-react';
+import { Bell, Plus, Calendar as CalendarIcon, Sparkles, Menu } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 import { useTheme } from '@/context/ThemeContext';
 
@@ -12,6 +13,11 @@ interface NavbarProps {
 
 const TEXT_MAIN = 'var(--foreground)';
 const TEXT_MUTED = 'var(--foreground-muted)';
+
+// MyNotes lives on the My Tasks page. The `newNote` flag tells it to open its
+// create form immediately (see MyNotes' searchParams effect).
+const MY_NOTES_ROUTE = '/my-tasks';
+const NEW_NOTE_HREF = `${MY_NOTES_ROUTE}?newNote=1`;
 
 // Static style objects — لا تعتمد على props/state، فبتنشأ مرة واحدة فقط
 const greetingBlockStyle: React.CSSProperties = {
@@ -55,7 +61,7 @@ const dateRowStyle: React.CSSProperties = {
   letterSpacing: '0.08em',
 };
 
-const searchBellGroupStyle: React.CSSProperties = {
+const actionsGroupStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: '0.75rem',
@@ -66,6 +72,7 @@ const searchBellGroupStyle: React.CSSProperties = {
 function Navbar({ onMenuClick }: NavbarProps) {
   const { lang, isRTL } = useLang();
   const { theme } = useTheme();
+  const router = useRouter();
   const isDark = theme === 'dark';
 
   const today = useMemo(
@@ -95,29 +102,14 @@ function Navbar({ onMenuClick }: NavbarProps) {
     [isDark],
   );
 
-  const searchIconStyle = useMemo<React.CSSProperties>(
+  const addNoteButtonStyle = useMemo<React.CSSProperties>(
     () => ({
-      [isRTL ? 'right' : 'left']: '14px',
-      color: TEXT_MUTED,
-      width: 13,
-      height: 13,
+      background: '#458482',
+      border: '1px solid rgba(69,132,130,0.35)',
+      color: '#ffffff',
+      boxShadow: '0 2px 10px rgba(69,132,130,0.28)',
     }),
-    [isRTL],
-  );
-
-  const searchInputStyle = useMemo<React.CSSProperties>(
-    () => ({
-      background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
-      border: '1px solid var(--input-border)',
-      color: TEXT_MAIN,
-      fontSize: '10px',
-      fontWeight: 700,
-      letterSpacing: '0.08em',
-      paddingLeft: isRTL ? '14px' : '36px',
-      paddingRight: isRTL ? '36px' : '14px',
-      fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-    }),
-    [isDark, isRTL, lang],
+    [],
   );
 
   const bellButtonStyle = useMemo<React.CSSProperties>(
@@ -146,13 +138,9 @@ function Navbar({ onMenuClick }: NavbarProps) {
     e.currentTarget.style.color = TEXT_MUTED;
   }, []);
 
-  const handleInputFocus = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-    e.currentTarget.style.borderColor = 'rgba(69,132,130,0.5)';
-  }, []);
-
-  const handleInputBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-    e.currentTarget.style.borderColor = 'var(--input-border)';
-  }, []);
+  const handleAddNote = useCallback(() => {
+    router.push(NEW_NOTE_HREF);
+  }, [router]);
 
   return (
     <header
@@ -204,24 +192,21 @@ function Navbar({ onMenuClick }: NavbarProps) {
         </div>
       </div>
 
-      {/* ── Search + Bell (RIGHT in LTR, LEFT in RTL) ── */}
-      <div style={searchBellGroupStyle}>
-        {/* Search */}
-        <div className="relative hidden md:block">
-          <Search
-            className="absolute top-1/2 -translate-y-1/2 pointer-events-none"
-            style={searchIconStyle}
-          />
-          <input
-            type="text"
-            placeholder={lang === 'ar' ? 'بحث في المهام والمشاريع...' : 'SEARCH TASKS OR PROJECTS...'}
-            dir={isRTL ? 'rtl' : 'ltr'}
-            className="rounded-full py-2.5 outline-none transition-all w-52 lg:w-64"
-            style={searchInputStyle}
-            onFocus={handleInputFocus}
-            onBlur={handleInputBlur}
-          />
-        </div>
+      {/* ── Quick actions: new note + bell (RIGHT in LTR, LEFT in RTL) ── */}
+      <div style={actionsGroupStyle}>
+        {/* New note — jumps straight into MyNotes' create form */}
+        <motion.button
+          type="button"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={handleAddNote}
+          aria-label={lang === 'ar' ? 'ملاحظة جديدة' : 'New note'}
+          title={lang === 'ar' ? 'ملاحظة جديدة' : 'New note'}
+          className="p-2.5 rounded-xl cursor-pointer shrink-0"
+          style={addNoteButtonStyle}
+        >
+          <Plus size={17} />
+        </motion.button>
 
         {/* Bell */}
         <motion.button

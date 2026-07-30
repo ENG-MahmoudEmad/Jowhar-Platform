@@ -5,15 +5,20 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import { AnimatePresence, LazyMotion, domAnimation, m } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import { useSwipeNavigate } from '@/hooks/useSwipeNavigate';
 
-type View = 'weekly' | 'monthly' | 'mytasks';
+type View = 'weekly' | 'monthly';
 type Lang = 'en' | 'ar';
 type Direction = 1 | -1;
 
 type Member = {
   id: number;
+  // Links this calendar row to the member's registered user account.
+  // (comes from the `users` table via Supabase once wired to the backend)
+  userId: number | null;
   name: string;
   nameAr: string;
   avatar: string;
@@ -35,19 +40,55 @@ type PositionedTask = Task & {
   widthPct: number;
 };
 
+// A group of tasks for the same member whose date ranges overlap.
+// Only the first task is drawn; the rest are revealed via the "+N" badge.
+type TaskCluster = {
+  id: string;
+  tasks: PositionedTask[];
+  startPct: number;
+  widthPct: number;
+};
+
+type OverlapPopover = {
+  memberId: number;
+  tasks: PositionedTask[];
+  x: number;
+  y: number;
+};
+
 type CalendarStyle = React.CSSProperties & Partial<Record<`--calendar-${string}`, string>>;
 type MemberStyle = React.CSSProperties & Partial<Record<'--member-color', string>>;
 type TaskStyle = React.CSSProperties & Partial<Record<'--task-color', string>>;
 
 const MEMBERS: Member[] = [
-  { id: 1, name: 'Ahmed', nameAr: 'أحمد', avatar: 'AH', color: '#458482' },
-  { id: 2, name: 'Sarah', nameAr: 'سارة', avatar: 'SA', color: '#f59e0b' },
-  { id: 3, name: 'Tweeflue', nameAr: 'تويفلو', avatar: 'TW', color: '#a855f7' },
-  { id: 4, name: 'Omar', nameAr: 'عمر', avatar: 'OM', color: '#ef4444' },
-  { id: 5, name: 'Lina', nameAr: 'لينا', avatar: 'LI', color: '#3b82f6' },
+  { id: 1, userId: 1, name: 'Ahmed', nameAr: 'أحمد', avatar: 'AH', color: '#458482' },
+  { id: 2, userId: 2, name: 'Sarah', nameAr: 'سارة', avatar: 'SA', color: '#f59e0b' },
+  { id: 3, userId: 3, name: 'Tweeflue', nameAr: 'تويفلو', avatar: 'TW', color: '#a855f7' },
+  { id: 4, userId: 4, name: 'Omar', nameAr: 'عمر', avatar: 'OM', color: '#ef4444' },
+  { id: 5, userId: 5, name: 'Lina', nameAr: 'لينا', avatar: 'LI', color: '#3b82f6' },
+  { id: 6, userId: 6, name: 'Nour', nameAr: 'نور', avatar: 'NO', color: '#ec4899' },
+  { id: 7, userId: 7, name: 'Khaled', nameAr: 'خالد', avatar: 'KH', color: '#06b6d4' },
 ];
 
-const MY_MEMBER_ID = 1;
+// TODO: replace with the authenticated user's id from Auth/User context once available
+// (should match a member's `userId`, i.e. currentUser.id from Supabase auth)
+const CURRENT_USER_ID = 1;
+const CALENDAR_MEMBER_LIMIT = 5; // current user + 4 others
+
+/**
+ * Same ordering rule as Team Performance: current user always first,
+ * the rest alphabetically by name, capped to `limit` entries.
+ */
+function sortMembersForDisplay(members: Member[], currentUserId: number, limit?: number): Member[] {
+  const current = members.filter((m) => m.userId === currentUserId);
+  const others = members
+    .filter((m) => m.userId !== currentUserId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const ordered = [...current, ...others];
+  return typeof limit === 'number' ? ordered.slice(0, limit) : ordered;
+}
+
 const ROW_H = 56;
 const TRACK_H = 6;
 const BAR_H = 18;
@@ -64,6 +105,18 @@ const TASK_TRANSITION = {
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
+// Directional slide feedback for period navigation (arrows / swipe).
+// Applied to the task-bar layer only, so the member name column stays put.
+const ROW_SLIDE_TRANSITION = {
+  duration: 0.28,
+  ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+};
+
+const TOOLTIP_TRANSITION = {
+  duration: 0.18,
+  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+};
+
 const TEXT = {
   en: {
     title: 'Calendar',
@@ -72,6 +125,8 @@ const TEXT = {
     mytasks: 'My Tasks',
     previous: 'Previous period',
     next: 'Next period',
+    resetToday: 'Jump to today',
+    overlapTitle: 'Overlapping tasks',
   },
   ar: {
     title: 'التقويم',
@@ -80,8 +135,10 @@ const TEXT = {
     mytasks: 'مهامي',
     previous: 'الفترة السابقة',
     next: 'الفترة التالية',
+    resetToday: 'الانتقال لليوم',
+    overlapTitle: 'مهام متصادفة',
   },
-} satisfies Record<Lang, Record<'title' | 'weekly' | 'monthly' | 'mytasks' | 'previous' | 'next', string>>;
+} satisfies Record<Lang, Record<'title' | 'weekly' | 'monthly' | 'mytasks' | 'previous' | 'next' | 'resetToday' | 'overlapTitle', string>>;
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -109,6 +166,10 @@ const ALL_TASKS: Task[] = [
   { id: 7, memberId: 4, title: 'Color Grading', titleAr: 'تصحيح الألوان', start: d(4), end: d(8), color: '#f43f5e' },
   { id: 8, memberId: 5, title: 'Concept Sketches', titleAr: 'رسومات أولية', start: d(-4), end: d(1), color: '#3b82f6' },
   { id: 9, memberId: 5, title: 'Storyboard', titleAr: 'القصة المصورة', start: d(2), end: d(9), color: '#6366f1' },
+  // Deliberately overlapping tasks to exercise the "+N" overlap indicator
+  { id: 10, memberId: 1, title: 'Facial Blendshapes', titleAr: 'تعبيرات الوجه', start: d(-2), end: d(1), color: '#2f6b69' },
+  { id: 11, memberId: 1, title: 'Client Review Notes', titleAr: 'ملاحظات العميل', start: d(0), end: d(2), color: '#7cc2bf' },
+  { id: 12, memberId: 2, title: 'UV Unwrapping', titleAr: 'فتح الخرائط', start: d(1), end: d(3), color: '#fbbf24' },
 ];
 
 function getWeekDays(anchor: Date): Date[] {
@@ -126,6 +187,37 @@ function getMonthDays(anchor: Date): Date[] {
 
 function getDayKey(date: Date): number {
   return startOfDay(date).getTime();
+}
+
+/**
+ * Groups a member's tasks into clusters of overlapping date ranges.
+ * Tasks are considered overlapping when they share at least one day.
+ * Each cluster is positioned on the first (earliest-starting) task.
+ */
+function clusterOverlappingTasks(tasks: PositionedTask[]): TaskCluster[] {
+  const sorted = [...tasks].sort((a, b) => getDayKey(a.start) - getDayKey(b.start));
+  const clusters: TaskCluster[] = [];
+
+  sorted.forEach((task) => {
+    const active = clusters[clusters.length - 1];
+    const activeEnd = active
+      ? Math.max(...active.tasks.map((t) => getDayKey(t.end)))
+      : -Infinity;
+
+    if (active && getDayKey(task.start) <= activeEnd) {
+      active.tasks.push(task);
+      return;
+    }
+
+    clusters.push({
+      id: `cluster-${task.id}`,
+      tasks: [task],
+      startPct: task.startPct,
+      widthPct: task.widthPct,
+    });
+  });
+
+  return clusters;
 }
 
 function getTaskPosition(task: Task, days: Date[], dayIndexByKey: Map<number, number>): Pick<PositionedTask, 'startPct' | 'widthPct'> | null {
@@ -160,6 +252,9 @@ function getPalette(isDark: boolean): CalendarStyle {
     '--calendar-toggle-bg': isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)',
     '--calendar-hover-bg': isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
     '--calendar-today': '#458482',
+    '--calendar-tooltip-bg': isDark ? 'rgba(22,27,34,0.96)' : 'rgba(255,255,255,0.98)',
+    '--calendar-tooltip-text': 'var(--foreground)',
+    '--calendar-tooltip-border': isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
     background: 'var(--calendar-bg)',
     border: '1px solid var(--calendar-border)',
     userSelect: 'none',
@@ -169,26 +264,34 @@ function getPalette(isDark: boolean): CalendarStyle {
 
 const CalendarRow = memo(function CalendarRow({
   member,
-  tasks,
+  clusters,
   isLast,
   isRTL,
   lang,
   rowIndex,
   todayPct,
+  animKey,
+  navDirection,
+  onOverlapClick,
 }: {
   member: Member;
-  tasks: PositionedTask[];
+  clusters: TaskCluster[];
   isLast: boolean;
   isRTL: boolean;
   lang: Lang;
   rowIndex: number;
   todayPct: number | null;
+  animKey: string;
+  navDirection: Direction;
+  onOverlapClick: (memberId: number, tasks: PositionedTask[], anchorEl: HTMLElement) => void;
 }) {
   const memberStyle: MemberStyle = {
     '--member-color': member.color,
     borderBottom: isLast ? 'none' : '1px solid var(--calendar-divider)',
     height: ROW_H,
   };
+
+  const [hoveredTaskId, setHoveredTaskId] = useState<number | null>(null);
 
   return (
     <div className="flex items-center" style={memberStyle}>
@@ -207,7 +310,7 @@ const CalendarRow = memo(function CalendarRow({
         </span>
       </div>
 
-      <div className="relative flex-1" style={{ height: ROW_H }}>
+      <div className="relative flex-1 overflow-hidden" style={{ height: ROW_H }}>
         {todayPct !== null && (
           <div
             className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-[color-mix(in_srgb,var(--calendar-today)_32%,transparent)]"
@@ -220,44 +323,97 @@ const CalendarRow = memo(function CalendarRow({
           style={{ height: TRACK_H, transform: 'translateY(-50%)' }}
         />
 
-        {tasks.map((task) => {
-          const barStyle: TaskStyle = {
-            '--task-color': task.color,
-            position: 'absolute',
-            height: BAR_H,
-            top: '50%',
-            width: `${task.widthPct}%`,
-            transform: 'translateY(-50%)',
-            [isRTL ? 'right' : 'left']: `${task.startPct}%`,
-          };
+        <AnimatePresence initial={false}>
+          <m.div
+            key={animKey}
+            initial={{ opacity: 0, x: navDirection * 18 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: navDirection * -18 }}
+            transition={ROW_SLIDE_TRANSITION}
+            className="absolute inset-0"
+          >
+            {clusters.map((cluster) => {
+              const task = cluster.tasks[0];
+              const overlapCount = cluster.tasks.length - 1;
 
-          return (
-            <div key={task.id} style={barStyle}>
-              <m.div
-                initial={false}
-                animate={{ scaleX: 1, opacity: 0.9 }}
-                transition={{ ...TASK_TRANSITION, delay: rowIndex * 0.04 }}
-                whileHover={{ opacity: 1 }}
-                className="flex h-full w-full cursor-default items-center overflow-hidden rounded-full bg-[var(--task-color)] shadow-[0_2px_8px_color-mix(in_srgb,var(--task-color)_32%,transparent)]"
-                style={{
-                  transformOrigin: isRTL ? 'right center' : 'left center',
-                  paddingLeft: isRTL ? 6 : 8,
-                  paddingRight: isRTL ? 8 : 6,
-                }}
-              >
-                <span
-                  className="pointer-events-none overflow-hidden text-ellipsis whitespace-nowrap text-[8px] font-bold text-[rgba(255,255,255,0.95)] [text-shadow:0_1px_4px_rgba(0,0,0,0.5)]"
-                  style={{
-                    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                    direction: isRTL ? 'rtl' : 'ltr',
-                  }}
-                >
-                  {lang === 'ar' ? task.titleAr : task.title}
-                </span>
-              </m.div>
-            </div>
-          );
-        })}
+              const barStyle: TaskStyle = {
+                '--task-color': task.color,
+                position: 'absolute',
+                height: BAR_H,
+                top: '50%',
+                width: `${cluster.widthPct}%`,
+                transform: 'translateY(-50%)',
+                [isRTL ? 'right' : 'left']: `${cluster.startPct}%`,
+              };
+
+              return (
+                <div key={cluster.id} style={barStyle}>
+                  <m.div
+                    initial={false}
+                    animate={{ scaleX: 1, opacity: 0.9 }}
+                    transition={{ ...TASK_TRANSITION, delay: rowIndex * 0.04 }}
+                    whileHover={{ opacity: 1 }}
+                    onHoverStart={() => setHoveredTaskId(task.id)}
+                    onHoverEnd={() => setHoveredTaskId((current) => (current === task.id ? null : current))}
+                    className="relative flex h-full w-full cursor-default items-center overflow-hidden rounded-full bg-[var(--task-color)] shadow-[0_2px_8px_color-mix(in_srgb,var(--task-color)_32%,transparent)]"
+                    style={{
+                      transformOrigin: isRTL ? 'right center' : 'left center',
+                      paddingLeft: isRTL ? 6 : 8,
+                      paddingRight: isRTL ? 8 : 6,
+                    }}
+                  >
+                    <span
+                      className="pointer-events-none overflow-hidden text-ellipsis whitespace-nowrap text-[8px] font-bold text-[rgba(255,255,255,0.95)] [text-shadow:0_1px_4px_rgba(0,0,0,0.5)]"
+                      style={{
+                        fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                        direction: isRTL ? 'rtl' : 'ltr',
+                      }}
+                    >
+                      {lang === 'ar' ? task.titleAr : task.title}
+                    </span>
+
+                    {overlapCount > 0 && (
+                      <button
+                        type="button"
+                        aria-label={`${overlapCount} more overlapping tasks`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOverlapClick(member.id, cluster.tasks, e.currentTarget);
+                        }}
+                        className="ms-auto shrink-0 cursor-pointer rounded-full bg-[rgba(0,0,0,0.28)] px-1.5 text-[8px] font-black leading-[14px] text-white transition-colors hover:bg-[rgba(0,0,0,0.42)]"
+                      >
+                        +{overlapCount}
+                      </button>
+                    )}
+                  </m.div>
+
+                  <AnimatePresence>
+                    {hoveredTaskId === task.id && (
+                      <m.div
+                        initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 3, scale: 0.97 }}
+                        transition={TOOLTIP_TRANSITION}
+                        className="pointer-events-none absolute z-30 whitespace-nowrap rounded-md px-1.5 py-[2px] text-[9px] font-bold leading-[1.2] shadow-[0_2px_10px_rgba(0,0,0,0.28)]"
+                        style={{
+                          bottom: 'calc(100% + 2px)',
+                          [isRTL ? 'right' : 'left']: 0,
+                          background: 'var(--calendar-tooltip-bg)',
+                          color: 'var(--calendar-tooltip-text)',
+                          border: '1px solid var(--calendar-tooltip-border)',
+                          fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                          direction: isRTL ? 'rtl' : 'ltr',
+                        }}
+                      >
+                        {lang === 'ar' ? task.titleAr : task.title}
+                      </m.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </m.div>
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -266,12 +422,15 @@ const CalendarRow = memo(function CalendarRow({
 function ProjectCalendar() {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
+  const router = useRouter();
   const isDark = theme === 'dark';
   const copy = TEXT[lang];
   const locale = lang === 'ar' ? 'ar-SA' : 'en-US';
 
   const [view, setView] = useState<View>('weekly');
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
+  const [navDirection, setNavDirection] = useState<Direction>(1);
+  const [overlapPopover, setOverlapPopover] = useState<OverlapPopover | null>(null);
 
   const palette = useMemo(() => getPalette(isDark), [isDark]);
   const dayFormatter = useMemo(() => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }), [locale]);
@@ -280,23 +439,31 @@ function ProjectCalendar() {
 
   const days = useMemo(() => (view === 'monthly' ? getMonthDays(anchor) : getWeekDays(anchor)), [anchor, view]);
   const dayIndexByKey = useMemo(() => new Map(days.map((day, index) => [getDayKey(day), index])), [days]);
-  const tasks = useMemo(
-    () => (view === 'mytasks' ? ALL_TASKS.filter((task) => task.memberId === MY_MEMBER_ID) : ALL_TASKS),
-    [view],
+  const tasks = ALL_TASKS;
+
+  const displayMembers = useMemo(
+    () => sortMembersForDisplay(MEMBERS, CURRENT_USER_ID, CALENDAR_MEMBER_LIMIT),
+    [],
   );
 
-  const tasksByMember = useMemo(() => {
+  const clustersByMember = useMemo(() => {
     const grouped = new Map<number, PositionedTask[]>();
-    MEMBERS.forEach((member) => grouped.set(member.id, []));
+    displayMembers.forEach((member) => grouped.set(member.id, []));
 
     tasks.forEach((task) => {
+      if (!grouped.has(task.memberId)) return;
       const position = getTaskPosition(task, days, dayIndexByKey);
       if (!position) return;
       grouped.get(task.memberId)?.push({ ...task, ...position });
     });
 
-    return grouped;
-  }, [dayIndexByKey, days, tasks]);
+    const clustered = new Map<number, TaskCluster[]>();
+    grouped.forEach((memberTasks, memberId) => {
+      clustered.set(memberId, clusterOverlappingTasks(memberTasks));
+    });
+
+    return clustered;
+  }, [dayIndexByKey, days, displayMembers, tasks]);
 
   const todayKey = useMemo(() => getDayKey(new Date()), []);
   const todayIdx = dayIndexByKey.get(todayKey) ?? -1;
@@ -308,12 +475,13 @@ function ProjectCalendar() {
     () => [
       { key: 'weekly' as const, label: copy.weekly },
       { key: 'monthly' as const, label: copy.monthly },
-      { key: 'mytasks' as const, label: copy.mytasks },
     ],
-    [copy.monthly, copy.mytasks, copy.weekly],
+    [copy.monthly, copy.weekly],
   );
 
   const navigate = useCallback((direction: Direction) => {
+    setNavDirection(direction);
+    setOverlapPopover(null);
     setAnchor((current) => {
       const next = startOfDay(current);
       if (view === 'monthly') next.setMonth(next.getMonth() + direction);
@@ -322,6 +490,37 @@ function ProjectCalendar() {
     });
   }, [view]);
 
+  const goToToday = useCallback(() => {
+    setNavDirection(1);
+    setOverlapPopover(null);
+    setAnchor(startOfDay(new Date()));
+  }, []);
+
+  const handleOverlapClick = useCallback(
+    (memberId: number, clusterTasks: PositionedTask[], anchorEl: HTMLElement) => {
+      const rect = anchorEl.getBoundingClientRect();
+      setOverlapPopover((current) => {
+        // Toggle off when clicking the same badge again
+        if (current && current.memberId === memberId && current.tasks[0]?.id === clusterTasks[0]?.id) {
+          return null;
+        }
+        return {
+          memberId,
+          tasks: clusterTasks,
+          x: rect.left + rect.width / 2,
+          y: rect.bottom + 6,
+        };
+      });
+    },
+    [],
+  );
+
+  const closeOverlapPopover = useCallback(() => setOverlapPopover(null), []);
+
+  const goToMyTasks = useCallback(() => {
+    router.push('/my-tasks');
+  }, [router]);
+
   const navButtons = useMemo(
     () => [
       { direction: -1 as const, label: copy.previous, Icon: isRTL ? ChevronRight : ChevronLeft },
@@ -329,6 +528,14 @@ function ProjectCalendar() {
     ],
     [copy.next, copy.previous, isRTL],
   );
+
+  // Swipe / drag / trackpad navigation (shared hook).
+  // respectNativeScroll: the monthly grid is wider than the card, so horizontal
+  // scrolling inside it must keep working; swiping takes over at the edges.
+  const { ref: scrollAreaRef, swipeHandlers, swipeStyle } = useSwipeNavigate({
+    onNavigate: navigate,
+    respectNativeScroll: true,
+  });
 
   return (
     <LazyMotion features={domAnimation}>
@@ -343,13 +550,17 @@ function ProjectCalendar() {
       >
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 bg-[var(--calendar-header-bg)] border-b border-[var(--calendar-divider)]">
           <div className="flex min-w-0 items-center gap-2">
-            <h2
+            <button
+              type="button"
               id="project-calendar-title"
-              className="text-sm font-bold uppercase tracking-widest text-[var(--calendar-text-main)]"
+              onClick={goToToday}
+              aria-label={copy.resetToday}
+              title={copy.resetToday}
+              className="cursor-pointer text-sm font-bold uppercase tracking-widest text-[var(--calendar-text-main)] transition-colors hover:text-[#458482]"
               style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
             >
               {copy.title}
-            </h2>
+            </button>
             <span className="text-[11px] font-semibold text-[var(--calendar-text-muted)]">
               {monthFormatter.format(anchor)}
             </span>
@@ -386,9 +597,25 @@ function ProjectCalendar() {
               </button>
             ))}
           </div>
+
+          <div className="ms-auto flex items-center gap-1 rounded-xl bg-[var(--calendar-toggle-bg)] p-1">
+            <button
+              type="button"
+              onClick={goToMyTasks}
+              className="cursor-pointer rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors duration-200 text-[var(--calendar-text-muted)] hover:text-[var(--calendar-text-main)]"
+              style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+            >
+              {copy.mytasks}
+            </button>
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div
+          ref={scrollAreaRef}
+          className="overflow-x-auto"
+          style={swipeStyle}
+          {...swipeHandlers}
+        >
           <div style={{ minWidth: view === 'monthly' ? 600 : 'auto' }}>
             <div className="flex border-b border-[var(--calendar-divider)]">
               <div
@@ -411,28 +638,23 @@ function ProjectCalendar() {
               </div>
             </div>
 
-            <AnimatePresence mode="wait">
-              <m.div
-                key={view}
-                initial={false}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.25 }}
-              >
-                {MEMBERS.map((member, index) => (
-                  <CalendarRow
-                    key={member.id}
-                    member={member}
-                    tasks={tasksByMember.get(member.id) ?? []}
-                    isLast={index === MEMBERS.length - 1}
-                    isRTL={isRTL}
-                    lang={lang}
-                    rowIndex={index}
-                    todayPct={todayPct}
-                  />
-                ))}
-              </m.div>
-            </AnimatePresence>
+            <div>
+              {displayMembers.map((member, index) => (
+                <CalendarRow
+                  key={member.id}
+                  member={member}
+                  clusters={clustersByMember.get(member.id) ?? []}
+                  isLast={index === displayMembers.length - 1}
+                  isRTL={isRTL}
+                  lang={lang}
+                  rowIndex={index}
+                  todayPct={todayPct}
+                  animKey={`${view}-${anchor.getTime()}`}
+                  navDirection={navDirection}
+                  onOverlapClick={handleOverlapClick}
+                />
+              ))}
+            </div>
 
             <div className="flex border-t border-[var(--calendar-divider)]">
               <div
@@ -457,6 +679,70 @@ function ProjectCalendar() {
           </div>
         </div>
       </m.section>
+
+      <AnimatePresence>
+        {overlapPopover && (
+          <>
+            {/* Click-away layer */}
+            <div className="fixed inset-0 z-40" onClick={closeOverlapPopover} />
+
+            <m.div
+              initial={{ opacity: 0, y: -6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              transition={TOOLTIP_TRANSITION}
+              dir={isRTL ? 'rtl' : 'ltr'}
+              role="dialog"
+              aria-label={copy.overlapTitle}
+              className="fixed z-50 w-56 overflow-hidden rounded-xl shadow-[0_8px_28px_rgba(0,0,0,0.32)]"
+              style={{
+                top: overlapPopover.y,
+                left: overlapPopover.x,
+                transform: 'translateX(-50%)',
+                background: 'var(--calendar-tooltip-bg)',
+                border: '1px solid var(--calendar-tooltip-border)',
+              }}
+            >
+              <div
+                className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-[var(--calendar-text-muted)]"
+                style={{
+                  borderBottom: '1px solid var(--calendar-tooltip-border)',
+                  fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                  textTransform: lang === 'ar' ? 'none' : 'uppercase',
+                }}
+              >
+                {copy.overlapTitle}
+              </div>
+
+              <div className="max-h-48 overflow-y-auto overscroll-contain">
+                {overlapPopover.tasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className="flex items-center gap-2 px-3 py-2 transition-colors hover:bg-[var(--calendar-hover-bg)]"
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: task.color }}
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 flex-1 text-start">
+                      <p
+                        className="truncate text-[10px] font-bold text-[var(--calendar-text-main)]"
+                        style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                      >
+                        {lang === 'ar' ? task.titleAr : task.title}
+                      </p>
+                      <p className="text-[9px] font-medium text-[var(--calendar-text-muted)]">
+                        {dayFormatter.format(task.start)} — {dayFormatter.format(task.end)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </m.div>
+          </>
+        )}
+      </AnimatePresence>
     </LazyMotion>
   );
 }

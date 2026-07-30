@@ -1,10 +1,12 @@
 "use client"
 
-import React, { memo, useCallback, useMemo, useRef } from 'react'
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LazyMotion, domAnimation, m, useMotionValue, useSpring, useTransform } from 'framer-motion'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import type { MotionStyle } from "framer-motion";
+
+type Period = 'weekly' | 'monthly'
 
 interface LeaderEntry {
   rank: 1 | 2 | 3
@@ -15,22 +17,130 @@ interface LeaderEntry {
   tasksCompleted: number
 }
 
-const LEADERS: LeaderEntry[] = [
-  { rank: 1, name: 'KB',     initials: 'KB', memberColor: '#f59e0b', score: 98,  tasksCompleted: 24 },
-  { rank: 2, name: 'MODYER', initials: 'MO', memberColor: '#94a3b8', score: 87,  tasksCompleted: 19 },
-  { rank: 3, name: 'Medoma', initials: 'MD', memberColor: '#cd7f32', score: 76,  tasksCompleted: 15 },
+/* ───────────────────────────────────────────────────────────────────────────────
+   MOCK DATA — two separate podiums so the Weekly/Monthly toggle is visible.
+   Replace both with a single server-computed query (see BACKEND NOTE below).
+   ─────────────────────────────────────────────────────────────────────────────── */
+const WEEKLY_LEADERS: LeaderEntry[] = [
+  { rank: 1, name: 'Medoma', initials: 'MD', memberColor: '#cd7f32', score: 42, tasksCompleted: 9 },
+  { rank: 2, name: 'KB',     initials: 'KB', memberColor: '#f59e0b', score: 35, tasksCompleted: 7 },
+  { rank: 3, name: 'MODYER', initials: 'MO', memberColor: '#94a3b8', score: 28, tasksCompleted: 5 },
 ]
 
-const LEADERS_BY_RANK: Record<1 | 2 | 3, LeaderEntry> = {
-  1: LEADERS[0],
-  2: LEADERS[1],
-  3: LEADERS[2],
+const MONTHLY_LEADERS: LeaderEntry[] = [
+  { rank: 1, name: 'KB',     initials: 'KB', memberColor: '#f59e0b', score: 98, tasksCompleted: 24 },
+  { rank: 2, name: 'MODYER', initials: 'MO', memberColor: '#94a3b8', score: 87, tasksCompleted: 19 },
+  { rank: 3, name: 'Medoma', initials: 'MD', memberColor: '#cd7f32', score: 76, tasksCompleted: 15 },
+]
+
+const LEADERS_BY_PERIOD: Record<Period, LeaderEntry[]> = {
+  weekly:  WEEKLY_LEADERS,
+  monthly: MONTHLY_LEADERS,
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BACKEND NOTE — auto-refresh for the weekly leaderboard
+   ═══════════════════════════════════════════════════════════════════════════════
+
+   WHAT EXISTS NOW (and why it does nothing useful yet)
+   ---------------------------------------------------
+   The interval below is a deliberate PLACEHOLDER. The leaderboard is currently
+   fed by the hardcoded arrays above, so re-running the "refresh" produces byte
+   identical output — it only bumps `refreshTick` and forces a wasted re-render.
+   It exists so the refresh seam is visible in the code and easy to find later,
+   NOT because it delivers value today.
+
+   WHY A LEADERBOARD NEEDS REFRESHING AT ALL
+   -----------------------------------------
+   People leave the dashboard open for hours (second monitor, background tab).
+   Meanwhile teammates keep completing tasks, so the ranking on screen silently
+   goes stale. The weekly board drifts fastest because its window is short: a
+   couple of completed tasks can reorder the whole podium.
+
+   THE PLAN — DO NOT SHIP THE 30-MINUTE POLL
+   -----------------------------------------
+   Fixed-interval polling is the worst of the three options: it fires on a timer
+   whether or not anyone is looking, and still leaves up to 30 minutes of stale
+   data. Prefer, in this order:
+
+   1. Supabase Realtime (primary).
+      Subscribe to changes on the tasks table and invalidate the leaderboard
+      query when a row transitions to `done`. This is the right fit here because
+      the leaderboard is competitive — seeing the ranking shift the moment a
+      teammate finishes something is part of the point, and a 30-minute lag
+      destroys that.
+
+        const channel = supabase
+          .channel('leaderboard')
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'tasks', filter: 'status=eq.done' },
+            () => queryClient.invalidateQueries({ queryKey: ['leaderboard', period] }),
+          )
+          .subscribe()
+
+        return () => { supabase.removeChannel(channel) }
+
+   2. refetchOnWindowFocus (safety net).
+      React Query enables this by default. It covers the case where the realtime
+      socket dropped while the tab was backgrounded, and costs nothing when the
+      user is away — the request only fires when they actually come back.
+
+   3. refetchInterval (last resort only).
+      If realtime is ever unavailable, set it on the query itself rather than
+      hand-rolling a timer, and pair it with `refetchIntervalInBackground: false`
+      so it pauses for hidden tabs:
+
+        useQuery({
+          queryKey: ['leaderboard', period],
+          queryFn:  () => fetchLeaderboard(period),
+          refetchInterval: period === 'weekly' ? 30 * 60 * 1000 : false,
+          refetchIntervalInBackground: false,
+        })
+
+   WHERE THE RANKING MUST BE COMPUTED
+   ----------------------------------
+   Server side, never in this component. Scoring rules are shared with other
+   surfaces (Team Performance percentages, My Tasks counters) and must not be
+   duplicated or allowed to diverge. Expose it as a Postgres view or RPC that
+   takes the period and returns the top three rows already ranked, so the client
+   stays a pure renderer.
+
+   Period boundaries also belong on the server, in the studio's timezone rather
+   than the visitor's:
+     - weekly  → the current work week, boundary consistent with the Dashboard
+                 calendar's week start so the two views never disagree
+     - monthly → the current calendar month, matching the My Tasks DONE counter
+
+   WHAT TO DELETE WHEN WIRING THIS UP
+   ----------------------------------
+     - `REFRESH_INTERVAL_MS`
+     - the `refreshTick` state and its `useEffect` below
+     - `WEEKLY_LEADERS`, `MONTHLY_LEADERS`, and `LEADERS_BY_PERIOD`
+   Keep the `period` state and the toggle UI — those stay exactly as they are and
+   simply become part of the query key.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+const REFRESH_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes — temporary, see note above
 
 const PODIUM_ORDER: (1 | 2 | 3)[] = [2, 1, 3]
 
 const TEXT_MAIN  = 'var(--foreground)'
 const TEXT_MUTED = 'var(--foreground-muted)'
+
+const PERIOD_TEXT = {
+  en: {
+    weekly: 'Weekly',
+    monthly: 'Monthly',
+    subtitleWeekly: 'Top performers this week',
+    subtitleMonthly: 'Top performers this month',
+  },
+  ar: {
+    weekly: 'أسبوعي',
+    monthly: 'شهري',
+    subtitleWeekly: 'أفضل أداء هذا الأسبوع',
+    subtitleMonthly: 'أفضل أداء هذا الشهر',
+  },
+} satisfies Record<'en' | 'ar', Record<'weekly' | 'monthly' | 'subtitleWeekly' | 'subtitleMonthly', string>>
 
 const MEDAL = {
   1: {
@@ -423,12 +533,43 @@ function Leaderboard() {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
+  const periodCopy = PERIOD_TEXT[lang as 'en' | 'ar']
+
+  const [period, setPeriod] = useState<Period>('weekly')
+
+  /* TEMPORARY: see the BACKEND NOTE at the top of this file.
+     `refreshTick` is only here to make the refresh seam explicit — with mock data
+     it re-renders identical output. Delete this state and effect once the
+     leaderboard is served by a real query. */
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  useEffect(() => {
+    if (period !== 'weekly') return
+    const intervalId = window.setInterval(() => {
+      setRefreshTick(tick => tick + 1)
+    }, REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(intervalId)
+  }, [period])
+
+  const leaders = useMemo(() => {
+    // `refreshTick` is referenced so the refresh path is wired end to end; it has
+    // no effect while the data is hardcoded.
+    void refreshTick
+    return LEADERS_BY_PERIOD[period]
+  }, [period, refreshTick])
+
+  const leadersByRank = useMemo<Record<1 | 2 | 3, LeaderEntry>>(() => ({
+    1: leaders[0],
+    2: leaders[1],
+    3: leaders[2],
+  }), [leaders])
 
   const bg         = isDark ? 'var(--card)'           : '#ffffff'
   const border     = isDark ? 'var(--card-border)'    : 'rgba(0,0,0,0.07)'
   const headerBg   = isDark ? 'var(--background-alt)' : '#f5f5ef'
   const divider    = isDark ? 'var(--divider)'        : 'rgba(0,0,0,0.06)'
   const avatarRing = isDark ? 'var(--card)'           : '#ffffff'
+  const toggleBg   = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)'
   const spotA      = isDark ? 0.22 : 0.09
   const spotB      = isDark ? 0.08 : 0.03
 
@@ -471,12 +612,17 @@ function Leaderboard() {
     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
   }), [lang])
 
-  const monthBadgeStyle = useMemo<React.CSSProperties>(() => ({
-    background: 'rgba(69,132,130,0.1)',
-    color: '#458482',
-    border: '1px solid rgba(69,132,130,0.2)',
-    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-  }), [lang])
+  const toggleWrapStyle = useMemo<React.CSSProperties>(() => ({
+    background: toggleBg,
+  }), [toggleBg])
+
+  const periods = useMemo(
+    () => [
+      { key: 'weekly'  as const, label: periodCopy.weekly },
+      { key: 'monthly' as const, label: periodCopy.monthly },
+    ],
+    [periodCopy.weekly, periodCopy.monthly],
+  )
 
   const spotlightTopStyle = useMemo(() => ({
     top: -80, left: glowLeft, x: '-50%',
@@ -524,8 +670,8 @@ function Leaderboard() {
             transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
           />
 
-          <div className="relative flex items-center justify-between px-6 py-5" style={headerStyle}>
-            <div className="flex items-center gap-3">
+          <div className="relative flex items-center justify-between gap-3 px-6 py-5" style={headerStyle}>
+            <div className="flex min-w-0 items-center gap-3">
               <div className="p-2 rounded-lg shrink-0" style={HEADER_ICON_WRAP_STYLE}>
                 <svg width="18" height="18" viewBox="0 0 64 64" fill="none">
                   <path d="M20 8h24v20c0 10-8 16-12 16s-12-6-12-16V8Z" fill="#458482" opacity="0.9" />
@@ -540,13 +686,30 @@ function Leaderboard() {
                   {lang === 'ar' ? 'لوحة المتصدرين' : 'Leaderboard'}
                 </h2>
                 <p className="text-[10px] font-medium mt-0.5" style={SUBTITLE_STYLE}>
-                  {lang === 'ar' ? 'أفضل أداء هذا الشهر' : 'Top performers this month'}
+                  {period === 'weekly' ? periodCopy.subtitleWeekly : periodCopy.subtitleMonthly}
                 </p>
               </div>
             </div>
-            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={monthBadgeStyle}>
-              {lang === 'ar' ? 'هذا الشهر' : 'This month'}
-            </span>
+
+            {/* Weekly / Monthly toggle */}
+            <div className="flex shrink-0 items-center gap-1 rounded-xl p-1" style={toggleWrapStyle}>
+              {periods.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={period === key}
+                  onClick={() => setPeriod(key)}
+                  className="cursor-pointer rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors duration-200"
+                  style={{
+                    background: period === key ? '#458482' : 'transparent',
+                    color: period === key ? '#ffffff' : TEXT_MUTED,
+                    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <m.div className="relative p-6" style={podiumTiltStyle}>
@@ -554,16 +717,16 @@ function Leaderboard() {
 
   {/* المركز الأول — فوق على الجوال، وسط على الديسكتوب */}
   <div className="sm:col-start-2 sm:row-start-1 order-first">
-    <HeroCard key={1} entry={LEADERS_BY_RANK[1]} {...cardTheme} index={0} />
+    <HeroCard key={`${period}-1`} entry={leadersByRank[1]} {...cardTheme} index={0} />
   </div>
 
   {/* الثاني والثالث جنب بعض على الجوال، كل واحد في عموده على الديسكتوب */}
   <div className="flex gap-4 sm:contents">
     <div className="flex-1 sm:flex-none sm:col-start-1 sm:row-start-1">
-      <SideCard key={2} entry={LEADERS_BY_RANK[2]} {...cardTheme} index={1} />
+      <SideCard key={`${period}-2`} entry={leadersByRank[2]} {...cardTheme} index={1} />
     </div>
     <div className="flex-1 sm:flex-none sm:col-start-3 sm:row-start-1">
-      <SideCard key={3} entry={LEADERS_BY_RANK[3]} {...cardTheme} index={2} />
+      <SideCard key={`${period}-3`} entry={leadersByRank[3]} {...cardTheme} index={2} />
     </div>
   </div>
 

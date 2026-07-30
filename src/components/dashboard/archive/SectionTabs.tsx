@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback, memo } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, X, FolderOpen } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -64,6 +64,24 @@ const handleCloseBtnLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
 
 const TAB_UNDERLINE_TRANSITION = { duration: 0.25, ease: [0.22, 1, 0.36, 1] as const }
 
+/**
+ * Builds a URL-safe id from the English name, guaranteed not to collide with an
+ * existing section. Two sections named the same would otherwise share an id,
+ * which duplicates React keys and makes selecting one highlight the other.
+ */
+function makeUniqueSectionId(nameEn: string, existing: Section[]): string {
+  const base =
+    nameEn.trim().toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'section'
+
+  if (!existing.some(s => s.id === base)) return base
+
+  let suffix = 2
+  while (existing.some(s => s.id === `${base}-${suffix}`)) suffix++
+  return `${base}-${suffix}`
+}
+
 /* ── Add Section Modal ── */
 const AddSectionModal = memo(function AddSectionModal({
   color,
@@ -72,7 +90,7 @@ const AddSectionModal = memo(function AddSectionModal({
 }: {
   color:   string
   onClose: () => void
-  onAdd:   (s: Section) => void
+  onAdd:   (s: Omit<Section, 'id'>) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -115,11 +133,13 @@ const AddSectionModal = memo(function AddSectionModal({
     fontFamily:    lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
   }), [lang])
 
+  const isValid = !!(nameEn.trim() && nameAr.trim())
+
+  /* Emits a draft without an id — the parent owns id generation, since only it
+     knows the current list and can guarantee uniqueness. */
   const handleAdd = useCallback(() => {
-    if (!nameEn.trim() || !nameAr.trim()) return
-    const slug = nameEn.toLowerCase().replace(/\s+/g, '-')
+    if (!isValid) return
     onAdd({
-      id:            slug,
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),
@@ -127,13 +147,11 @@ const AddSectionModal = memo(function AddSectionModal({
       itemCount:     0,
     })
     onClose()
-  }, [nameEn, nameAr, description, descriptionAr, onAdd, onClose])
+  }, [isValid, nameEn, nameAr, description, descriptionAr, onAdd, onClose])
 
   const headerIconStyle = useMemo(() => ({
     background: `linear-gradient(135deg, ${color}, ${color}99)`,
   }), [color])
-
-  const isValid = !!(nameEn.trim() && nameAr.trim())
 
   const addBtnStyle = useMemo(() => ({
     background: !isValid ? 'var(--hover-bg)' : `linear-gradient(135deg, ${color}, ${color}cc)`,
@@ -150,6 +168,18 @@ const AddSectionModal = memo(function AddSectionModal({
     e.currentTarget.style.filter = 'brightness(1)'
   }, [])
 
+  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) onClose()
+  }, [onClose])
+
+  /* Escape closes the dialog — expected of any modal, and the only way out for
+     keyboard users who never reach the close button. */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -157,7 +187,7 @@ const AddSectionModal = memo(function AddSectionModal({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={MODAL_OVERLAY_STYLE}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={handleBackdropClick}
     >
       <motion.div
         initial={{ scale: 0.92, opacity: 0, y: 20 }}
@@ -166,6 +196,8 @@ const AddSectionModal = memo(function AddSectionModal({
         transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
         className="w-full max-w-md rounded-2xl overflow-hidden flex flex-col"
         dir={isRTL ? 'rtl' : 'ltr'}
+        role="dialog"
+        aria-modal="true"
         style={{
           background: isDark ? '#161b22' : '#ffffff',
           border:     `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
@@ -188,6 +220,7 @@ const AddSectionModal = memo(function AddSectionModal({
             </h2>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="w-7 h-7 rounded-lg flex items-center justify-center"
             style={{ color: 'var(--foreground-muted)', cursor: 'pointer' }}
@@ -249,6 +282,7 @@ const AddSectionModal = memo(function AddSectionModal({
         <div className="px-6 py-4 flex items-center justify-end gap-2"
           style={{ borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-[11px] font-bold"
             style={{
@@ -261,6 +295,7 @@ const AddSectionModal = memo(function AddSectionModal({
             {tx.cancel}
           </button>
           <button
+            type="button"
             onClick={handleAdd}
             disabled={!isValid}
             className="px-4 py-2 rounded-lg text-[11px] font-bold"
@@ -290,11 +325,12 @@ const SectionTab = memo(function SectionTab({
   color:    string
   isDark:   boolean
   lang:     string
-  onSelect: (s: Section) => void
+  /** Takes the id, so one stable callback serves every tab. */
+  onSelect: (id: string) => void
 }) {
   const label = lang === 'ar' ? section.nameAr : section.nameEn
 
-  const handleClick = useCallback(() => onSelect(section), [onSelect, section])
+  const handleClick = useCallback(() => onSelect(section.id), [onSelect, section.id])
 
   const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (!active) e.currentTarget.style.background = 'var(--hover-bg)'
@@ -324,6 +360,9 @@ const SectionTab = memo(function SectionTab({
 
   return (
     <button
+      type="button"
+      role="tab"
+      aria-selected={active}
       onClick={handleClick}
       className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold shrink-0 transition-all duration-200"
       style={tabStyle}
@@ -370,29 +409,64 @@ function SectionTabs({
   const [activeId, setActiveId]     = useState(initialSections[0]?.id ?? '')
   const [showModal, setShowModal]   = useState(false)
 
-  const tx = useMemo(() => ({
-    addSection: lang === 'ar' ? 'إضافة تقسيم' : 'Add Section',
-    items:      lang === 'ar' ? 'عنصر'         : 'items',
-  }), [lang])
+  /* A useState initialiser runs ONCE. Without this sync, sections arriving after
+     the first render — a different platform, or data that was still loading —
+     were ignored forever, leaving the tab row empty until something remounted
+     the component. Keyed off the section ids rather than the array itself, since
+     a parent that builds the array inline hands us a new reference every render
+     and would otherwise loop. */
+  const sectionsKey = useMemo(
+    () => initialSections.map(s => s.id).join('|'),
+    [initialSections],
+  )
 
-  const handleSelect = useCallback((s: Section) => {
-    setActiveId(s.id)
-    onSectionChange?.(s)
-  }, [onSectionChange])
-
-  const handleAdd = useCallback((s: Section) => {
-    setSections(prev => [...prev, s])
-    setActiveId(s.id)
-    onSectionChange?.(s)
-  }, [onSectionChange])
-
-  const handleOpenModal = useCallback(() => setShowModal(true), [])
-  const handleCloseModal = useCallback(() => setShowModal(false), [])
+  useEffect(() => {
+    setSections(initialSections)
+    // Keep the current tab if it still exists (e.g. the list was merely refreshed),
+    // otherwise fall back to the first one.
+    setActiveId(prev =>
+      initialSections.some(s => s.id === prev) ? prev : (initialSections[0]?.id ?? '')
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platformId, sectionsKey])
 
   const activeSection = useMemo(
     () => sections.find(s => s.id === activeId),
     [sections, activeId]
   )
+
+  /* Kept in a ref so the notification effect below doesn't re-fire just because
+     the parent passed a new inline function. */
+  const onSectionChangeRef = useRef(onSectionChange)
+  onSectionChangeRef.current = onSectionChange
+
+  /* The parent previously only learned about a section when the user clicked one,
+     so on first load it had no active section and rendered nothing. Reporting the
+     resolved section here covers the initial mount and platform switches too. */
+  useEffect(() => {
+    if (activeSection) onSectionChangeRef.current?.(activeSection)
+  }, [activeSection])
+
+  const tx = useMemo(() => ({
+    addSection: lang === 'ar' ? 'إضافة تقسيم' : 'Add Section',
+    items:      lang === 'ar' ? 'عنصر'         : 'items',
+    tabsLabel:  lang === 'ar' ? 'تقسيمات الأرشيف' : 'Archive sections',
+  }), [lang])
+
+  /* Selection only sets state; the effect above is the single place that notifies
+     the parent, so a click can't produce two notifications. */
+  const handleSelect = useCallback((id: string) => {
+    setActiveId(id)
+  }, [])
+
+  const handleAdd = useCallback((draft: Omit<Section, 'id'>) => {
+    const id = makeUniqueSectionId(draft.nameEn, sections)
+    setSections(prev => [...prev, { ...draft, id }])
+    setActiveId(id)
+  }, [sections])
+
+  const handleOpenModal = useCallback(() => setShowModal(true), [])
+  const handleCloseModal = useCallback(() => setShowModal(false), [])
 
   const addSectionBtnStyle = useMemo<React.CSSProperties>(() => ({
     background: 'transparent',
@@ -417,8 +491,12 @@ function SectionTabs({
       <div dir={isRTL ? 'rtl' : 'ltr'} className="select-none">
 
         {/* Tabs row */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1"
-          style={{ scrollbarWidth: 'none' }}>
+        <div
+          role="tablist"
+          aria-label={tx.tabsLabel}
+          className="flex items-center gap-2 overflow-x-auto pb-1"
+          style={{ scrollbarWidth: 'none' }}
+        >
 
           {sections.map(s => (
             <SectionTab
@@ -440,6 +518,7 @@ function SectionTabs({
           {/* Add section button — admin only */}
           {isAdmin && (
             <button
+              type="button"
               onClick={handleOpenModal}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
               style={addSectionBtnStyle}

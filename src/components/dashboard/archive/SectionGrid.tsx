@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useCallback, useMemo, memo } from "react"
+import { useState, useCallback, useMemo, useRef, memo } from "react"
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
-import { Plus, X, ExternalLink, Search, SlidersHorizontal } from 'lucide-react'
+import { Plus, X, ExternalLink, Search, SlidersHorizontal, Upload } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import type { Section } from '@/components/dashboard/archive/SectionTabs'
@@ -15,6 +15,13 @@ export interface ArchiveItem {
   nameAr:      string
   description:   string
   descriptionAr: string
+  /**
+   * Image source for the card.
+   *
+   * While there is no backend this holds a data URL produced by FileReader, which
+   * is fine for previewing but must NOT be persisted — data URLs bloat every row
+   * and every response. See the BACKEND NOTE at the bottom of this file.
+   */
   thumbnail?:  string
   driveUrl:    string
   tag?:        string   // e.g. "AE" | "PNG" | "MP4" | "PDF"
@@ -47,11 +54,16 @@ const TEXT_MUTED = "var(--foreground-muted)";
 
 const TAG_OPTIONS = ['PNG', 'MP4', 'AE', 'PDF', 'BLEND'] as const;
 
+/** Rejected before reading, so a huge file never gets turned into a data URL. */
+const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024; // 5 MB
+
 const MODAL_BACKDROP_STYLE: React.CSSProperties = { background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', cursor: 'pointer' };
 const CLOSE_BUTTON_STYLE: React.CSSProperties = { color: TEXT_MUTED, cursor: 'pointer' };
 const REQUIRED_ASTERISK_STYLE: React.CSSProperties = { color: '#ef4444' };
 const DRIVE_LINK_STYLE: React.CSSProperties = { background: 'rgba(255,255,255,0.22)', border: '1px solid rgba(255,255,255,0.4)', transition: 'background 0.18s' };
 const EMPTY_ICON_STYLE: React.CSSProperties = { color: TEXT_MUTED, opacity: 0.4 };
+const HIDDEN_FILE_INPUT_STYLE: React.CSSProperties = { display: 'none' };
+const ERROR_TEXT_STYLE: React.CSSProperties = { color: '#ef4444', fontSize: '10px', marginTop: '4px' };
 
 function handleHoverBgEnter(e: React.MouseEvent<HTMLButtonElement>) {
   e.currentTarget.style.background = 'var(--hover-bg)';
@@ -64,6 +76,15 @@ function handleDriveLinkEnter(e: React.MouseEvent<HTMLDivElement>) {
 }
 function handleDriveLinkLeave(e: React.MouseEvent<HTMLDivElement>) {
   e.currentTarget.style.background = 'rgba(255,255,255,0.22)';
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 /* ── TagOption ── */
@@ -106,8 +127,15 @@ const AddItemModal = memo(function AddItemModal({
   const [description,   setDescription]   = useState('')
   const [descriptionAr, setDescriptionAr] = useState('')
   const [driveUrl,      setDriveUrl]      = useState('')
-  const [thumbnailUrl,  setThumbnailUrl]  = useState('')
   const [tag,           setTag]           = useState('')
+
+  /* Thumbnail — same pattern as Add Platform: a path field plus a Choose File
+     button. Picking a file fills the field with the file name and keeps the
+     decoded image in `thumbnailData` for the preview and the created item. */
+  const [thumbnailPath,  setThumbnailPath]  = useState('')
+  const [thumbnailData,  setThumbnailData]  = useState('')
+  const [thumbnailError, setThumbnailError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const tx = useMemo(() => ({
     title:    lang === 'ar' ? 'إضافة عنصر جديد'     : 'Add New Item',
@@ -117,7 +145,13 @@ const AddItemModal = memo(function AddItemModal({
     descAr:   lang === 'ar' ? 'الوصف بالعربي'       : 'Arabic Description',
     drive:    lang === 'ar' ? 'رابط الدرايف'         : 'Drive URL',
     drivePh:  lang === 'ar' ? 'https://drive.google.com/...' : 'https://drive.google.com/...',
-    thumb:    lang === 'ar' ? 'رابط الصورة (اختياري)' : 'Thumbnail URL (optional)',
+    thumb:    lang === 'ar' ? 'الصورة المصغرة (اختياري)' : 'Thumbnail (optional)',
+    thumbPh:  lang === 'ar' ? 'لم يتم اختيار ملف'   : 'No file chosen',
+    choose:   lang === 'ar' ? 'اختر ملف'             : 'Choose File',
+    remove:   lang === 'ar' ? 'إزالة الصورة'         : 'Remove image',
+    errType:  lang === 'ar' ? 'الملف المختار ليس صورة' : 'The selected file is not an image',
+    errSize:  lang === 'ar' ? 'حجم الصورة يتجاوز 5 ميجابايت' : 'Image exceeds the 5 MB limit',
+    errRead:  lang === 'ar' ? 'تعذّرت قراءة الملف'   : 'Could not read the file',
     tagLabel: lang === 'ar' ? 'نوع الملف'            : 'File Type',
     add:      lang === 'ar' ? 'إضافة'               : 'Add Item',
     cancel:   lang === 'ar' ? 'إلغاء'               : 'Cancel',
@@ -149,6 +183,33 @@ const AddItemModal = memo(function AddItemModal({
   const driveInputStyle = useMemo<React.CSSProperties>(() => ({
     ...inputStyle, fontFamily: 'monospace', fontSize: '11px',
   }), [inputStyle]);
+
+  /* Read-only: the path is filled by the file picker, not typed. */
+  const thumbnailFieldStyle = useMemo<React.CSSProperties>(() => ({
+    ...inputStyle,
+    color: thumbnailPath ? TEXT_MAIN : TEXT_MUTED,
+    cursor: 'pointer',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+  }), [inputStyle, thumbnailPath]);
+
+  const chooseFileButtonStyle = useMemo<React.CSSProperties>(() => ({
+    background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    border:     `1px solid ${color}55`,
+    color,
+    borderRadius: '10px',
+    padding:      '8px 12px',
+    fontSize:     '11px',
+    fontWeight:   700,
+    cursor:       'pointer',
+    whiteSpace:   'nowrap' as const,
+    fontFamily:   lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [isDark, color, lang]);
+
+  const thumbnailPreviewStyle = useMemo<React.CSSProperties>(() => ({
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.10)'}`,
+  }), [isDark]);
 
   const labelStyle = useMemo<React.CSSProperties>(() => ({
     fontSize:      '10px',
@@ -223,6 +284,43 @@ const AddItemModal = memo(function AddItemModal({
     if (e.target === e.currentTarget) onClose();
   }, [onClose]);
 
+  /* ── Thumbnail upload ── */
+  const handleChooseFile = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset immediately so re-picking the SAME file still fires a change event.
+    e.target.value = '';
+    if (!file) return;
+
+    setThumbnailError('');
+
+    if (!file.type.startsWith('image/')) {
+      setThumbnailError(tx.errType);
+      return;
+    }
+    if (file.size > MAX_THUMBNAIL_BYTES) {
+      setThumbnailError(tx.errSize);
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setThumbnailData(dataUrl);
+      setThumbnailPath(file.name);
+    } catch {
+      setThumbnailError(tx.errRead);
+    }
+  }, [tx.errType, tx.errSize, tx.errRead]);
+
+  const handleRemoveThumbnail = useCallback(() => {
+    setThumbnailData('');
+    setThumbnailPath('');
+    setThumbnailError('');
+  }, []);
+
   const handleAdd = () => {
     if (isAddDisabled) return
     onAdd({
@@ -233,7 +331,7 @@ const AddItemModal = memo(function AddItemModal({
       description:   description.trim(),
       descriptionAr: descriptionAr.trim(),
       driveUrl:      driveUrl.trim(),
-      thumbnail:     thumbnailUrl.trim() || undefined,
+      thumbnail:     thumbnailData || undefined,
       tag:           tag.trim().toUpperCase() || undefined,
     })
     onClose()
@@ -312,11 +410,63 @@ const AddItemModal = memo(function AddItemModal({
               placeholder={tx.drivePh} style={driveInputStyle} />
           </div>
 
-          {/* Thumbnail */}
+          {/* Thumbnail — upload from device (same pattern as Add Platform) */}
           <div>
             <label style={labelStyle}>{tx.thumb}</label>
-            <input value={thumbnailUrl} onChange={e => setThumbnailUrl(e.target.value)}
-              placeholder="/platforms/thumb.png" style={inputStyle} />
+
+            <div className="flex items-center gap-2">
+              <div
+                onClick={handleChooseFile}
+                style={thumbnailFieldStyle}
+                title={thumbnailPath || tx.thumbPh}
+              >
+                {thumbnailPath || tx.thumbPh}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleChooseFile}
+                className="flex items-center gap-1.5 shrink-0"
+                style={chooseFileButtonStyle}
+              >
+                <Upload className="w-3 h-3" />
+                {tx.choose}
+              </button>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              style={HIDDEN_FILE_INPUT_STYLE}
+            />
+
+            {thumbnailError && <p style={ERROR_TEXT_STYLE}>{thumbnailError}</p>}
+
+            {/* Preview + remove */}
+            {thumbnailData && (
+              <div className="flex items-center gap-2 mt-2">
+                <img
+                  src={thumbnailData}
+                  alt=""
+                  className="w-10 h-10 rounded-lg object-cover shrink-0"
+                  style={thumbnailPreviewStyle}
+                />
+                <button
+                  type="button"
+                  onClick={handleRemoveThumbnail}
+                  className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
+                  style={CLOSE_BUTTON_STYLE}
+                  aria-label={tx.remove}
+                  title={tx.remove}
+                  onMouseEnter={handleHoverBgEnter}
+                  onMouseLeave={handleHoverBgLeave}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Tag */}
@@ -714,3 +864,30 @@ function SectionGrid({
 }
 
 export default memo(SectionGrid)
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BACKEND NOTE — item thumbnails
+   ═══════════════════════════════════════════════════════════════════════════
+   The picker currently converts the chosen image to a data URL via FileReader so
+   it can be previewed and stored in component state. That is a stand-in ONLY.
+
+   Never persist the data URL. Base64 inflates the image by roughly a third, and
+   it would then be embedded in every row and every list response — the archive
+   grid fetches many items at once, so this degrades quickly.
+
+   On wiring up, upload the File to Supabase Storage and store the returned public
+   URL (or object path) in `archive_items.thumbnail`:
+
+     const path = `archive/${sectionId}/${crypto.randomUUID()}-${file.name}`
+     const { error } = await supabase.storage.from('archive').upload(path, file)
+     const { data } = supabase.storage.from('archive').getPublicUrl(path)
+
+   Keep the client-side checks that already exist here (image MIME type, 5 MB
+   limit) as a first line of defence, but enforce both again server side — a
+   client check only stops honest mistakes. Storage bucket policies should also
+   restrict uploads to users holding the archive-management permission, matching
+   the single "Manage Archive" permission the Archive page is built around.
+
+   Deleting an item must delete its stored object too, otherwise the bucket fills
+   with orphans that nothing references.
+   ═══════════════════════════════════════════════════════════════════════════ */

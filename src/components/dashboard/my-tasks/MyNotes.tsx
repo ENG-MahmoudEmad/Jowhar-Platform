@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, memo } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { Plus, Pencil, Trash2, X, Check, Search, Clock3 } from "lucide-react";
+import { useSearchParams, usePathname } from "next/navigation";
 import { useTheme } from "@/context/ThemeContext";
 import { useLang } from "@/context/LangContext";
 
@@ -46,6 +47,9 @@ const COLORS = [
 /* ─── Constants ──────────────────────────────────────────────────────────────── */
 const TEXT_MAIN = "var(--foreground)";
 const TEXT_MUTED = "var(--foreground-muted)";
+
+/* Query flag set by the navbar's + button to jump straight into create mode. */
+const NEW_NOTE_PARAM = "newNote";
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
 // Cached rgba() — نفس hex+alpha بيتكرر كثير عبر الكومبوننت (نفس اللون، نفس الشفافية)
@@ -256,6 +260,9 @@ function MyNotes() {
   const { lang, isRTL } = useLang();
   const isDark          = theme === "dark";
 
+  const pathname     = usePathname();
+  const searchParams = useSearchParams();
+
   /* palette */
   const textMain  = TEXT_MAIN;
   const textMuted = TEXT_MUTED;
@@ -373,6 +380,21 @@ function MyNotes() {
   const handleDragEnd = useCallback((_e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     if (isMobile && info.offset.y > 100) closePanel();
   }, [isMobile, closePanel]);
+
+  /* ── Deep link: navbar's + button lands here with ?newNote=1 ──
+     Placed after openCreate so the dependency is already initialised.
+     The URL is cleaned with history.replaceState rather than router.replace:
+     router.replace triggers a real navigation, which remounts this component
+     and would immediately close the panel we just opened. */
+  const consumedNewNoteFlag = useRef(false);
+  useEffect(() => {
+    if (consumedNewNoteFlag.current) return;
+    if (searchParams.get(NEW_NOTE_PARAM) !== "1") return;
+
+    consumedNewNoteFlag.current = true;
+    openCreate();
+    window.history.replaceState(null, "", pathname);
+  }, [searchParams, openCreate, pathname]);
 
   return (
     <>

@@ -22,6 +22,13 @@ export interface DirectorNote {
   color:    string;
   priority: "low" | "medium" | "high";
   isRead:   boolean;
+  /**
+   * When the member first opened this note. `null` while unread.
+   * Kept alongside `isRead` so the director can see not just *whether* a note was
+   * read but *when* — useful when chasing up an unacknowledged instruction.
+   * The server should treat the first read as final and ignore later writes.
+   */
+  readAt:   string | null;
   comments: MemberComment[];
   createdAt:string;
 }
@@ -31,7 +38,15 @@ export interface DirectorNote {
 // POST /api/director-notes/:id/read
 // POST /api/director-notes/:id/comments
 
-async function apiMarkRead(id: string): Promise<void> { void id; }
+/**
+ * Marks a note read. Returns the authoritative `readAt` from the server so the
+ * client never invents its own timestamp — the member's clock may be wrong, and
+ * this value is shown to the director.
+ */
+async function apiMarkRead(id: string): Promise<{ readAt: string }> {
+  void id;
+  return { readAt: new Date().toISOString() };
+}
 
 async function apiAddComment(noteId: string, text: string): Promise<MemberComment> {
   void noteId;
@@ -43,17 +58,17 @@ async function apiAddComment(noteId: string, text: string): Promise<MemberCommen
 const DEMO: DirectorNote[] = [
   { id:"dn1", title:"Character Rigging Feedback",
     content:"The shoulder deformation needs more weight painting work. Please review the collarbone area — it's collapsing on extreme poses. Reference the approved concept sheets in the shared folder.",
-    color:"#458482", priority:"high", isRead:false, comments:[], createdAt:"2026-05-14T10:00:00Z" },
+    color:"#458482", priority:"high", isRead:false, readAt:null, comments:[], createdAt:"2026-05-14T10:00:00Z" },
   { id:"dn2", title:"Walk Cycle — Great Progress",
     content:"The timing is much better on the latest version. Just polish the foot plant on frame 12 and we're good to go. Also make sure the secondary motion on the hair is subtle.",
-    color:"#5ea8a4", priority:"medium", isRead:true,
+    color:"#5ea8a4", priority:"medium", isRead:true, readAt:"2026-05-13T10:12:00Z",
     comments:[{ id:"c1", authorId:"current-user", authorName:"KB",
       text:"Understood, will fix the foot plant and reduce the hair secondary motion.",
       createdAt:"2026-05-14T11:30:00Z" }],
     createdAt:"2026-05-13T09:00:00Z" },
   { id:"dn3", title:"Deadline Reminder",
     content:"All deliverables for Phase 1 are due May 23rd EOD. Please upload final files to the shared drive and send a completion report.",
-    color:"#f59e0b", priority:"high", isRead:false, comments:[], createdAt:"2026-05-12T08:00:00Z" },
+    color:"#f59e0b", priority:"high", isRead:false, readAt:null, comments:[], createdAt:"2026-05-12T08:00:00Z" },
 ];
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
@@ -86,6 +101,7 @@ const MUTED_TEXT_STYLE: React.CSSProperties = { color: TEXT_MUTED };
 const ROW_STYLE: React.CSSProperties = { flexDirection: "row" };
 const BACKDROP_STYLE: React.CSSProperties = { background:"rgba(0,0,0,0.45)", backdropFilter:"blur(4px)" };
 const UNREAD_BADGE_STYLE: React.CSSProperties = { background:"#ef4444", color:"#fff" };
+const UNREAD_DOT_STYLE: React.CSSProperties = { background:"#ef4444" };
 const COMMENTS_PREVIEW = 2;
 
 // Shared static hover handlers — identical "var(--hover-bg)" / "transparent" pair, zero closures
@@ -156,7 +172,11 @@ const PreviewCard = memo(function PreviewCard({ note, active, isDark, lang, onSe
         <div className="flex items-center justify-between gap-2" style={ROW_STYLE}>
           <div className="flex items-center gap-2 min-w-0">
             {!note.isRead && (
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ background:note.color }}/>
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={UNREAD_DOT_STYLE}
+                aria-label={lang==="ar" ? "غير مقروءة" : "Unread"}
+              />
             )}
             <span className="text-[13px] font-semibold leading-tight truncate" style={titleStyle}>
               {note.title}
@@ -239,11 +259,20 @@ function DirectorNotes() {
   const inputBorder = isDark ? "var(--input-border)"   : "rgba(0,0,0,0.10)";
 
   const [notes,           setNotes]          = useState<DirectorNote[]>(DEMO);
-  const [selectedNote,    setSelectedNote]   = useState<DirectorNote | null>(null);
+  const [selectedId,      setSelectedId]     = useState<string | null>(null);
   const [panelOpen,       setPanelOpen]      = useState(false);
   const [commentText,     setCommentText]    = useState("");
   const [sending,         setSending]        = useState(false);
   const [showAllComments, setShowAllComments]= useState(false);
+
+  /* The panel renders from `notes` via the selected id rather than holding its own
+     copy of the note. Keeping a duplicate in state was the source of a stale-copy
+     bug: an async read/comment update could write back to whichever note happened
+     to be selected at the time the request resolved. */
+  const selectedNote = useMemo(
+    () => notes.find(n => n.id === selectedId) ?? null,
+    [notes, selectedId],
+  );
 
   /* ── Detect mobile ── */
   const [isMobile, setIsMobile] = useState(false);
@@ -258,8 +287,8 @@ function DirectorNotes() {
     title:      lang==="ar" ? "ملاحظات المدير"      : "Director Notes",
     open:       lang==="ar" ? "فتح"                  : "Open",
     empty:      lang==="ar" ? "لا توجد ملاحظات"     : "No notes yet",
-    alreadyRead:lang==="ar" ? "تمت القراءة ✓"        : "Read ✓",
-    markRead:   lang==="ar" ? "تم القراءة ✓"         : "Mark as Read ✓",
+    readAt:     lang==="ar" ? "تمت القراءة"          : "Read",
+    marking:    lang==="ar" ? "جارٍ التعليم كمقروءة" : "Marking as read",
     comments:   lang==="ar" ? "التعليقات"            : "Comments",
     addComment: lang==="ar" ? "أضف تعليقاً..."      : "Add a comment...",
     noComments: lang==="ar" ? "لا توجد تعليقات بعد" : "No comments yet",
@@ -267,6 +296,7 @@ function DirectorNotes() {
     showLess:   lang==="ar" ? "عرض أقل"              : "Show less",
     from:       lang==="ar" ? "من المدير"            : "From Director",
     allNotes:   lang==="ar" ? "كل الملاحظات"         : "All Notes",
+    unread:     lang==="ar" ? "ملاحظات غير مقروءة"  : "unread notes",
   }), [lang]);
 
   const unreadCount = useMemo(() => notes.filter(n => !n.isRead).length, [notes]);
@@ -319,7 +349,7 @@ function DirectorNotes() {
     direction: isRTL ? "rtl" : "ltr",
   }), [lang, isRTL]);
 
-  const markReadColorStyle = useMemo<React.CSSProperties>(() => (
+  const readStatusStyle = useMemo<React.CSSProperties>(() => (
     selectedNote ? { color: selectedNote.isRead ? selectedNote.color : TEXT_MUTED } : {}
   ), [selectedNote]);
 
@@ -332,31 +362,67 @@ function DirectorNotes() {
   }), [divider]);
 
   /* ── Handlers ── */
+
+  /**
+   * Opening a note is what marks it read — there is no separate button, since the
+   * note is shown in a dedicated panel and opening it is unambiguous.
+   *
+   * The update is optimistic: the badge drops immediately rather than after a
+   * round trip, and is rolled back if the request fails. Every write targets the
+   * note by id, so switching notes mid-request can never mark the wrong one.
+   */
   const openNote = useCallback(async (note: DirectorNote) => {
-    setSelectedNote(note); setPanelOpen(true);
-    setCommentText(""); setShowAllComments(false);
-    if (!note.isRead) {
-      await apiMarkRead(note.id);
-      setNotes(prev => prev.map(n => n.id===note.id ? { ...n, isRead:true } : n));
-      setSelectedNote(prev => prev ? { ...prev, isRead:true } : prev);
+    setSelectedId(note.id);
+    setPanelOpen(true);
+    setCommentText("");
+    setShowAllComments(false);
+
+    if (note.isRead) return;
+
+    const optimisticReadAt = new Date().toISOString();
+    setNotes(prev => prev.map(n =>
+      n.id === note.id ? { ...n, isRead: true, readAt: optimisticReadAt } : n
+    ));
+
+    try {
+      const { readAt } = await apiMarkRead(note.id);
+      // Replace the optimistic timestamp with the server's authoritative one.
+      setNotes(prev => prev.map(n => n.id === note.id ? { ...n, readAt } : n));
+    } catch {
+      // Roll back so the unread counter stays truthful.
+      setNotes(prev => prev.map(n =>
+        n.id === note.id ? { ...n, isRead: false, readAt: null } : n
+      ));
     }
   }, []);
 
   const closePanel = useCallback(() => {
     setPanelOpen(false);
-    setTimeout(() => { setSelectedNote(null); setCommentText(""); }, 300);
+    setTimeout(() => { setSelectedId(null); setCommentText(""); }, 300);
   }, []);
 
   const handleSendComment = useCallback(async () => {
     if (!selectedNote || !commentText.trim()) return;
+    const noteId = selectedNote.id;
     setSending(true);
     try {
-      const newComment = await apiAddComment(selectedNote.id, commentText.trim());
-      const updated    = { ...selectedNote, comments:[...selectedNote.comments, newComment] };
-      setNotes(prev => prev.map(n => n.id===selectedNote.id ? updated : n));
-      setSelectedNote(updated); setCommentText("");
+      const newComment = await apiAddComment(noteId, commentText.trim());
+      setNotes(prev => prev.map(n =>
+        n.id === noteId ? { ...n, comments: [...n.comments, newComment] } : n
+      ));
+      setCommentText("");
     } finally { setSending(false); }
   }, [selectedNote, commentText]);
+
+  const handleOpenFirst = useCallback(() => {
+    if (notes.length > 0) openNote(notes[0]);
+  }, [notes, openNote]);
+
+  const handleToggleComments = useCallback(() => setShowAllComments(v => !v), []);
+
+  const handleCommentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setCommentText(e.target.value);
+  }, []);
 
   return (
     <LazyMotion features={domMax}>
@@ -372,12 +438,16 @@ function DirectorNotes() {
               {tx.title}
             </h2>
             {unreadCount > 0 && (
-              <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full" style={UNREAD_BADGE_STYLE}>
+              <span
+                className="text-[9px] font-black px-1.5 py-0.5 rounded-full"
+                style={UNREAD_BADGE_STYLE}
+                aria-label={`${unreadCount} ${tx.unread}`}
+              >
                 {unreadCount}
               </span>
             )}
           </div>
-          <button onClick={() => notes.length > 0 && openNote(notes[0])}
+          <button onClick={handleOpenFirst}
             className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all"
             style={{ background:"transparent", color:"var(--foreground-muted)", border:`1px solid ${divider}` }}
             onMouseEnter={handleHoverBgEnter}
@@ -499,9 +569,14 @@ function DirectorNotes() {
                       <p className="text-[13px] leading-[1.9]" style={noteContentTextStyle}>
                         {selectedNote.content}
                       </p>
-                      <div className="flex items-center gap-1.5 mt-4 text-[11px] font-semibold" style={markReadColorStyle}>
+
+                      {/* Read receipt — status, not an action. Opening the note is
+                          what marks it read, so this only ever reports state. */}
+                      <div className="flex items-center gap-1.5 mt-4 text-[11px] font-semibold" style={readStatusStyle}>
                         <CheckCheck className="w-3.5 h-3.5"/>
-                        {selectedNote.isRead ? tx.alreadyRead : tx.markRead}
+                        {selectedNote.isRead && selectedNote.readAt
+                          ? `${tx.readAt} · ${fmtDate(selectedNote.readAt, lang)} ${fmtTime(selectedNote.readAt, lang)}`
+                          : tx.marking}
                       </div>
                     </div>
                   </div>
@@ -520,7 +595,7 @@ function DirectorNotes() {
                   ) : (
                     <div className="flex flex-col gap-3">
                       {selectedNote.comments.length > COMMENTS_PREVIEW && (
-                        <button onClick={() => setShowAllComments(v=>!v)}
+                        <button onClick={handleToggleComments}
                           className="flex items-center gap-1 text-[10px] font-semibold cursor-pointer w-fit"
                           style={{ color:selectedNote.color }}
                         >
@@ -548,7 +623,7 @@ function DirectorNotes() {
                   <div className="flex items-end gap-2"
                     style={{ flexDirection:isRTL?"row-reverse":"row" }}
                   >
-                    <textarea value={commentText} onChange={e=>setCommentText(e.target.value)}
+                    <textarea value={commentText} onChange={handleCommentChange}
                       placeholder={tx.addComment} rows={2}
                       onKeyDown={e=>{ if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)) handleSendComment(); }}
                       style={{ flex:1, background:inputBg,

@@ -5,6 +5,7 @@ import { AnimatePresence, LazyMotion, domAnimation, m } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import { useSwipeNavigate } from '@/hooks/useSwipeNavigate';
 
 type Lang = 'en' | 'ar';
 type Urgency = 'safe' | 'warning' | 'danger';
@@ -215,6 +216,24 @@ function DeadlineCountdown() {
     });
   }, [total]);
 
+  const step = useCallback((direction: 1 | -1) => {
+    setActiveIdx((current) => {
+      const next = ((current + direction) % total + total) % total;
+      setDotOffset((offset) => {
+        if (next < offset) return next;
+        if (next >= offset + DOTS_VISIBLE) return next - DOTS_VISIBLE + 1;
+        return offset;
+      });
+      return next;
+    });
+  }, [total]);
+
+  // Swipe / drag / trackpad navigation between deadlines.
+  // No native horizontal scrolling here, so every horizontal gesture navigates.
+  const { ref: swipeRef, swipeHandlers, swipeStyle } = useSwipeNavigate({
+    onNavigate: step,
+  });
+
   if (!isClientReady || baseTime === 0) {
     return (
       <LazyMotion features={domAnimation}>
@@ -280,9 +299,11 @@ function DeadlineCountdown() {
         dir={isRTL ? 'rtl' : 'ltr'}
         aria-labelledby="deadline-countdown-title"
         className="relative flex h-full w-full flex-col overflow-hidden rounded-2xl"
-        style={palette}
+        style={{ ...palette, ...swipeStyle }}
+        ref={swipeRef}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        {...swipeHandlers}
       >
         <AnimatePresence>
           {hovered && (
