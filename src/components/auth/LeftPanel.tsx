@@ -1,3 +1,5 @@
+//src\components\auth\LeftPanel.tsx
+
 "use client"
 
 import { motion } from 'framer-motion';
@@ -34,9 +36,16 @@ export default function LeftPanel({ subtitle = 'Animation Studio Workspace' }: L
         <line x1="0" y1="70%" x2="100%" y2="30%" stroke="white" strokeWidth="0.5"/>
         <circle cx="70%" cy="25%" r="120" fill="none" stroke="white" strokeWidth="0.6"/>
         <circle cx="25%" cy="75%" r="80"  fill="none" stroke="white" strokeWidth="0.5"/>
+        {/*
+          ملاحظة: transform="rotate(-15 70% 65%)" (كـ attribute) غير صالح بمواصفات SVG —
+          نقطة الدوران داخل rotate() لازم تكون أرقام (بكسلات)، مش نسب مئوية.
+          هذا كان يرمي Exception أثناء الـ hydration بعد كل login/logout ويكسر الصفحة
+          بصريًا لحد ما يصير refresh يدوي. الحل: نستخدم CSS transform + transform-origin
+          (خاصيتين منفصلتين بستايل، مش attribute واحد)، اللي بيقبل النسب المئوية بشكل طبيعي.
+        */}
         <rect x="65%" y="55%" width="200" height="200" rx="4"
           fill="none" stroke="white" strokeWidth="0.5"
-          transform="rotate(-15 70% 65%)"/>
+          style={{ transform: 'rotate(-15deg)', transformOrigin: '70% 65%' }}/>
       </svg>
 
       {/* Grain */}
