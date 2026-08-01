@@ -2,6 +2,7 @@ import React from 'react';
 import { redirect } from 'next/navigation';
 import { Hourglass } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
+import { BackToLoginButton } from './BackToLoginButton';
 
 export default async function PendingApprovalPage() {
   const supabase = await createClient();
@@ -53,13 +54,7 @@ export default async function PendingApprovalPage() {
             : 'تم إنشاء حسابك بنجاح، وهو الآن قيد المراجعة من قبل الإدارة. ستصلك رسالة على بريدك الإلكتروني فور الموافقة.'}
         </p>
 
-        <a
-          href="/login"
-          className="inline-block mt-8 text-sm font-semibold"
-          style={{ color: '#5ea8a4' }}
-        >
-          العودة لتسجيل الدخول
-        </a>
+        <BackToLoginButton />
       </div>
     </div>
   );
