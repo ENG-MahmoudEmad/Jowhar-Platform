@@ -36,9 +36,21 @@ export default function ForgotPasswordPage() {
     mode: 'onTouched',
   });
 
+  /**
+   * الطلب بيروح لـ Route Handler على السيرفر (مش مباشرة لـ Supabase).
+   * السبب: فحص "هل الحساب active؟" لازم يتم على السيرفر — لو صار هون،
+   * أي حدا يفتح الـ Network tab بيعرف إذا الإيميل مسجل عندنا (user enumeration).
+   *
+   * السيرفر بيرد نفس الرد دايمًا، فما منفرّق بالواجهة كمان:
+   * دايمًا منعرض حالة النجاح مهما كانت النتيجة الفعلية.
+   */
   const onSubmit = async (data: ForgotFormValues) => {
-    console.log('Reset link requested for:', data.email);
-    await new Promise(r => setTimeout(r, 1500));
+    await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: data.email }),
+    }).catch(() => { /* حتى فشل الشبكة بيعرض نفس النتيجة */ });
+
     setIsSubmitted(true);
   };
 
@@ -99,7 +111,7 @@ export default function ForgotPasswordPage() {
               Reset Password
             </h2>
             <p className="text-sm font-medium" style={{ color: textMuted }}>
-              Enter your email and we'll send you a recovery link
+              Enter your email and we&apos;ll send you a recovery link
             </p>
           </motion.div>
 
@@ -123,6 +135,7 @@ export default function ForgotPasswordPage() {
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors duration-200"
                     style={{ color: errors.email ? '#f87171' : textMuted }} />
                   <input {...register('email')} type="email" placeholder="name@jowhar.com"
+                    autoComplete="email"
                     style={inputStyle}
                     onFocus={e => e.currentTarget.style.borderColor = errors.email ? borderErr : borderFocus}
                     onBlur={e  => e.currentTarget.style.borderColor = errors.email ? borderErr : borderIdle}
@@ -133,7 +146,7 @@ export default function ForgotPasswordPage() {
               {/* Submit */}
               <motion.div variants={item}>
                 <button disabled={isSubmitting}
-                  className="relative w-full overflow-hidden disabled:opacity-50 text-white font-bold
+                  className="relative w-full overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold
                     py-[14px] rounded-2xl flex items-center justify-center gap-2.5 group text-[11px]
                     cursor-pointer active:scale-[0.98] uppercase tracking-[0.18em] mt-3 select-none"
                   style={{
@@ -173,8 +186,19 @@ export default function ForgotPasswordPage() {
                 style={{ fontFamily: "'Georgia', serif", color: textMain }}>
                 Check your inbox
               </h3>
-              <p className="text-xs leading-relaxed mb-6 px-2" style={{ color: textMuted }}>
-                We've sent a password recovery link to your email. Check your spam folder if you don't see it.
+
+              {/*
+                الصياغة مشروطة عمدًا ("if ... is registered"): ما منأكد إنه
+                الإيميل موجود فعلاً، لأن التأكيد نفسه بيكشف معلومة.
+              */}
+              <p className="text-xs leading-relaxed mb-3 px-2" style={{ color: textMuted }}>
+                If this email is registered and active, a recovery link is on its way.
+                Check your spam folder if you don&apos;t see it.
+              </p>
+
+              <p className="text-[10px] leading-relaxed mb-6 px-2" style={{ color: textMuted, opacity: 0.75 }}>
+                The link is valid for 9 minutes and can be used once.
+                You can request a new one after 10 minutes.
               </p>
 
               <div className="flex items-center gap-3 mb-5">

@@ -1,3 +1,5 @@
+//src\components\dashboard\Navbar.tsx
+
 "use client";
 
 import React, { memo, useCallback, useMemo } from 'react';
@@ -6,6 +8,7 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useCurrentUser } from '@/context/UserContext';
 
 interface NavbarProps {
   onMenuClick?: () => void;
@@ -72,6 +75,7 @@ const actionsGroupStyle: React.CSSProperties = {
 function Navbar({ onMenuClick }: NavbarProps) {
   const { lang, isRTL } = useLang();
   const { theme } = useTheme();
+  const { user } = useCurrentUser();
   const router = useRouter();
   const isDark = theme === 'dark';
 
@@ -142,6 +146,9 @@ function Navbar({ onMenuClick }: NavbarProps) {
     router.push(NEW_NOTE_HREF);
   }, [router]);
 
+  // الاسم الأول فقط بالترحيب (نفس منطق My Tasks spec)
+  const displayFirstName = user?.firstName || '';
+
   return (
     <header
       dir={isRTL ? 'rtl' : 'ltr'}
@@ -179,7 +186,7 @@ function Navbar({ onMenuClick }: NavbarProps) {
               className="font-bold text-sm tracking-wide uppercase flex items-center gap-1 whitespace-nowrap"
               style={{ color: TEXT_MAIN }}
             >
-              Alwaqee
+              {displayFirstName}
               <Sparkles size={13} className="text-[#458482] shrink-0" />
             </span>
           </div>

@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { memo, useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useId, useMemo, useState } from 'react';
 import {
   LayoutDashboard,ShieldCheck, CheckSquare, Archive,
   Newspaper, LogOut, UserCircle, ChevronRight,
@@ -14,12 +14,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import { useCurrentUser } from '@/context/UserContext';
 
 type MenuItem = {
   nameEn: string;
   nameAr: string;
   icon: LucideIcon;
   path: string;
+  /** Hidden unless the current user holds the matching permission. */
+  adminOnly?: boolean;
 };
 
 const menuItems: MenuItem[] = [
@@ -28,11 +31,20 @@ const menuItems: MenuItem[] = [
   { nameEn: 'Archive',       nameAr: 'الأرشيف',        icon: Archive,         path: '/archive' },
   { nameEn: 'News Feed',     nameAr: 'الأخبار',        icon: Newspaper,       path: '/news' },
   { nameEn: 'Profile',       nameAr: 'الملف الشخصي',   icon: UserCircle,      path: '/profile' },
-  { nameEn: 'Admin Control',       nameAr: 'لوحة تحكم الآدمن',   icon: ShieldCheck,      path: '/adminControl' },
+  { nameEn: 'Admin Control', nameAr: 'لوحة تحكم الآدمن', icon: ShieldCheck,   path: '/adminControl', adminOnly: true },
 ];
 
 interface SidebarProps {
   showCollapseButton?: boolean;
+  /**
+   * Optional override. When omitted, the value comes from the authenticated
+   * user's access role (UserContext).
+   *
+   * Hiding the link is a convenience only — the route itself and every admin
+   * API must enforce the permission server side, since anyone can type the URL.
+   */
+  canAccessAdminControl?: boolean;
+  onSignOut?: () => void;
 }
 
 // ── Static constants — قيم ثابتة لا تتغير أبدًا ──
@@ -43,6 +55,14 @@ const DIVIDER = 'var(--divider)';
 const TEXT_IDLE = 'var(--foreground-muted)';
 const TEXT_MAIN = 'var(--foreground)';
 const HOVER_BG = 'var(--hover-bg)';
+
+/**
+ * A nav item stays active on its nested routes too, so opening
+ * /profile/[userId] keeps "Profile" lit instead of leaving nothing selected.
+ */
+function isPathActive(pathname: string, path: string): boolean {
+  return pathname === path || pathname.startsWith(`${path}/`);
+}
 
 // ── Static style objects — لا تعتمد على props/state ──
 const topGlowStyle: React.CSSProperties = {
@@ -66,11 +86,6 @@ const navHoverOverlayStyle: React.CSSProperties = {
 
 const actionIconWrapperStyle: React.CSSProperties = { width: '44px', height: '40px' };
 
-const avatarGradientStyle: React.CSSProperties = {
-  background: 'linear-gradient(135deg,#4e9996 0%,#2d5c5a 100%)',
-  boxShadow: '0 4px 12px rgba(69,132,130,0.3)',
-};
-
 const avatarStatusDotStyle: React.CSSProperties = {
   borderColor: SIDEBAR_BG,
   boxShadow: '0 0 5px rgba(52,211,153,0.5)',
@@ -84,10 +99,12 @@ interface NavItemProps {
   isRTL: boolean;
   isDark: boolean;
   lang: 'en' | 'ar';
+  /** Unique per Sidebar instance — see the note in Sidebar(). */
+  activeLayoutId: string;
 }
 
 const SidebarNavItem = memo(function SidebarNavItem({
-  item, isActive, isOpen, isRTL, isDark, lang,
+  item, isActive, isOpen, isRTL, isDark, lang, activeLayoutId,
 }: NavItemProps) {
   const label = lang === 'ar' ? item.nameAr : item.nameEn;
   const Icon = item.icon;
@@ -158,11 +175,15 @@ const SidebarNavItem = memo(function SidebarNavItem({
 
   return (
     <div>
-      <Link href={item.path} className="block group/item relative">
+      <Link
+        href={item.path}
+        aria-current={isActive ? 'page' : undefined}
+        className="block group/item relative"
+      >
         <div className="relative h-11 flex items-center rounded-xl overflow-hidden" style={rowStyle}>
           {isActive && (
             <motion.div
-              layoutId="activeNav"
+              layoutId={activeLayoutId}
               className="absolute inset-0 rounded-xl"
               style={activeOverlayStyle}
               transition={{ type: 'spring', stiffness: 350, damping: 35 }}
@@ -215,11 +236,34 @@ const SidebarNavItem = memo(function SidebarNavItem({
   );
 });
 
-function Sidebar({ showCollapseButton = true }: SidebarProps) {
+function Sidebar({
+  showCollapseButton = true,
+  canAccessAdminControl,
+  onSignOut,
+}: SidebarProps) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(true);
   const { theme, toggleTheme } = useTheme();
   const { lang, toggleLang, isRTL } = useLang();
+
+  // بيانات المستخدم الحقيقية + تسجيل الخروج الفعلي
+  const {
+    user,
+    signOut,
+    canAccessAdminControl: ctxCanAccessAdmin,
+  } = useCurrentUser();
+
+  // الـ prop تبقى override اختياري، وإلا القيمة الحقيقية من الـ context
+  const canAccessAdmin = canAccessAdminControl ?? ctxCanAccessAdmin;
+
+  /**
+   * The desktop sidebar is hidden with CSS (`hidden xl:flex`), not unmounted, so
+   * while the mobile drawer is open BOTH sidebars exist in the DOM. A shared
+   * layoutId would make framer-motion treat their two active pills as one
+   * element and animate it between them. A per-instance id keeps them separate.
+   */
+  const instanceId = useId();
+  const activeLayoutId = `activeNav-${instanceId}`;
 
   const isDark = theme === 'dark';
   const cardBg = useMemo(
@@ -227,18 +271,34 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
     [isDark],
   );
 
+  const visibleItems = useMemo(
+    () => menuItems.filter((item) => !item.adminOnly || canAccessAdmin),
+    [canAccessAdmin],
+  );
+
   const CollapseIcon = isRTL
     ? (isOpen ? PanelLeftOpen : PanelLeftClose)
     : (isOpen ? PanelLeftClose : PanelLeftOpen);
 
+  /**
+   * `overflow` stays visible so the collapsed-state tooltips, which sit just
+   * outside the 72px rail, are not clipped away. The decorative glows and grain
+   * that previously relied on this clipping now live in their own
+   * overflow-hidden layer further down.
+   */
   const asideStyle = useMemo<React.CSSProperties>(
     () => ({
       width: isOpen ? '288px' : '72px',
-      transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1)',
+      // flexShrink alone is not enough: a flex item can still be squeezed down to
+      // its min-content width when the row runs out of room (which is what made
+      // the rail narrow when the window shrank or DevTools opened). Pinning
+      // minWidth to the same value makes the width genuinely fixed.
+      minWidth: isOpen ? '288px' : '72px',
+      transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1), min-width 0.22s cubic-bezier(0.4,0,0.2,1)',
       background: SIDEBAR_BG,
       borderRight: isRTL ? 'none' : `1px solid ${SIDEBAR_BORDER}`,
       borderLeft: isRTL ? `1px solid ${SIDEBAR_BORDER}` : 'none',
-      overflow: 'hidden',
+      overflow: 'visible',
       flexShrink: 0,
     }),
     [isOpen, isRTL],
@@ -257,6 +317,18 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
     }),
     [isRTL],
   );
+
+  /**
+   * الأفاتار بياخد لون العضو المخصص (Member Color) بدل التدرج الثابت،
+   * عشان يبقى نفس اللون المستخدم بباقي الواجهة (Gantt, DiamondGem...).
+   */
+  const avatarStyle = useMemo<React.CSSProperties>(() => {
+    const base = user?.color ?? '#0d9488';
+    return {
+      background: `linear-gradient(135deg, ${base} 0%, ${base}99 100%)`,
+      boxShadow: `0 4px 12px ${base}4d`,
+    };
+  }, [user?.color]);
 
   const handleCollapseEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.style.color = '#5ea8a4';
@@ -292,14 +364,28 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
 
   const handleToggleOpen = useCallback(() => setIsOpen((o) => !o), []);
 
+  const [signingOut, setSigningOut] = useState(false);
+
+  const handleSignOut = useCallback(async () => {
+    if (signingOut) return; // يمنع ضغطات متكررة أثناء التنفيذ
+    setSigningOut(true);
+    try {
+      await signOut();      // Supabase signOut + مسح الجلسة + توجيه لـ /login
+      onSignOut?.();        // يقفل الدرج بالموبايل لو مرّرته من الـ layout
+    } finally {
+      setSigningOut(false);
+    }
+  }, [signingOut, signOut, onSignOut]);
+
   const actionButtons = useMemo(
     () => [
       {
+        id: 'theme',
         Icon: isDark ? Sun : Moon,
         label: isDark ? (lang === 'ar' ? 'الوضع الفاتح' : 'Light Mode') : (lang === 'ar' ? 'الوضع الداكن' : 'Dark Mode'),
         onClick: toggleTheme,
       },
-      { Icon: Languages, label: lang === 'en' ? 'العربية' : 'English', onClick: toggleLang },
+      { id: 'lang', Icon: Languages, label: lang === 'en' ? 'العربية' : 'English', onClick: toggleLang },
     ],
     [isDark, lang, toggleTheme, toggleLang],
   );
@@ -351,14 +437,36 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
     [lang, isOpen],
   );
 
+  // النصوص المعروضة بكرت المستخدم (مع fallback أثناء التحميل)
+  const displayName = user?.fullName || '—';
+  const displayInitials = user?.initials || '—';
+  const displayJobTitle =
+    (lang === 'ar' ? user?.jobTitleAr : user?.jobTitleEn) ||
+    (lang === 'ar' ? 'عضو' : 'Member');
+
   return (
     <aside dir={isRTL ? 'rtl' : 'ltr'} className="h-full flex flex-col select-none relative" style={asideStyle}>
-      {/* Glows */}
-      <div className="absolute -top-20 -left-20 w-64 h-64 rounded-full pointer-events-none" style={topGlowStyle} />
-      <div className="absolute -bottom-24 -right-12 w-56 h-56 rounded-full pointer-events-none" style={bottomGlowStyle} />
+      {/* Decorative layer — clipped here so the aside itself can stay visible
+          for tooltips that extend past the rail. */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Glows */}
+        <div className="absolute -top-20 -left-20 w-64 h-64 rounded-full" style={topGlowStyle} />
+        <div className="absolute -bottom-24 -right-12 w-56 h-56 rounded-full" style={bottomGlowStyle} />
+
+        {/* Grain */}
+        <div className="absolute inset-0 opacity-[0.015] mix-blend-overlay">
+          <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+            <filter id={`sg-${instanceId}`}>
+              <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="4" stitchTiles="stitch" />
+              <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.4 0" />
+            </filter>
+            <rect width="100%" height="100%" filter={`url(#sg-${instanceId})`} />
+          </svg>
+        </div>
+      </div>
 
       {/* Header */}
-      <div className="h-16 sm:h-20 shrink-0 flex items-center px-3 gap-2" style={headerStyle}>
+      <div className="relative h-16 sm:h-20 shrink-0 flex items-center px-3 gap-2" style={headerStyle}>
         <div className="flex-1 min-w-0 overflow-hidden">
           <AnimatePresence mode="wait">
             {isOpen ? (
@@ -404,7 +512,12 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
 
         {showCollapseButton && (
           <button
+            type="button"
             onClick={handleToggleOpen}
+            aria-label={isOpen
+              ? (lang === 'ar' ? 'طي القائمة' : 'Collapse sidebar')
+              : (lang === 'ar' ? 'توسيع القائمة' : 'Expand sidebar')}
+            aria-expanded={isOpen}
             className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer"
             style={{ color: TEXT_IDLE, transition: 'color 0.15s, background 0.15s' }}
             onMouseEnter={handleCollapseEnter}
@@ -416,26 +529,29 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto overflow-x-hidden">
-        {menuItems.map((it) => (
+      <nav className="relative flex-1 py-3 px-2 space-y-0.5 overflow-y-auto overflow-x-visible">
+        {visibleItems.map((it) => (
           <SidebarNavItem
             key={it.path}
             item={it}
-            isActive={pathname === it.path}
+            isActive={isPathActive(pathname, it.path)}
             isOpen={isOpen}
             isRTL={isRTL}
             isDark={isDark}
             lang={lang}
+            activeLayoutId={activeLayoutId}
           />
         ))}
       </nav>
 
       {/* Theme + Language */}
-      <div className="px-2 py-1 shrink-0" style={{ borderTop: `1px solid ${DIVIDER}` }}>
-        {actionButtons.map((btn, i) => (
+      <div className="relative px-2 py-1 shrink-0" style={{ borderTop: `1px solid ${DIVIDER}` }}>
+        {actionButtons.map((btn) => (
           <button
-            key={i}
+            key={btn.id}
+            type="button"
             onClick={btn.onClick}
+            aria-label={btn.label}
             className="w-full h-10 rounded-xl cursor-pointer flex items-center"
             style={{ color: TEXT_IDLE, flexDirection: 'row', transition: 'color 0.15s, background 0.15s' }}
             onMouseEnter={handleActionEnter}
@@ -455,24 +571,33 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
       </div>
 
       {/* User card */}
-      <div className="p-2 pb-3 shrink-0">
+      <div className="relative p-2 pb-3 shrink-0">
         <div className="rounded-2xl p-3" style={userCardOuterStyle}>
           <div className="flex items-center mb-2.5" style={userRowStyle}>
             <div className="relative shrink-0">
               <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                style={avatarGradientStyle}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] overflow-hidden"
+                style={avatarStyle}
               >
-                A
+                {user?.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={user.avatarUrl}
+                    alt={displayName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  displayInitials
+                )}
               </div>
               <div className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 border-2 rounded-full" style={avatarStatusDotStyle} />
             </div>
             <div className="flex flex-col min-w-0 overflow-hidden" style={userNameWrapStyle}>
               <span className="text-[11px] font-bold uppercase tracking-wider truncate whitespace-nowrap" style={{ color: TEXT_MAIN }}>
-                Alwaqee
+                {displayName}
               </span>
               <span className="text-[9px] font-black uppercase tracking-[0.12em] whitespace-nowrap" style={{ color: '#5ea8a4' }}>
-                {lang === 'ar' ? 'محترف' : 'Animator PRO'}
+                {displayJobTitle}
               </span>
             </div>
           </div>
@@ -480,7 +605,11 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
           <div className="h-px mx-1 mb-2 rounded-full" style={{ background: DIVIDER }} />
 
           <button
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl cursor-pointer border border-transparent"
+            type="button"
+            onClick={handleSignOut}
+            disabled={signingOut}
+            aria-label={lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out'}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl cursor-pointer border border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ color: TEXT_IDLE, flexDirection: 'row', transition: 'color 0.15s, background 0.15s, border-color 0.15s' }}
             onMouseEnter={handleLogoutEnter}
             onMouseLeave={handleLogoutLeave}
@@ -490,21 +619,12 @@ function Sidebar({ showCollapseButton = true }: SidebarProps) {
               className="text-[10px] font-bold uppercase tracking-[0.18em] whitespace-nowrap overflow-hidden"
               style={logoutLabelStyle}
             >
-              {lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out'}
+              {signingOut
+                ? (lang === 'ar' ? 'جارٍ الخروج...' : 'Signing out...')
+                : (lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out')}
             </span>
           </button>
         </div>
-      </div>
-
-      {/* Grain */}
-      <div className="absolute inset-0 opacity-[0.015] pointer-events-none mix-blend-overlay">
-        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-          <filter id="sg">
-            <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="4" stitchTiles="stitch" />
-            <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.4 0" />
-          </filter>
-          <rect width="100%" height="100%" filter="url(#sg)" />
-        </svg>
       </div>
     </aside>
   );

@@ -4,11 +4,13 @@ import React, { useState } from 'react';
 import { User, Mail, Lock, ArrowRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useTheme } from '@/context/ThemeContext';
 import LeftPanel from '@/components/auth/LeftPanel';
+import { createClient } from '@/lib/supabase/client';
 
 const signUpSchema = z.object({
   fullName: z.string()
@@ -39,14 +41,50 @@ export default function SignUpPage() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const [showPassword, setShowPassword] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const router = useRouter();
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignUpFormValues>({
     resolver: zodResolver(signUpSchema),
     mode: 'onTouched',
   });
 
-  const onSubmit = (data: SignUpFormValues) => {
-    console.log('Account Creation Data:', data);
+  const onSubmit = async (data: SignUpFormValues) => {
+    setServerError(null);
+
+    // فصل الاسم الكامل لـ first_name / last_name
+    const [firstName, ...rest] = data.fullName.trim().split(/\s+/);
+    const lastName = rest.join(' ');
+
+    const supabase = createClient();
+
+    const { error } = await supabase.auth.signUp({
+      email: data.email,
+      password: data.password,
+      options: {
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+        },
+        // يمر عبر route وسيط يحوّل الـ code لجلسة فعلية، وبعدها يوديه pending-approval
+        emailRedirectTo: `${window.location.origin}/auth/confirm?next=/pending-approval`,
+      },
+    });
+
+    if (error) {
+      // Supabase بيرجع رسالة محددة لو الإيميل مسجل مسبقًا
+      if (error.message.toLowerCase().includes('already registered') ||
+          error.message.toLowerCase().includes('already exists')) {
+        setServerError('هذا الإيميل مستخدم بالفعل');
+      } else {
+        setServerError('حدث خطأ أثناء إنشاء الحساب، يرجى المحاولة لاحقاً');
+      }
+      return;
+    }
+
+    // نجاح: نحط علامة مؤقتة تثبت إنه توجه فعلي من التسجيل (مش دخول مباشر بالرابط)
+    sessionStorage.setItem('jowhar_signup_flow', 'true');
+    router.push('/check-email');
   };
 
   const bg        = isDark ? '#0d1117'  : '#F9F9F3';
@@ -115,6 +153,18 @@ export default function SignUpPage() {
               Create your artist account today
             </p>
           </motion.div>
+
+          {/* Server error */}
+          {serverError && (
+            <motion.div
+              initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+              className="mb-6 p-4 rounded-2xl flex items-start gap-3 text-red-400"
+              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+            >
+              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+              <p className="text-xs font-medium leading-relaxed">{serverError}</p>
+            </motion.div>
+          )}
 
           <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
 
