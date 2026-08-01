@@ -26,6 +26,16 @@ const publicPaths = [
   '/pending-approval',
 ];
 
+/**
+ * مسارات محصورة بالـ Chief Admin أو Admin ثانوي فقط (access_role === 'admin' || is_chief).
+ * هذا الفحص مستقل تمامًا عن الـ Permissions Registry (archive.*, admin.* ...):
+ * الدخول لهذه الصفحة نفسها لا يحتاج أي صلاحية فردية، بس لازم تكون admin أو chief.
+ * إخفاء الرابط بالـ Sidebar (UI) قناع فقط — الحارس الحقيقي هون على مستوى السيرفر.
+ */
+const adminOnlyPaths = [
+  '/adminControl',
+];
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -57,6 +67,7 @@ export async function proxy(request: NextRequest) {
   const isAuthPage = authPaths.some(p => pathname.startsWith(p));
   const isPublicPage = publicPaths.some(p => pathname.startsWith(p));
   const isResetPassword = pathname.startsWith(RESET_PASSWORD_PATH);
+  const isAdminOnlyPage = adminOnlyPaths.some(p => pathname.startsWith(p));
 
   // ---------- 1) ما فيه جلسة إطلاقًا ----------
   if (!user) {
@@ -67,7 +78,7 @@ export async function proxy(request: NextRequest) {
   // ---------- 2) فيه جلسة -> نفحص حالة الحساب الحقيقية ----------
   const { data: profile } = await supabase
     .from('profiles')
-    .select('status, is_suspended, suspended_until, deleted_at')
+    .select('status, is_suspended, suspended_until, deleted_at, access_role, is_chief')
     .eq('id', user.id)
     .single();
 
@@ -97,6 +108,16 @@ export async function proxy(request: NextRequest) {
   }
 
   // ---------- 3) حساب نشط بالكامل ----------
+
+  // حراسة /adminControl: Chief Admin أو Admin ثانوي بس (بغض النظر عن صلاحياته الفردية).
+  // Member عادي — حتى لو معه صلاحيات ممنوحة من الـ Permissions Registry — يُطرد فورًا.
+  if (isAdminOnlyPage) {
+    const isAdminOrChief = profile.is_chief === true || profile.access_role === 'admin';
+    if (!isAdminOrChief) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+  }
+
   // استثناء: صفحة تغيير كلمة السر مسموحة حتى لو الجلسة نشطة
   if (isResetPassword) {
     return supabaseResponse;

@@ -1,53 +1,65 @@
 // src/app/(dashboard)/adminControl/page.tsx
-"use client";
+import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import AdminControlClient from './AdminControlClient';
 
-import { useState } from "react";
-import { X } from "lucide-react";
-import MembersControl from "@/components/dashboard/adminControl/MembersControl";
-import AddTask from "@/components/dashboard/adminControl/AddTask";
-import DirectorNotes from "@/components/dashboard/adminControl/DirectorNotes";
-import RolesPermissions from "@/components/dashboard/adminControl/RolesPermissions";
-import ViewFullProfileButton from "@/components/dashboard/adminControl/ViewFullProfileButton";
+// نفس منطق تحويل initials المستخدم بأماكن تانية بالمشروع (Sidebar، إلخ)
+function initialsOf(firstName: string | null, lastName: string | null) {
+  const a = firstName?.trim()?.[0] ?? '';
+  const b = lastName?.trim()?.[0] ?? '';
+  return (a + b).toUpperCase() || '—';
+}
 
-export default function AdminControlPage() {
-  // Nothing is selected by default — the sections below only render once
-  // the admin clicks a member in the list. `isChief` here is mock/local;
-  // once wired to real data this should come from the member record itself.
-  const [selectedMember, setSelectedMember] = useState<{ id: string; name: string; isChief: boolean } | null>(null);
+export default async function AdminControlPage() {
+  const supabase = await createClient();
+  const adminClient = createAdminClient();
+
+  // ---- Pending Approvals ----
+  const { data: pendingProfiles } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, created_at')
+    .eq('status', 'pending_approval')
+    .order('created_at', { ascending: true });
+
+  // الإيميل مش موجود بجدول profiles — لازم auth.users عبر service role
+  const pending = await Promise.all(
+    (pendingProfiles ?? []).map(async (p) => {
+      const { data: authUser } = await adminClient.auth.admin.getUserById(p.id);
+      return {
+        id: p.id,
+        name: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim(),
+        email: authUser?.user?.email ?? '—',
+        requestedAt: p.created_at,
+      };
+    })
+  );
+
+  // ---- Members List (كل الأعضاء active بمن فيهم الأدمن) ----
+  const { data: memberProfiles } = await supabase
+    .from('profiles')
+    .select(
+      'id, first_name, last_name, access_role, is_chief, is_suspended, suspended_until, color, job_title_en, job_title_ar'
+    )
+    .eq('status', 'active')
+    .order('is_chief', { ascending: false })
+    .order('first_name', { ascending: true });
+
+  const members = (memberProfiles ?? []).map((m) => ({
+    id: m.id,
+    name: `${m.first_name ?? ''} ${m.last_name ?? ''}`.trim(),
+    initials: initialsOf(m.first_name, m.last_name),
+    role: m.access_role as 'admin' | 'member',
+    roleLabel: m.job_title_en || (m.access_role === 'admin' ? 'Admin' : 'Member'),
+    roleLabelAr: m.job_title_ar || (m.access_role === 'admin' ? 'أدمن' : 'عضو'),
+    color: m.color || '#0d9488',
+    isChief: m.is_chief,
+    isSuspended: m.is_suspended,
+    suspendedUntil: m.suspended_until ?? undefined,
+  }));
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
-      <MembersControl
-        selectedMemberId={selectedMember?.id ?? null}
-        onSelectMember={(id, name) => setSelectedMember({ id, name, isChief: id === "1" })}
-      />
-
-      {selectedMember && (
-        <>
-          <div className="flex items-center justify-between rounded-xl border border-[var(--card-border)] bg-[var(--background-alt)] px-4 py-2.5">
-            <p className="text-xs font-medium text-[var(--foreground-muted)]">
-              Managing: <span className="font-bold text-[var(--foreground)]">{selectedMember.name}</span>
-            </p>
-            <button
-              type="button"
-              onClick={() => setSelectedMember(null)}
-              className="cursor-pointer rounded-lg p-1 text-[var(--foreground-muted)] hover:bg-white/5 hover:text-[var(--foreground)]"
-              aria-label="Close"
-            >
-              <X size={14} />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <AddTask memberId={selectedMember.id} />
-            <DirectorNotes memberId={selectedMember.id} />
-          </div>
-
-          <RolesPermissions memberId={selectedMember.id} isChief={selectedMember.isChief} />
-
-          <ViewFullProfileButton memberId={selectedMember.id} />
-        </>
-      )}
+      <AdminControlClient initialPending={pending} initialMembers={members} />
     </div>
   );
 }

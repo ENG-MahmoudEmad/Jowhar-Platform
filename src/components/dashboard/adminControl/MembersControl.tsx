@@ -1,26 +1,27 @@
 "use client";
 
-import React, { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { memo, useMemo, useState, useCallback, useEffect, useRef, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
 import { Search, Check, X, ShieldAlert, ChevronRight, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import { acceptMember, rejectMember, suspendMember, liftSuspension } from '@/app/(dashboard)/adminControl/actions';
 
 type Lang = 'en' | 'ar';
 type Role = 'admin' | 'member';
 
-type PendingRequest = {
+export type PendingRequest = {
   id: string;
   name: string;
   email: string;
   requestedAt: string;
 };
 
-type Member = {
+export type Member = {
   id: string;
   name: string;
   initials: string;
-  email: string;
   role: Role;
   roleLabel: string;
   roleLabelAr: string;
@@ -39,22 +40,6 @@ type RowStyle = React.CSSProperties & Record<'--member-color', string>;
 const ROW_HEIGHT_PX = 64;
 const VISIBLE_ROWS = 5;
 const LIST_HEIGHT_PX = ROW_HEIGHT_PX * VISIBLE_ROWS;
-
-// ---- Mock data (replace with Supabase query) ----
-const PENDING_REQUESTS: PendingRequest[] = [
-  { id: 'p1', name: 'Youssef Mansour', email: 'youssef@example.com', requestedAt: '2026-07-23' },
-  { id: 'p2', name: 'Nour Fathy', email: 'nour@example.com', requestedAt: '2026-07-24' },
-];
-
-const MEMBERS: Member[] = [
-  { id: '1', name: 'Alwaqee', initials: 'AW', email: 'alwaqee@jowhar.com', role: 'admin', roleLabel: 'Chief Admin', roleLabelAr: 'الأدمن الرئيسي', color: '#458482', isChief: true, isSuspended: false },
-  { id: '2', name: 'Ahmed', initials: 'AH', email: 'ahmed@jowhar.com', role: 'member', roleLabel: 'Lead Animator', roleLabelAr: 'محرك رئيسي', color: '#458482', isChief: false, isSuspended: false },
-  { id: '3', name: 'Sarah', initials: 'SA', email: 'sarah@jowhar.com', role: 'member', roleLabel: '3D Modeler', roleLabelAr: 'مصممة ثلاثية', color: '#f59e0b', isChief: false, isSuspended: false },
-  { id: '4', name: 'Omar', initials: 'OM', email: 'omar@jowhar.com', role: 'member', roleLabel: 'VFX Artist', roleLabelAr: 'فنان مؤثرات', color: '#ef4444', isChief: false, isSuspended: true, suspendedUntil: '2026-07-30' },
-  { id: '5', name: 'Lina', initials: 'LI', email: 'lina@jowhar.com', role: 'member', roleLabel: 'Concept Artist', roleLabelAr: 'فنانة مفاهيم', color: '#458482', isChief: false, isSuspended: false },
-  { id: '6', name: 'Medoma', initials: 'MD', email: 'medoma@jowhar.com', role: 'member', roleLabel: 'Rigger', roleLabelAr: 'مهندس رِج', color: '#8b5cf6', isChief: false, isSuspended: false },
-  { id: '7', name: 'Tweefiue', initials: 'TW', email: 'tweefiue@jowhar.com', role: 'member', roleLabel: 'Compositor', roleLabelAr: 'كومبوزيتور', color: '#3b82f6', isChief: false, isSuspended: false },
-];
 
 // ---- Animation ----
 const CARD_TRANSITION = {
@@ -250,12 +235,14 @@ const PendingRow = memo(function PendingRow({
   lang,
   onAccept,
   onReject,
+  isPending,
 }: {
   request: PendingRequest;
   isLast: boolean;
   lang: Lang;
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
+  isPending: boolean;
 }) {
   const copy = TEXT[lang];
 
@@ -272,23 +259,25 @@ const PendingRow = memo(function PendingRow({
       <div className="min-w-0 text-start">
         <p className="truncate text-sm font-bold text-[var(--mc-text-main)]">{request.name}</p>
         <p className="truncate text-[10px] font-medium text-[var(--mc-text-muted)]">
-          {request.email} · {request.requestedAt}
+          {request.email} · {new Date(request.requestedAt).toLocaleDateString()}
         </p>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
+          disabled={isPending}
           onClick={() => onAccept(request.id)}
-          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[rgba(69,132,130,0.1)] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#458482] transition-colors hover:bg-[rgba(69,132,130,0.18)]"
+          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[rgba(69,132,130,0.1)] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#458482] transition-colors hover:bg-[rgba(69,132,130,0.18)] disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Check size={12} aria-hidden="true" />
           {copy.accept}
         </button>
         <button
           type="button"
+          disabled={isPending}
           onClick={() => onReject(request.id)}
-          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[rgba(239,68,68,0.1)] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#ef4444] transition-colors hover:bg-[rgba(239,68,68,0.18)]"
+          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[rgba(239,68,68,0.1)] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#ef4444] transition-colors hover:bg-[rgba(239,68,68,0.18)] disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <X size={12} aria-hidden="true" />
           {copy.reject}
@@ -465,10 +454,14 @@ const MemberRow = memo(function MemberRow({
 // Main Component
 // =========================================================
 function MembersControl({
+  initialPending,
+  initialMembers,
   onSelectMember,
   selectedMemberId,
 }: {
-  onSelectMember?: (memberId: string, memberName: string) => void;
+  initialPending: PendingRequest[];
+  initialMembers: Member[];
+  onSelectMember?: (memberId: string, memberName: string, isChief: boolean) => void;
   selectedMemberId?: string | null;
 }) {
   const { theme } = useTheme();
@@ -476,32 +469,57 @@ function MembersControl({
   const isDark = theme === 'dark';
   const copy = TEXT[lang as Lang];
   const palette = useMemo(() => getPalette(isDark), [isDark]);
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
 
-  const [pending, setPending] = useState(PENDING_REQUESTS);
-  const [members, setMembers] = useState(MEMBERS);
+  const [pending, setPending] = useState(initialPending);
+  const [members, setMembers] = useState(initialMembers);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
   const [suspendTargetId, setSuspendTargetId] = useState<string | null>(null);
   const [suspendDays, setSuspendDays] = useState(1);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // props تتحدث كل ما الـ Server Component يعيد الجلب (بعد revalidatePath)
+  useEffect(() => setPending(initialPending), [initialPending]);
+  useEffect(() => setMembers(initialMembers), [initialMembers]);
 
   const filteredMembers = useMemo(() => {
     const q = query.trim().toLowerCase();
     return members.filter((m) => {
-      const matchesQuery = !q || m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q);
+      const matchesQuery = !q || m.name.toLowerCase().includes(q);
       const matchesRole = roleFilter === 'all' || m.role === roleFilter;
       return matchesQuery && matchesRole;
     });
   }, [members, query, roleFilter]);
 
   const handleAccept = useCallback((id: string) => {
-    // TODO: API — pending -> active, send confirmation email
-    setPending((prev) => prev.filter((p) => p.id !== id));
-  }, []);
+    setActionError(null);
+    setPending((prev) => prev.filter((p) => p.id !== id)); // optimistic
+    startTransition(async () => {
+      try {
+        await acceptMember(id);
+        router.refresh();
+      } catch {
+        setActionError('accept_failed');
+        setPending(initialPending); // revert
+      }
+    });
+  }, [initialPending, router]);
 
   const handleReject = useCallback((id: string) => {
-    // TODO: API — pending -> rejected (soft), log signup_attempts for email+IP ban logic
-    setPending((prev) => prev.filter((p) => p.id !== id));
-  }, []);
+    setActionError(null);
+    setPending((prev) => prev.filter((p) => p.id !== id)); // optimistic
+    startTransition(async () => {
+      try {
+        await rejectMember(id);
+        router.refresh();
+      } catch {
+        setActionError('reject_failed');
+        setPending(initialPending); // revert
+      }
+    });
+  }, [initialPending, router]);
 
   const handleStartSuspend = useCallback((id: string) => {
     setSuspendTargetId(id);
@@ -514,26 +532,54 @@ function MembersControl({
   }, []);
 
   const handleConfirmSuspend = useCallback((id: string) => {
-    // TODO: API — set is_suspended, suspended_until, suspended_by (server validates chief/self-lock)
+    setActionError(null);
+    const until = new Date(Date.now() + suspendDays * 86400000).toISOString();
     setMembers((prev) =>
-      prev.map((m) =>
-        m.id === id
-          ? { ...m, isSuspended: true, suspendedUntil: new Date(Date.now() + suspendDays * 86400000).toISOString() }
-          : m
-      )
-    );
+      prev.map((m) => (m.id === id ? { ...m, isSuspended: true, suspendedUntil: until } : m))
+    ); // optimistic
     setSuspendTargetId(null);
     setSuspendDays(1);
-  }, [suspendDays]);
+
+    startTransition(async () => {
+      try {
+        await suspendMember(id, suspendDays);
+        router.refresh();
+      } catch {
+        setActionError('suspend_failed');
+        setMembers(initialMembers); // revert
+      }
+    });
+  }, [suspendDays, initialMembers, router]);
 
   const handleLiftSuspend = useCallback((id: string) => {
-    // TODO: API — clear is_suspended + suspended_until
-    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, isSuspended: false, suspendedUntil: undefined } : m)));
-  }, []);
+    setActionError(null);
+    setMembers((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, isSuspended: false, suspendedUntil: undefined } : m))
+    ); // optimistic
+
+    startTransition(async () => {
+      try {
+        await liftSuspension(id);
+        router.refresh();
+      } catch {
+        setActionError('lift_failed');
+        setMembers(initialMembers); // revert
+      }
+    });
+  }, [initialMembers, router]);
 
   return (
     <LazyMotion features={domAnimation}>
       <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
+        {actionError && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-xs font-medium text-red-400">
+            {actionError === 'accept_failed' && 'تعذّر قبول الطلب، حاول مرة أخرى.'}
+            {actionError === 'reject_failed' && 'تعذّر رفض الطلب، حاول مرة أخرى.'}
+            {actionError === 'suspend_failed' && 'تعذّر تنفيذ الإيقاف — تأكد أن لديك صلاحية التحكم بهذا العضو.'}
+            {actionError === 'lift_failed' && 'تعذّر إلغاء الإيقاف، حاول مرة أخرى.'}
+          </div>
+        )}
+
         {/* ---- Pending Approvals ---- */}
         {pending.length > 0 && (
           <m.section
@@ -572,6 +618,7 @@ function MembersControl({
                   lang={lang as Lang}
                   onAccept={handleAccept}
                   onReject={handleReject}
+                  isPending={isPending}
                 />
               ))}
             </AnimatePresence>
@@ -649,7 +696,7 @@ function MembersControl({
                   onConfirmSuspend={handleConfirmSuspend}
                   onCancelSuspend={handleCancelSuspend}
                   onLiftSuspend={handleLiftSuspend}
-                  onSelect={(id) => onSelectMember?.(id, m.name)}
+                  onSelect={(id) => onSelectMember?.(id, m.name, m.isChief)}
                 />
               ))
             )}
