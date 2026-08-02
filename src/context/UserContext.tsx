@@ -1,3 +1,5 @@
+//src\context\UserContext.tsx
+
 "use client";
 
 import React, {
@@ -5,6 +7,7 @@ import React, {
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { canAccessAdminControl as checkAdminAccess } from '@/lib/permissions/hierarchy';
 
 export type CurrentUser = {
   id: string;
@@ -16,6 +19,8 @@ export type CurrentUser = {
   initials: string;
   accessRole: 'member' | 'admin';
   isChief: boolean;
+  /** أعلى مستوى وصول — يُضبط يدويًا بـ SQL فقط، مش من أي واجهة */
+  isDeveloper: boolean;
   jobTitleEn: string | null;
   jobTitleAr: string | null;
   color: string;
@@ -28,7 +33,7 @@ type UserContextValue = {
   /** صلاحيات العضو الممنوحة (مفاتيح من Permissions Registry) */
   permissions: string[];
   hasPermission: (key: string) => boolean;
-  /** الوصول لصفحة Admin Control: أي أدمن (أو الـ Chief) */
+  /** الوصول لصفحة Admin Control: Developer أو Chief أو أي أدمن */
   canAccessAdminControl: boolean;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -36,10 +41,25 @@ type UserContextValue = {
 
 const UserContext = createContext<UserContextValue | null>(null);
 
-export function UserProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [permissions, setPermissions] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+export function UserProvider({
+  children,
+  initialUser = null,
+  initialPermissions = [],
+}: {
+  children: React.ReactNode;
+  /**
+   * بيانات المستخدم مجلوبة من السيرفر (dashboard layout).
+   * وجودها بيلغي ومضة الـ "—" اللي كانت تظهر لجزء من الثانية بعد كل
+   * login/logout، لأن الواجهة بتبدأ ببيانات جاهزة بدل ما تنتظر
+   * استعلام client-side يخلص.
+   */
+  initialUser?: CurrentUser | null;
+  initialPermissions?: string[];
+}) {
+  const [user, setUser] = useState<CurrentUser | null>(initialUser);
+  const [permissions, setPermissions] = useState<string[]>(initialPermissions);
+  // ما في تحميل ابتدائي طالما البيانات وصلت جاهزة من السيرفر
+  const [loading, setLoading] = useState(initialUser === null);
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -56,7 +76,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     const [{ data: profile }, { data: perms }] = await Promise.all([
       supabase
         .from('profiles')
-        .select('first_name, last_name, access_role, is_chief, job_title_en, job_title_ar, color, avatar_url')
+        .select('first_name, last_name, access_role, is_chief, is_developer, job_title_en, job_title_ar, color, avatar_url')
         .eq('id', authUser.id)
         .single(),
       supabase
@@ -77,6 +97,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         initials: `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase(),
         accessRole: profile.access_role,
         isChief: profile.is_chief,
+        isDeveloper: profile.is_developer ?? false,
         jobTitleEn: profile.job_title_en,
         jobTitleAr: profile.job_title_ar,
         color: profile.color ?? '#0d9488',
@@ -88,15 +109,33 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   }, []);
 
+  // الجلب الابتدائي client-side صار مطلوب فقط لو ما وصلت بيانات من السيرفر
   useEffect(() => {
-    load();
-  }, [load]);
+    if (initialUser === null) load();
+  }, [initialUser, load]);
+
+  // مزامنة لما السيرفر يعيد الجلب (بعد router.refresh أو تنقّل)
+  useEffect(() => {
+    if (initialUser !== null) {
+      setUser(initialUser);
+      setLoading(false);
+    }
+  }, [initialUser]);
+
+  useEffect(() => {
+    setPermissions(initialPermissions);
+  }, [initialPermissions]);
 
   const signOut = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    setUser(null);
-    setPermissions([]);
+    /*
+      ملاحظة: ما منعمل setUser(null) هون عن قصد.
+      تصفير الحالة قبل ما يخلص التنقل كان يخلي الـ Sidebar يعيد الرسم فورًا
+      بـ user = null، فيظهر الـ fallback "—" لجزء من الثانية قبل ما تروح الصفحة.
+      الـ dashboard layout بينفك من الشجرة كامل عند الوصول لـ /login،
+      فالحالة بتنمسح تلقائيًا بدون ومضة.
+    */
     router.push('/login');
     router.refresh(); // يضمن إنه الـ proxy يعيد التقييم بجلسة فاضية
   }, [router]);
@@ -104,7 +143,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const hasPermission = useCallback(
     (key: string) => {
       if (!user) return false;
-      if (user.isChief) return true; // الـ Chief عنده كل شي
+      // الـ Developer والـ Chief عندهم كل شي
+      if (user.isDeveloper || user.isChief) return true;
       return permissions.includes(key);
     },
     [user, permissions],
@@ -116,7 +156,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       loading,
       permissions,
       hasPermission,
-      canAccessAdminControl: user?.accessRole === 'admin' || user?.isChief === true,
+      canAccessAdminControl: user ? checkAdminAccess(user) : false,
       signOut,
       refresh: load,
     }),

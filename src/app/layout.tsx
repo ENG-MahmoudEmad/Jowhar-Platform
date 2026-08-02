@@ -50,7 +50,20 @@ export default async function RootLayout({
       className={`${inter.variable} ${montserrat.variable} ${cairo.variable} h-full antialiased ${initialTheme}`}
       suppressHydrationWarning
     >
-      <head dangerouslySetInnerHTML={{ __html: `<script>${themeBootScript}</script>` }} suppressHydrationWarning />
+      {/*
+        الفرق المهم عن النسخة القديمة:
+        قبل كان dangerouslySetInnerHTML موضوع على <head> نفسه، وهذا كان يستبدل
+        محتوى الـ head بالكامل — بما فيه روابط الـ CSS اللي بيحقنها Next.js —
+        فتطلع الصفحة بـ HTML سليم وبدون تنسيق لحد ما يصير refresh يدوي.
+        هون الـ <head> وسم JSX عادي، وNext.js بيضيف حقنه الخاص جنب محتوانا
+        بدل ما يُمسح، والـ script بينحط جواه كابن شرعي.
+      */}
+      <head>
+        <script
+          dangerouslySetInnerHTML={{ __html: themeBootScript }}
+          suppressHydrationWarning
+        />
+      </head>
       <body className="min-h-full flex flex-col font-sans bg-[var(--background)] text-[var(--foreground)]">
         <Providers initialTheme={initialTheme} initialLang={initialLang}>
           {children}

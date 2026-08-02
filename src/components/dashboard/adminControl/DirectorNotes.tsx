@@ -6,41 +6,16 @@ import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
 import { NotebookPen, Send, Trash2, ArrowLeft, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import type { DirectorNoteDTO, NoteReplyDTO } from '@/app/(dashboard)/adminControl/notesActions';
 
 type Lang = 'en' | 'ar';
 
 /**
- * A message inside a note's thread.
- *
- * `authorRole` is what makes the thread work: it drives the visual sides of the
- * conversation AND the director's unread count. Without it there is no way to
- * tell "the member answered me" from "I answered the member".
+ * الأنواع صارت تجي من الأكشنز (مصدر واحد بين السيرفر والواجهة).
+ * الأسماء القديمة محفوظة كـ aliases عشان أي ملف تاني بيستوردها ما ينكسر.
  */
-export type NoteReply = {
-  id: string;
-  authorId: string;
-  authorName: string;
-  authorRole: 'director' | 'member';
-  text: string;
-  createdAt: string; // ISO datetime
-};
-
-export type DirectorNote = {
-  id: string;
-  text: string;
-  createdAt: string; // ISO datetime
-  replies: NoteReply[];
-  /**
-   * Last time the director opened this thread. A reply from the member that is
-   * newer than this counts as unread.
-   *
-   * One timestamp per note rather than a read flag per reply: the UI only ever
-   * needs "is there something new here", so per-reply tracking would be extra
-   * rows and extra writes for information nothing displays.
-   * `null` = never opened.
-   */
-  directorLastSeenAt: string | null;
-};
+export type NoteReply = NoteReplyDTO;
+export type DirectorNote = DirectorNoteDTO;
 
 type DirectorNotesStyle = React.CSSProperties & Record<`--dn-${string}`, string>;
 
@@ -52,31 +27,6 @@ type DirectorNotesStyle = React.CSSProperties & Record<`--dn-${string}`, string>
 const ROW_MIN_HEIGHT_PX = 64;
 const VISIBLE_ROWS = 5;
 const LIST_HEIGHT_PX = ROW_MIN_HEIGHT_PX * VISIBLE_ROWS;
-
-const CURRENT_DIRECTOR = { id: 'director-1', name: 'Alwaqee' };
-
-// ---- Mock data (replace with Supabase query, scoped to memberId) ----
-const MOCK_NOTES: DirectorNote[] = [
-  {
-    id: 'n1',
-    text: 'Great progress on the walk cycle this week — keep the timing notes coming.',
-    createdAt: '2026-07-20T10:15:00',
-    directorLastSeenAt: '2026-07-20T10:20:00',
-    replies: [
-      { id: 'r1', authorId: 'm2', authorName: 'Ahmed', authorRole: 'member', text: 'Thanks! I reworked frames 8–14, the contact pose reads much better now.', createdAt: '2026-07-20T12:02:00' },
-      { id: 'r2', authorId: 'director-1', authorName: 'Alwaqee', authorRole: 'director', text: 'Agreed. Push the overlap on the arms slightly and it is done.', createdAt: '2026-07-20T13:30:00' },
-      // Newer than directorLastSeenAt → shows as unread
-      { id: 'r3', authorId: 'm2', authorName: 'Ahmed', authorRole: 'member', text: 'Done — uploaded v3 to the shared folder for review.', createdAt: '2026-07-21T09:12:00' },
-    ],
-  },
-  {
-    id: 'n2',
-    text: 'Please sync with Sarah on the rig handoff before Thursday.',
-    createdAt: '2026-07-18T14:40:00',
-    directorLastSeenAt: null,
-    replies: [],
-  },
-];
 
 const CARD_TRANSITION = {
   duration: 0.55,
@@ -100,6 +50,7 @@ const TEXT = {
     placeholder: 'Write a note for this member...',
     send: 'Add Note',
     empty: 'No notes yet',
+    loading: 'Loading notes...',
     deleteConfirm: 'Delete this note?',
     confirm: 'Delete',
     cancel: 'Cancel',
@@ -121,6 +72,7 @@ const TEXT = {
     placeholder: 'اكتب ملاحظة لهذا العضو...',
     send: 'إضافة ملاحظة',
     empty: 'لا توجد ملاحظات بعد',
+    loading: 'جارِ تحميل الملاحظات...',
     deleteConfirm: 'حذف هذه الملاحظة؟',
     confirm: 'حذف',
     cancel: 'إلغاء',
@@ -136,13 +88,7 @@ const TEXT = {
     openThread: 'فتح المحادثة',
     you: 'أنت',
   },
-} satisfies Record<Lang, {
-  title: string; subtitle: string; placeholder: string; send: string;
-  empty: string; deleteConfirm: string; confirm: string; cancel: string;
-  conversation: string; back: string; prev: string; next: string;
-  replyPlaceholder: string; sendReply: string; noReplies: string;
-  newReplies: string; openThread: string; you: string;
-}>;
+} satisfies Record<Lang, Record<string, string>>;
 
 function getPalette(isDark: boolean): DirectorNotesStyle {
   return {
@@ -370,11 +316,22 @@ const ReplyBubble = memo(function ReplyBubble({
 // =========================================================
 function DirectorNotes({
   memberId,
-  onNoteAdded,
+  notes,
+  loading = false,
+  onCreateNote,
+  onAddReply,
+  onDeleteNote,
+  onMarkSeen,
   onUnreadChange,
 }: {
   memberId: string;
-  onNoteAdded?: (note: DirectorNote) => void;
+  notes: DirectorNote[];
+  loading?: boolean;
+  /** الحالة مرفوعة للصفحة — الكارد بيطلب، والأب بيحدّث ويتراجع لو فشل. */
+  onCreateNote: (memberId: string, text: string) => void;
+  onAddReply: (noteId: string, text: string) => void;
+  onDeleteNote: (noteId: string) => void;
+  onMarkSeen: (noteId: string) => void;
   /** Lets the parent keep the members list badge in sync. */
   onUnreadChange?: (memberId: string, unreadCount: number) => void;
 }) {
@@ -384,7 +341,6 @@ function DirectorNotes({
   const copy = TEXT[lang as Lang];
   const palette = useMemo(() => getPalette(isDark), [isDark]);
 
-  const [notes, setNotes] = useState(MOCK_NOTES);
   const [draft, setDraft] = useState('');
   const [replyDraft, setReplyDraft] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
@@ -412,19 +368,13 @@ function DirectorNotes({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberId, totalUnread]);
 
-  /** Opening a thread is what marks its member replies as seen. */
-  const markSeen = useCallback((noteId: string) => {
-    const seenAt = new Date().toISOString();
-    // TODO: API — persist director_last_seen_at for this note.
-    setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, directorLastSeenAt: seenAt } : n)));
-  }, []);
-
   const handleOpenNote = useCallback((id: string) => {
     setOpenNoteId(id);
     setReplyDraft('');
     setDeleteTargetId(null);
-    markSeen(id);
-  }, [markSeen]);
+    // فتح المحادثة هو اللي بيعلّم ردود العضو كمقروءة
+    onMarkSeen(id);
+  }, [onMarkSeen]);
 
   const handleBackToList = useCallback(() => {
     setOpenNoteId(null);
@@ -439,8 +389,8 @@ function DirectorNotes({
     const nextNote = sortedNotes[nextIndex];
     setOpenNoteId(nextNote.id);
     setReplyDraft('');
-    markSeen(nextNote.id);
-  }, [openIndex, sortedNotes, markSeen]);
+    onMarkSeen(nextNote.id);
+  }, [openIndex, sortedNotes, onMarkSeen]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -448,22 +398,14 @@ function DirectorNotes({
       const text = draft.trim();
       if (!text) return;
 
-      const newNote: DirectorNote = {
-        id: `n_${Date.now()}`,
-        text,
-        createdAt: new Date().toISOString(),
-        replies: [],
-        directorLastSeenAt: new Date().toISOString(),
-      };
-
-      // TODO: API — insert note scoped to `memberId`, then:
-      //  - show immediately in member's My Tasks "Director Notes" section
-      //  - increment that member's Notifications Bell count (Navbar)
-      setNotes((prev) => [newNote, ...prev]);
-      onNoteAdded?.(newNote);
+      /*
+        بعد الحفظ الملاحظة بتظهر بمكانين تانيين:
+        قسم Director Notes بصفحة My Tasks تبع العضو، وعدّاد جرس الإشعارات عنده.
+      */
+      onCreateNote(memberId, text);
       setDraft('');
     },
-    [draft, onNoteAdded]
+    [draft, onCreateNote, memberId]
   );
 
   const handleSendReply = useCallback(
@@ -472,37 +414,20 @@ function DirectorNotes({
       const text = replyDraft.trim();
       if (!text || !openNoteId) return;
 
-      const reply: NoteReply = {
-        id: `r_${Date.now()}`,
-        authorId: CURRENT_DIRECTOR.id,
-        authorName: CURRENT_DIRECTOR.name,
-        authorRole: 'director',
-        text,
-        createdAt: new Date().toISOString(),
-      };
-
-      // TODO: API — insert reply on this note, then notify the member
-      // (their My Tasks thread + Notifications Bell).
-      setNotes((prev) =>
-        prev.map((n) =>
-          n.id === openNoteId
-            ? { ...n, replies: [...n.replies, reply], directorLastSeenAt: reply.createdAt }
-            : n
-        )
-      );
+      onAddReply(openNoteId, text);
       setReplyDraft('');
     },
-    [replyDraft, openNoteId]
+    [replyDraft, openNoteId, onAddReply]
   );
 
   const handleRequestDelete = useCallback((id: string) => setDeleteTargetId(id), []);
   const handleCancelDelete = useCallback(() => setDeleteTargetId(null), []);
   const handleConfirmDelete = useCallback((id: string) => {
-    // TODO: API — hard delete this note and its replies (notes are otherwise immutable, no edit)
-    setNotes((prev) => prev.filter((n) => n.id !== id));
+    // الملاحظات ما بتتعدّل — بس تُضاف أو تُحذف نهائيًا (مع ردودها بالـ cascade)
+    onDeleteNote(id);
     setDeleteTargetId(null);
     setOpenNoteId((current) => (current === id ? null : current));
-  }, []);
+  }, [onDeleteNote]);
 
   const hasPrev = openIndex > 0;
   const hasNext = openIndex >= 0 && openIndex < sortedNotes.length - 1;
@@ -681,7 +606,16 @@ function DirectorNotes({
               className="bg-[var(--dn-bg)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--dn-scrollbar-thumb)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--dn-scrollbar-thumb)]"
               style={{ height: LIST_HEIGHT_PX }}
             >
-              {sortedNotes.length === 0 ? (
+              {loading ? (
+                <div className="flex h-full items-center justify-center">
+                  <p
+                    className="text-xs font-medium text-[var(--dn-text-muted)]"
+                    style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                  >
+                    {copy.loading}
+                  </p>
+                </div>
+              ) : sortedNotes.length === 0 ? (
                 <div className="flex h-full items-center justify-center">
                   <p className="text-xs font-medium text-[var(--dn-text-muted)]">{copy.empty}</p>
                 </div>

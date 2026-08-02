@@ -6,15 +6,20 @@ import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, Lock, Check } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import { setMemberRole, togglePermission } from '@/app/(dashboard)/adminControl/rolesActions';
 
 type Lang = 'en' | 'ar';
 type RoleValue = 'member' | 'admin';
 
-type PermissionDef = {
+/**
+ * تعريف الصلاحية — يجي من جدول `permissions` بقاعدة البيانات، مش من قائمة
+ * مكتوبة بالكود. أي صلاحية جديدة تُضاف للجدول بتظهر هون تلقائيًا.
+ */
+export type PermissionDef = {
   key: string;
   labelEn: string;
   labelAr: string;
-  category: 'admin' | 'archive';
+  category: string;
 };
 
 type RolesStyle = React.CSSProperties & Record<`--rp-${string}`, string>;
@@ -29,23 +34,6 @@ const ROW_TRANSITION = {
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
-// =========================================================
-// Permissions Registry — the single source of truth for every
-// grantable permission across the site. Adding a new feature
-// later just means adding one entry here; it automatically
-// shows up in this checklist with zero UI changes needed.
-// =========================================================
-const PERMISSIONS_REGISTRY: PermissionDef[] = [
-  { key: 'admin.add_task', labelEn: 'Add tasks to members', labelAr: 'إضافة تاسكات للأعضاء', category: 'admin' },
-  { key: 'admin.director_notes', labelEn: 'Write director notes', labelAr: 'كتابة ملاحظات المدير', category: 'admin' },
-  { key: 'admin.suspend_member', labelEn: 'Suspend members', labelAr: 'إيقاف الأعضاء', category: 'admin' },
-  { key: 'archive.add_platform', labelEn: 'Add platform (Archive)', labelAr: 'إضافة منصة (الأرشيف)', category: 'archive' },
-];
-
-// ---- Mock initial state per member (replace with Supabase query) ----
-const MOCK_ROLE: RoleValue = 'member';
-const MOCK_PERMISSIONS: string[] = [];
-
 const TEXT = {
   en: {
     title: 'Roles & Permissions',
@@ -55,8 +43,8 @@ const TEXT = {
     permissionsTitle: 'Granted permissions',
     permissionsHint: 'Pick exactly what this admin can do',
     chiefLocked: "This is the Chief Admin — their role and access can't be changed.",
-    categoryAdmin: 'Admin Control',
-    categoryArchive: 'Archive',
+    errorRole: 'Could not update the role — the change was reverted.',
+    errorPermission: 'Could not update the permission — the change was reverted.',
   },
   ar: {
     title: 'الأدوار والصلاحيات',
@@ -66,14 +54,25 @@ const TEXT = {
     permissionsTitle: 'الصلاحيات الممنوحة',
     permissionsHint: 'اختر بالضبط شو هالأدمن يقدر يعمل',
     chiefLocked: 'هاد الأدمن الرئيسي — دوره وصلاحياته ما بتتغير.',
-    categoryAdmin: 'الأدمن كونترول',
-    categoryArchive: 'الأرشيف',
+    errorRole: 'تعذّر تغيير الدور — تم التراجع عن التغيير.',
+    errorPermission: 'تعذّر تحديث الصلاحية — تم التراجع عن التغيير.',
   },
 } satisfies Record<Lang, {
   title: string; subtitle: string; roleMember: string; roleAdmin: string;
   permissionsTitle: string; permissionsHint: string; chiefLocked: string;
-  categoryAdmin: string; categoryArchive: string;
+  errorRole: string; errorPermission: string;
 }>;
+
+/**
+ * تسميات الفئات — المفاتيح لازم تطابق عمود `category` بجدول permissions.
+ * أي فئة جديدة بدون تسمية هون بتظهر بمفتاحها الخام كـ fallback.
+ */
+const CATEGORY_LABELS: Record<string, { en: string; ar: string }> = {
+  admin_control: { en: 'Admin Control', ar: 'الأدمن كونترول' },
+  archive: { en: 'Archive', ar: 'الأرشيف' },
+  members: { en: 'Members', ar: 'الأعضاء' },
+  news: { en: 'News Feed', ar: 'الأخبار' },
+};
 
 function getPalette(isDark: boolean): RolesStyle {
   return {
@@ -185,13 +184,19 @@ const PermissionRow = memo(function PermissionRow({
 function RolesPermissions({
   memberId,
   isChief = false,
-  onRoleChange,
-  onPermissionsChange,
+  registry,
+  initialRole,
+  initialPermissions,
+  onRoleChanged,
 }: {
   memberId: string;
   isChief?: boolean;
-  onRoleChange?: (role: RoleValue) => void;
-  onPermissionsChange?: (permissions: string[]) => void;
+  /** كل الصلاحيات المتاحة — مجلوبة من جدول `permissions` */
+  registry: PermissionDef[];
+  initialRole: RoleValue;
+  initialPermissions: string[];
+  /** يُخطر الأب بالتغيير عشان يحدّث بادچ الدور بقائمة الأعضاء فورًا */
+  onRoleChanged?: (memberId: string, role: RoleValue) => void;
 }) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
@@ -199,44 +204,66 @@ function RolesPermissions({
   const copy = TEXT[lang as Lang];
   const palette = useMemo(() => getPalette(isDark), [isDark]);
 
-  const [role, setRole] = useState<RoleValue>(MOCK_ROLE);
-  const [permissions, setPermissions] = useState<string[]>(MOCK_PERMISSIONS);
+  /*
+    الحالة محلية بالكامل ومصدرها الأول هو الـ props.
+    ما في useEffect للمزامنة عمدًا: الأب بيمرر `key={memberId}` فالكومبوننت
+    بينبني من جديد عند تبديل العضو، وهذا بيغني عن أي مزامنة لاحقة.
+    كمان ما في router.refresh() بعد كل عملية — كان بيسبب إعادة جلب كاملة
+    للصفحة فيحس المستخدم بتأخير وإعادة رسم بعد كل ضغطة.
+  */
+  const [role, setRole] = useState<RoleValue>(initialRole);
+  const [permissions, setPermissions] = useState<string[]>(initialPermissions);
+  const [error, setError] = useState<'role' | 'permission' | null>(null);
 
   const groupedPermissions = useMemo(() => {
     const groups: Record<string, PermissionDef[]> = {};
-    for (const p of PERMISSIONS_REGISTRY) {
+    for (const p of registry) {
       groups[p.category] = groups[p.category] ? [...groups[p.category], p] : [p];
     }
     return groups;
-  }, []);
-
-  const categoryLabels: Record<string, string> = {
-    admin: copy.categoryAdmin,
-    archive: copy.categoryArchive,
-  };
+  }, [registry]);
 
   const handleRoleChange = useCallback(
     (next: RoleValue) => {
+      if (next === role) return;
+      setError(null);
+
+      const prevRole = role;
+      const prevPermissions = permissions;
+
+      // 1) التحديث البصري فورًا — بدون انتظار السيرفر
       setRole(next);
-      // Demoting back to member clears any previously granted permissions —
-      // a member has no business holding admin-scoped permission keys.
       if (next === 'member') setPermissions([]);
-      // TODO: API — persist role for `memberId` (server re-validates isChief guard)
-      onRoleChange?.(next);
+      onRoleChanged?.(memberId, next);
+
+      // 2) الحفظ بالخلفية، والتراجع فقط لو فشل
+      void setMemberRole(memberId, next).catch(() => {
+        setError('role');
+        setRole(prevRole);
+        setPermissions(prevPermissions);
+        onRoleChanged?.(memberId, prevRole);
+      });
     },
-    [onRoleChange]
+    [role, permissions, memberId, onRoleChanged]
   );
 
   const handleTogglePermission = useCallback(
     (key: string) => {
-      setPermissions((prev) => {
-        const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
-        // TODO: API — persist granted permission keys for `memberId`
-        onPermissionsChange?.(next);
-        return next;
+      setError(null);
+
+      const wasGranted = permissions.includes(key);
+      const prevPermissions = permissions;
+
+      // 1) التحديث البصري فورًا
+      setPermissions((prev) => (wasGranted ? prev.filter((k) => k !== key) : [...prev, key]));
+
+      // 2) الحفظ بالخلفية، والتراجع فقط لو فشل
+      void togglePermission(memberId, key, !wasGranted).catch(() => {
+        setError('permission');
+        setPermissions(prevPermissions);
       });
     },
-    [onPermissionsChange]
+    [permissions, memberId]
   );
 
   return (
@@ -267,6 +294,14 @@ function RolesPermissions({
             </p>
           </div>
         </div>
+
+        {error && (
+          <div className="border-b border-[var(--rp-divider)] bg-red-500/10 px-5 py-2.5 sm:px-6">
+            <p className="text-xs font-medium text-red-400">
+              {error === 'role' ? copy.errorRole : copy.errorPermission}
+            </p>
+          </div>
+        )}
 
         {isChief ? (
           <div className="flex items-center gap-3 p-6">
@@ -305,7 +340,7 @@ function RolesPermissions({
                   {Object.entries(groupedPermissions).map(([category, perms]) => (
                     <div key={category} className="border-t border-[var(--rp-divider)]">
                       <p className="px-4 pt-3 pb-1 text-[9px] font-black uppercase tracking-widest text-[var(--rp-text-muted)] sm:px-5">
-                        {categoryLabels[category] ?? category}
+                        {CATEGORY_LABELS[category]?.[lang as Lang] ?? category}
                       </p>
                       {perms.map((perm, i) => (
                         <PermissionRow

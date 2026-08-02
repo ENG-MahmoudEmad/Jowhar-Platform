@@ -3,12 +3,14 @@
 
 import React, { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
-import { Plus, X, ChevronDown, ChevronLeft, ChevronRight, Calendar, ListTodo } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronLeft, ChevronRight, Calendar, ListTodo, Trash2 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import type { TaskDTO, TaskInput } from '@/app/(dashboard)/adminControl/tasksActions';
 
 type Lang = 'en' | 'ar';
 type Priority = 'low' | 'medium' | 'high';
+/** `due` حالة معروضة فقط — مشتقة من (open + انتهى موعدها). المخزّن open/done. */
 type Status = 'open' | 'due' | 'done';
 
 type TaskFormValues = {
@@ -31,12 +33,25 @@ const EMPTY_FORM: TaskFormValues = {
   status: 'open',
 };
 
+// ---- Layout constants ----
+// نفس نمط الارتفاع الثابت تبع Director Notes و MembersControl: القائمة دايمًا
+// بتحجز مساحة 5 صفوف، فالكارد ما بيتمدد ولا بينكمش مع عدد التاسكات — والصفّين
+// جنب بعض بيضلوا متطابقين بالطول.
+const ROW_MIN_HEIGHT_PX = 64;
+const VISIBLE_ROWS = 5;
+const LIST_HEIGHT_PX = ROW_MIN_HEIGHT_PX * VISIBLE_ROWS;
+
 const CARD_TRANSITION = {
   duration: 0.55,
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
 const MODAL_TRANSITION = {
+  duration: 0.25,
+  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+};
+
+const ROW_TRANSITION = {
   duration: 0.25,
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
@@ -81,6 +96,14 @@ const TEXT = {
     errorRequired: 'Title and both dates are required',
     errorPastDate: "Start date can't be in the past",
     errorDateOrder: 'End date must be after start date',
+    // List
+    empty: 'No tasks assigned yet',
+    loading: 'Loading tasks...',
+    by: 'by',
+    you: 'you',
+    confirmDelete: 'Delete',
+    keep: 'Keep',
+    lockedDelete: 'Only a higher role can remove this task',
   },
   ar: {
     title: 'إضافة تاسك',
@@ -109,16 +132,16 @@ const TEXT = {
     errorRequired: 'العنوان والتاريخين مطلوبين',
     errorPastDate: 'تاريخ البداية ما بينفعش يكون بالماضي',
     errorDateOrder: 'تاريخ النهاية لازم يكون بعد البداية',
+    // List
+    empty: 'لا توجد تاسكات بعد',
+    loading: 'جارِ تحميل التاسكات...',
+    by: 'أضافها',
+    you: 'أنت',
+    confirmDelete: 'حذف',
+    keep: 'إبقاء',
+    lockedDelete: 'لا يمكن حذف تاسك أضافها من هو أعلى رتبة',
   },
-} satisfies Record<Lang, {
-  title: string; subtitle: string; newTask: string; formTitle: string;
-  fieldTitle: string; fieldTitlePlaceholder: string; fieldDescription: string; fieldDescriptionPlaceholder: string;
-  fieldStart: string; fieldEnd: string; fieldPriority: string; fieldStatus: string;
-  priorityLow: string; priorityMedium: string; priorityHigh: string;
-  statusOpen: string; statusDue: string; statusDone: string;
-  cancel: string; submit: string; pickDate: string; today: string; clear: string;
-  errorRequired: string; errorPastDate: string; errorDateOrder: string;
-}>;
+} satisfies Record<Lang, Record<string, string>>;
 
 function getPalette(isDark: boolean): AddTaskStyle {
   return {
@@ -130,6 +153,8 @@ function getPalette(isDark: boolean): AddTaskStyle {
     '--at-text-main': 'var(--foreground)',
     '--at-text-muted': 'var(--foreground-muted)',
     '--at-overlay': isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.45)',
+    '--at-row-hover': isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+    '--at-scrollbar-thumb': isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.15)',
     // Fully opaque colors — used anywhere that must NEVER show what's behind it
     // (modal panel, calendar popover, dropdown menus). Deliberately literal,
     // not tied to --card, because --card is intentionally translucent for
@@ -158,6 +183,24 @@ function formatDisplay(iso: string, lang: Lang): string {
     month: 'short',
     year: 'numeric',
   }).format(d);
+}
+
+function formatShort(iso: string, lang: Lang): string {
+  if (!iso) return '';
+  const d = new Date(`${iso}T00:00:00`);
+  return new Intl.DateTimeFormat(lang === 'ar' ? 'ar-EG' : 'en-US', {
+    day: 'numeric',
+    month: 'short',
+  }).format(d);
+}
+
+/**
+ * `due` مش مخزّنة بالداتابيز — بتتحسب هون من الحالة + الموعد.
+ * مصدر واحد للقاعدة: أي مكان تاني بيعرض الحالة لازم يستورد هالدالة.
+ */
+export function displayStatus(task: Pick<TaskDTO, 'status' | 'endDate'>): Status {
+  if (task.status === 'done') return 'done';
+  return task.endDate < toISODate(new Date()) ? 'due' : 'open';
 }
 
 // =========================================================
@@ -276,7 +319,6 @@ function DateField({
   lang,
   isRTL,
   placeholder,
-  dropUp = false,
 }: {
   value: string;
   onChange: (iso: string) => void;
@@ -284,7 +326,6 @@ function DateField({
   lang: Lang;
   isRTL: boolean;
   placeholder: string;
-  dropUp?: boolean;
 }) {
   const copy = TEXT[lang];
   const [open, setOpen] = useState(false);
@@ -466,6 +507,141 @@ function DateField({
 }
 
 // =========================================================
+// Task Row
+// =========================================================
+const TaskRow = memo(function TaskRow({
+  task,
+  isLast,
+  lang,
+  copy,
+  confirmingDelete,
+  onRequestDelete,
+  onConfirmDelete,
+  onCancelDelete,
+}: {
+  task: TaskDTO;
+  isLast: boolean;
+  lang: Lang;
+  copy: (typeof TEXT)[Lang];
+  confirmingDelete: boolean;
+  onRequestDelete: (id: string) => void;
+  onConfirmDelete: (id: string) => void;
+  onCancelDelete: () => void;
+}) {
+  const status = displayStatus(task);
+  const statusLabel =
+    status === 'done' ? copy.statusDone : status === 'due' ? copy.statusDue : copy.statusOpen;
+
+  // '' من السيرفر معناها الـ actor نفسه — الترجمة بتصير هون مش هناك
+  const author = task.createdByName || copy.you;
+
+  return (
+    <m.div
+      layout
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={ROW_TRANSITION}
+      className="group flex items-start justify-between gap-3 px-4 py-3 transition-colors hover:bg-[var(--at-row-hover)] sm:px-5"
+      style={{ borderBottom: isLast ? 'none' : '1px solid var(--at-divider)' }}
+    >
+      <div className="min-w-0 flex-1 text-start">
+        <div className="flex items-center gap-2">
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: PRIORITY_COLORS[task.priority] }}
+            aria-hidden="true"
+          />
+          <p
+            className="truncate text-sm font-medium leading-snug text-[var(--at-text-main)]"
+            style={{ textDecoration: status === 'done' ? 'line-through' : 'none', opacity: status === 'done' ? 0.6 : 1 }}
+          >
+            {task.title}
+          </p>
+        </div>
+
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 ps-3.5">
+          <span className="text-[10px] font-medium text-[var(--at-text-muted)]">
+            {formatShort(task.startDate, lang)} — {formatShort(task.endDate, lang)}
+          </span>
+
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[9px] font-black uppercase"
+            style={{
+              backgroundColor: `${STATUS_COLORS[status]}1f`,
+              color: STATUS_COLORS[status],
+              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+              textTransform: lang === 'ar' ? 'none' : 'uppercase',
+            }}
+          >
+            {statusLabel}
+          </span>
+
+          {/* مين ضاف التاسك — بيخلي الحذف قرار واعي مش عشوائي */}
+          <span
+            className="truncate text-[10px] font-medium text-[var(--at-text-muted)]"
+            style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+          >
+            {copy.by} {author}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center">
+        <AnimatePresence mode="wait" initial={false}>
+          {confirmingDelete ? (
+            <m.div
+              key="confirm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={ROW_TRANSITION}
+              className="flex items-center gap-1.5"
+            >
+              <button
+                type="button"
+                onClick={() => onConfirmDelete(task.id)}
+                className="cursor-pointer rounded-md bg-[rgba(239,68,68,0.1)] px-2 py-1 text-[9px] font-black uppercase text-[#ef4444] hover:bg-[rgba(239,68,68,0.18)]"
+                style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+              >
+                {copy.confirmDelete}
+              </button>
+              <button
+                type="button"
+                onClick={onCancelDelete}
+                className="cursor-pointer rounded-md bg-[var(--at-input-bg)] px-2 py-1 text-[9px] font-black uppercase text-[var(--at-text-muted)] hover:opacity-80"
+                style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+              >
+                {copy.keep}
+              </button>
+            </m.div>
+          ) : (
+            /*
+              زر الحذف بيظهر فقط لمين مسموح له فعلاً (canDelete محسوبة بالسيرفر
+              حسب رتبة اللي ضاف التاسك). إخفاؤه أوضح من عرضه ورجوع رفض.
+            */
+            task.canDelete && (
+              <m.button
+                key="trigger"
+                type="button"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => onRequestDelete(task.id)}
+                aria-label={copy.confirmDelete}
+                className="cursor-pointer rounded-lg p-1.5 text-[var(--at-text-muted)] opacity-0 transition-colors group-hover:opacity-100 hover:bg-[rgba(239,68,68,0.1)] hover:text-[#ef4444]"
+              >
+                <Trash2 size={13} aria-hidden="true" />
+              </m.button>
+            )
+          )}
+        </AnimatePresence>
+      </div>
+    </m.div>
+  );
+});
+
+// =========================================================
 // Modal form
 // =========================================================
 const TaskFormModal = memo(function TaskFormModal({
@@ -502,10 +678,14 @@ const TaskFormModal = memo(function TaskFormModal({
     [copy]
   );
 
+  /*
+    'due' مش خيار هون — هي حالة مشتقة من التواريخ، مش شي بينختار.
+    الداتابيز بتخزّن open/done فقط، وعرض خيار ما بينحفظ كان بيوعد بشي
+    ما بيصير.
+  */
   const statusOptions = useMemo(
     () => [
       { value: 'open' as Status, label: copy.statusOpen },
-      { value: 'due' as Status, label: copy.statusDue },
       { value: 'done' as Status, label: copy.statusDone },
     ],
     [copy]
@@ -713,10 +893,17 @@ const TaskFormModal = memo(function TaskFormModal({
 // =========================================================
 function AddTask({
   memberId,
-  onTaskAdded,
+  tasks,
+  loading = false,
+  onCreate,
+  onDelete,
 }: {
   memberId: string;
-  onTaskAdded?: (values: TaskFormValues) => void;
+  tasks: TaskDTO[];
+  loading?: boolean;
+  /** الحالة مرفوعة للصفحة — الكارد بيطلب، والأب بيحدّث ويتراجع لو فشل. */
+  onCreate: (memberId: string, values: TaskInput) => void;
+  onDelete: (taskId: string) => void;
 }) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
@@ -725,19 +912,40 @@ function AddTask({
   const palette = useMemo(() => getPalette(isDark), [isDark]);
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const handleSubmit = useCallback(
     (values: TaskFormValues) => {
-      // TODO: API — insert task scoped to `memberId`, then:
-      //  - recompute Team Progress % (completed/assigned, monthly)
-      //  - push into Calendar as a colored bar for this member
-      //  - fold into Deadline Ring's nearest-deadline dots if applicable
-      //  - append to member's My Tasks Gantt + Open/Due/Done counts
-      onTaskAdded?.(values);
+      /*
+        التاسك بتنعكس فورًا بـ 4 أماكن تانية بعد ما تُحفظ:
+        Team Progress %، الكاليندر، Deadline Ring، وصفحة My Tasks تبع العضو.
+        كلهم بيقرأوا من نفس جدول `tasks`.
+      */
+      onCreate(memberId, {
+        title: values.title,
+        description: values.description,
+        startDate: values.startDate,
+        endDate: values.endDate,
+        priority: values.priority,
+        status: values.status,
+      });
       setModalOpen(false);
     },
-    [onTaskAdded]
+    [onCreate, memberId]
   );
+
+  const handleRequestDelete = useCallback((id: string) => setDeleteTargetId(id), []);
+  const handleCancelDelete = useCallback(() => setDeleteTargetId(null), []);
+  const handleConfirmDelete = useCallback(
+    (id: string) => {
+      onDelete(id);
+      setDeleteTargetId(null);
+    },
+    [onDelete]
+  );
+
+  const openModal = useCallback(() => setModalOpen(true), []);
+  const closeModal = useCallback(() => setModalOpen(false), []);
 
   return (
     <LazyMotion features={domAnimation}>
@@ -748,11 +956,6 @@ function AddTask({
         sibling of the section, so it silently fell back to transparent /
         unstyled values. This wrapper is a plain div (no transform), so it
         doesn't interfere with the modal's `position: fixed` behavior.
-
-        h-full here (and on the section below) is the part that makes this
-        card stretch to match Director Notes' height when the two sit side
-        by side in a grid row — instead of staying short and leaving empty
-        space in the row.
       */}
       <div style={palette} className="h-full">
         <m.section
@@ -760,6 +963,7 @@ function AddTask({
           animate={{ opacity: 1, y: 0 }}
           transition={CARD_TRANSITION}
           aria-labelledby="add-task-title"
+          dir={isRTL ? 'rtl' : 'ltr'}
           className="flex h-full w-full flex-col overflow-hidden rounded-2xl"
           style={{ background: 'var(--at-bg)', border: '1px solid var(--at-border)' }}
         >
@@ -784,8 +988,9 @@ function AddTask({
 
             <button
               type="button"
-              onClick={() => setModalOpen(true)}
+              onClick={openModal}
               className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-[#458482] px-3.5 py-2 text-[10px] font-black uppercase tracking-wide text-white transition-opacity hover:opacity-90"
+              style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
             >
               <Plus size={13} aria-hidden="true" />
               {copy.newTask}
@@ -793,30 +998,63 @@ function AddTask({
           </div>
 
           {/*
-            Fills the rest of the card's height instead of leaving dead space
-            below the header now that the card stretches to match Director
-            Notes. Doubles as a second, larger entry point into the modal.
+            قائمة تاسكات العضو — نفس الارتفاع الثابت تبع Director Notes (5 صفوف)
+            عشان الكاردين جنب بعض يضلوا متطابقين مهما كان عدد التاسكات.
+            وجودها هون مقصود: الأدمن بيضيف من هون وما بيقدر يشوف الكاليندر ولا
+            صفحة My Tasks تبع العضو، فبدون القائمة تصحيح إضافة غلط بيصير مستحيل.
           */}
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="group flex flex-1 cursor-pointer flex-col items-center justify-center gap-2 p-6 text-center transition-colors hover:bg-[var(--at-input-bg)]"
+          <div
+            className="flex-1 bg-[var(--at-bg)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--at-scrollbar-thumb)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--at-scrollbar-thumb)]"
+            style={{ height: LIST_HEIGHT_PX }}
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-[var(--at-border)] text-[var(--at-text-muted)] transition-colors group-hover:border-[#458482]/50 group-hover:text-[#458482]">
-              <Plus size={18} aria-hidden="true" />
-            </span>
-            <span
-              className="text-[10px] font-bold uppercase tracking-wide text-[var(--at-text-muted)] transition-colors group-hover:text-[var(--at-text-main)]"
-              style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-            >
-              {copy.newTask}
-            </span>
-          </button>
+            {loading ? (
+              <div className="flex h-full items-center justify-center">
+                <p
+                  className="text-xs font-medium text-[var(--at-text-muted)]"
+                  style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                >
+                  {copy.loading}
+                </p>
+              </div>
+            ) : tasks.length === 0 ? (
+              <button
+                type="button"
+                onClick={openModal}
+                className="group flex h-full w-full cursor-pointer flex-col items-center justify-center gap-2 p-6 text-center transition-colors hover:bg-[var(--at-input-bg)]"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full border border-dashed border-[var(--at-border)] text-[var(--at-text-muted)] transition-colors group-hover:border-[#458482]/50 group-hover:text-[#458482]">
+                  <Plus size={18} aria-hidden="true" />
+                </span>
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wide text-[var(--at-text-muted)] transition-colors group-hover:text-[var(--at-text-main)]"
+                  style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                >
+                  {copy.empty}
+                </span>
+              </button>
+            ) : (
+              <AnimatePresence initial={false}>
+                {tasks.map((task, i) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    isLast={i === tasks.length - 1}
+                    lang={lang as Lang}
+                    copy={copy}
+                    confirmingDelete={deleteTargetId === task.id}
+                    onRequestDelete={handleRequestDelete}
+                    onConfirmDelete={handleConfirmDelete}
+                    onCancelDelete={handleCancelDelete}
+                  />
+                ))}
+              </AnimatePresence>
+            )}
+          </div>
         </m.section>
 
         <TaskFormModal
           open={modalOpen}
-          onClose={() => setModalOpen(false)}
+          onClose={closeModal}
           onSubmit={handleSubmit}
           lang={lang as Lang}
           isRTL={isRTL}

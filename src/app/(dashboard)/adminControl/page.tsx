@@ -38,11 +38,10 @@ export default async function AdminControlPage() {
   const { data: memberProfiles } = await supabase
     .from('profiles')
     .select(
-      'id, first_name, last_name, access_role, is_chief, is_suspended, suspended_until, color, job_title_en, job_title_ar'
+      'id, first_name, last_name, access_role, is_chief, is_developer, is_suspended, suspended_until, color, job_title_en, job_title_ar, created_at'
     )
     .eq('status', 'active')
-    .order('is_chief', { ascending: false })
-    .order('first_name', { ascending: true });
+    .order('created_at', { ascending: true });
 
   const members = (memberProfiles ?? []).map((m) => ({
     id: m.id,
@@ -53,13 +52,45 @@ export default async function AdminControlPage() {
     roleLabelAr: m.job_title_ar || (m.access_role === 'admin' ? 'أدمن' : 'عضو'),
     color: m.color || '#0d9488',
     isChief: m.is_chief,
+    isDeveloper: m.is_developer ?? false,
     isSuspended: m.is_suspended,
     suspendedUntil: m.suspended_until ?? undefined,
+    createdAt: m.created_at,
   }));
+
+  // ---- Permissions Registry (مصدر واحد للحقيقة من الداتابيز) ----
+  // أي صلاحية جديدة تنضاف للجدول بتظهر بالواجهة تلقائيًا بدون تعديل كود.
+  const { data: permissionRows } = await supabase
+    .from('permissions')
+    .select('key, label_en, label_ar, category')
+    .order('category', { ascending: true })
+    .order('key', { ascending: true });
+
+  const registry = (permissionRows ?? []).map((p) => ({
+    key: p.key,
+    labelEn: p.label_en,
+    labelAr: p.label_ar,
+    category: p.category,
+  }));
+
+  // ---- الصلاحيات الممنوحة لكل عضو (خريطة memberId → مفاتيح) ----
+  const { data: grantedRows } = await supabase
+    .from('user_permissions')
+    .select('user_id, permission_key');
+
+  const grantedByMember: Record<string, string[]> = {};
+  for (const row of grantedRows ?? []) {
+    grantedByMember[row.user_id] = [...(grantedByMember[row.user_id] ?? []), row.permission_key];
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
-      <AdminControlClient initialPending={pending} initialMembers={members} />
+      <AdminControlClient
+        initialPending={pending}
+        initialMembers={members}
+        registry={registry}
+        grantedByMember={grantedByMember}
+      />
     </div>
   );
 }

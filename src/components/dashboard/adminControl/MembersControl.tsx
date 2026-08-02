@@ -1,12 +1,13 @@
 "use client";
 
-import React, { memo, useMemo, useState, useCallback, useEffect, useRef, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
-import { Search, Check, X, ShieldAlert, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, Check, X, ShieldAlert, ChevronRight, ChevronDown, Lock } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import { useCurrentUser } from '@/context/UserContext';
 import { acceptMember, rejectMember, suspendMember, liftSuspension } from '@/app/(dashboard)/adminControl/actions';
+import { canManage, canOpen, type Actor, type Target } from '@/lib/permissions/hierarchy';
 
 type Lang = 'en' | 'ar';
 type Role = 'admin' | 'member';
@@ -27,8 +28,11 @@ export type Member = {
   roleLabelAr: string;
   color: string;
   isChief: boolean;
+  isDeveloper: boolean;
   isSuspended: boolean;
   suspendedUntil?: string;
+  /** تاريخ التسجيل — يُستخدم لترتيب باقي الأعضاء */
+  createdAt: string;
 };
 
 type MembersControlStyle = React.CSSProperties & Record<`--mc-${string}`, string>;
@@ -73,9 +77,16 @@ const TEXT = {
     confirm: 'Confirm',
     cancel: 'Cancel',
     chief: 'Chief',
+    developer: 'Dev',
+    you: 'You',
+    locked: 'You cannot manage this member',
     viewProfile: 'View full profile',
     noPending: 'No pending requests right now',
     noResults: 'No members match your search',
+    errAccept: 'Could not accept the request — it was restored.',
+    errReject: 'Could not reject the request — it was restored.',
+    errSuspend: 'Could not suspend — the change was reverted.',
+    errLift: 'Could not lift the suspension — the change was reverted.',
   },
   ar: {
     pendingTitle: 'طلبات معلقة',
@@ -96,18 +107,18 @@ const TEXT = {
     confirm: 'تأكيد',
     cancel: 'إلغاء',
     chief: 'رئيسي',
+    developer: 'مطوّر',
+    you: 'أنت',
+    locked: 'لا تملك صلاحية إدارة هذا العضو',
     viewProfile: 'عرض الملف الكامل',
     noPending: 'لا يوجد طلبات معلقة حالياً',
     noResults: 'لا يوجد أعضاء مطابقين',
+    errAccept: 'تعذّر قبول الطلب — تم استرجاعه.',
+    errReject: 'تعذّر رفض الطلب — تم استرجاعه.',
+    errSuspend: 'تعذّر الإيقاف — تم التراجع عن التغيير.',
+    errLift: 'تعذّر إلغاء الإيقاف — تم التراجع عن التغيير.',
   },
-} satisfies Record<Lang, {
-  pendingTitle: string; pendingSubtitle: string; accept: string; reject: string;
-  membersTitle: string; membersSubtitle: string; searchPlaceholder: string;
-  filterAll: string; filterAdmins: string; filterMembers: string;
-  active: string; suspended: string; suspend: string; unsuspend: string;
-  days: string; confirm: string; cancel: string; chief: string;
-  viewProfile: string; noPending: string; noResults: string;
-}>;
+} satisfies Record<Lang, Record<string, string>>;
 
 function getPalette(isDark: boolean): MembersControlStyle {
   return {
@@ -235,14 +246,12 @@ const PendingRow = memo(function PendingRow({
   lang,
   onAccept,
   onReject,
-  isPending,
 }: {
   request: PendingRequest;
   isLast: boolean;
   lang: Lang;
   onAccept: (id: string) => void;
   onReject: (id: string) => void;
-  isPending: boolean;
 }) {
   const copy = TEXT[lang];
 
@@ -266,18 +275,16 @@ const PendingRow = memo(function PendingRow({
       <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
-          disabled={isPending}
           onClick={() => onAccept(request.id)}
-          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[rgba(69,132,130,0.1)] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#458482] transition-colors hover:bg-[rgba(69,132,130,0.18)] disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[rgba(69,132,130,0.1)] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#458482] transition-colors hover:bg-[rgba(69,132,130,0.18)]"
         >
           <Check size={12} aria-hidden="true" />
           {copy.accept}
         </button>
         <button
           type="button"
-          disabled={isPending}
           onClick={() => onReject(request.id)}
-          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[rgba(239,68,68,0.1)] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#ef4444] transition-colors hover:bg-[rgba(239,68,68,0.18)] disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex cursor-pointer items-center gap-1 rounded-lg bg-[rgba(239,68,68,0.1)] px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-[#ef4444] transition-colors hover:bg-[rgba(239,68,68,0.18)]"
         >
           <X size={12} aria-hidden="true" />
           {copy.reject}
@@ -297,6 +304,8 @@ const MemberRow = memo(function MemberRow({
   lang,
   canManage,
   isSelected,
+  isCurrentUser,
+  isLocked,
   isEditingSuspend,
   suspendDays,
   onSuspendDaysChange,
@@ -312,6 +321,8 @@ const MemberRow = memo(function MemberRow({
   lang: Lang;
   canManage: boolean;
   isSelected: boolean;
+  isCurrentUser: boolean;
+  isLocked: boolean;
   isEditingSuspend: boolean;
   suspendDays: number;
   onSuspendDaysChange: (v: number) => void;
@@ -328,11 +339,28 @@ const MemberRow = memo(function MemberRow({
     height: ROW_HEIGHT_PX,
     background: isSelected ? 'rgba(69,132,130,0.06)' : undefined,
     boxShadow: isSelected ? 'inset 3px 0 0 0 #458482' : undefined,
+    opacity: isLocked ? 0.55 : 1,
   };
 
   return (
     <div
-      className="group flex shrink-0 items-center gap-3 px-4 transition-colors hover:bg-[var(--mc-row-hover)] sm:px-5"
+      role={isLocked ? undefined : 'button'}
+      tabIndex={isLocked ? undefined : 0}
+      title={isLocked ? copy.locked : undefined}
+      onClick={isLocked ? undefined : () => onSelect(member.id)}
+      onKeyDown={
+        isLocked
+          ? undefined
+          : (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect(member.id);
+              }
+            }
+      }
+      className={`group flex shrink-0 items-center gap-3 px-4 transition-colors sm:px-5 ${
+        isLocked ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-[var(--mc-row-hover)]'
+      }`}
       style={rowStyle}
     >
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--mc-avatar-border)] bg-[var(--mc-avatar-bg)] text-xs font-bold text-[var(--member-color)]">
@@ -342,6 +370,30 @@ const MemberRow = memo(function MemberRow({
       <div className="min-w-0 flex-1 text-start">
         <div className="flex items-center gap-2">
           <h4 className="truncate text-sm font-bold text-[var(--mc-text-main)]">{member.name}</h4>
+          {isCurrentUser && (
+            <span
+              className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide"
+              style={{
+                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                color: '#ffffff',
+                backgroundColor: '#458482',
+              }}
+            >
+              {copy.you}
+            </span>
+          )}
+          {member.isDeveloper && (
+            <span
+              className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide"
+              style={{
+                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                color: '#c084fc',
+                backgroundColor: 'rgba(192,132,252,0.12)',
+              }}
+            >
+              {copy.developer}
+            </span>
+          )}
           {member.isChief && (
             <span
               className="shrink-0 rounded-full bg-[rgba(69,132,130,0.1)] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-[#458482]"
@@ -375,7 +427,7 @@ const MemberRow = memo(function MemberRow({
       </span>
 
       {canManage && (
-        <div className="shrink-0">
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
           <AnimatePresence mode="wait" initial={false}>
             {isEditingSuspend ? (
               <m.div
@@ -438,14 +490,17 @@ const MemberRow = memo(function MemberRow({
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => onSelect(member.id)}
-        aria-label={TEXT[lang].viewProfile}
-        className="shrink-0 cursor-pointer rounded-lg p-1.5 text-[var(--mc-text-muted)] transition-colors hover:bg-[var(--mc-input-bg)] hover:text-[var(--mc-text-main)]"
-      >
-        <ChevronRight size={16} aria-hidden="true" style={{ transform: isRTL ? 'rotate(180deg)' : 'none' }} />
-      </button>
+      {/* قفل للصفوف اللي ما بيقدر يديرها، وسهم للباقي (الصف كامل قابل للضغط) */}
+      {isLocked ? (
+        <Lock size={14} aria-hidden="true" className="shrink-0 text-[var(--mc-text-muted)]" />
+      ) : (
+        <ChevronRight
+          size={16}
+          aria-hidden="true"
+          className="shrink-0 text-[var(--mc-text-muted)] transition-transform group-hover:translate-x-0.5"
+          style={{ transform: isRTL ? 'rotate(180deg)' : 'none' }}
+        />
+      )}
     </div>
   );
 });
@@ -454,72 +509,100 @@ const MemberRow = memo(function MemberRow({
 // Main Component
 // =========================================================
 function MembersControl({
-  initialPending,
-  initialMembers,
+  pending,
+  members,
+  onPendingChange,
+  onMembersChange,
   onSelectMember,
   selectedMemberId,
 }: {
-  initialPending: PendingRequest[];
-  initialMembers: Member[];
-  onSelectMember?: (memberId: string, memberName: string, isChief: boolean) => void;
+  /*
+    الحالة مرفوعة للأب (AdminControlClient) عشان تغييرات الدور من كومبوننت
+    Roles & Permissions تنعكس فورًا على بادچ العضو بالقائمة، والعكس صحيح.
+  */
+  pending: PendingRequest[];
+  members: Member[];
+  onPendingChange: (next: PendingRequest[]) => void;
+  onMembersChange: (next: Member[]) => void;
+  onSelectMember?: (memberId: string) => void;
   selectedMemberId?: string | null;
 }) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
+  const { user: currentUser } = useCurrentUser();
   const isDark = theme === 'dark';
   const copy = TEXT[lang as Lang];
   const palette = useMemo(() => getPalette(isDark), [isDark]);
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
 
-  const [pending, setPending] = useState(initialPending);
-  const [members, setMembers] = useState(initialMembers);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
   const [suspendTargetId, setSuspendTargetId] = useState<string | null>(null);
   const [suspendDays, setSuspendDays] = useState(1);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  // props تتحدث كل ما الـ Server Component يعيد الجلب (بعد revalidatePath)
-  useEffect(() => setPending(initialPending), [initialPending]);
-  useEffect(() => setMembers(initialMembers), [initialMembers]);
+  const [actionError, setActionError] = useState<keyof typeof TEXT.en | null>(null);
 
   const filteredMembers = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return members.filter((m) => {
+    const matched = members.filter((m) => {
       const matchesQuery = !q || m.name.toLowerCase().includes(q);
       const matchesRole = roleFilter === 'all' || m.role === roleFilter;
       return matchesQuery && matchesRole;
     });
-  }, [members, query, roleFilter]);
+
+    /*
+      ترتيب ثابت بالأولوية:
+        1. Chief Admin  (دايمًا أول، مهما كان)
+        2. Developer
+        3. الشخص اللي فاتح الصفحة حاليًا (لو مش واحد من فوق)
+        4. الباقي — حسب تاريخ التسجيل، الأقدم أولاً
+
+      الترتيب بيصير هون مش بالـ SQL لأن المرتبة الثالثة تعتمد على
+      "مين فاتح الصفحة" — وهذا معروف بالواجهة بس.
+    */
+    const rank = (m: Member): number => {
+      if (m.isChief) return 0;
+      if (m.isDeveloper) return 1;
+      if (m.id === currentUser?.id) return 2;
+      return 3;
+    };
+
+    return [...matched].sort((a, b) => {
+      const diff = rank(a) - rank(b);
+      if (diff !== 0) return diff;
+      // نفس المرتبة (الفئة الرابعة) → الأقدم تسجيلاً أولاً
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  }, [members, query, roleFilter, currentUser?.id]);
+
+  /*
+    كل معالج تحت بيمشي بنفس النمط:
+    1) يحدّث الواجهة فورًا (optimistic) — بدون انتظار السيرفر ولا تعطيل الأزرار
+    2) يبعت للسيرفر بالخلفية
+    3) يتراجع عن التغيير + يعرض رسالة فقط لو فشل الطلب
+    ما في router.refresh() عمدًا: كان بيجبر إعادة جلب كامل للصفحة بعد كل
+    ضغطة، فيحس المستخدم بتعليق وإعادة رسم.
+  */
 
   const handleAccept = useCallback((id: string) => {
     setActionError(null);
-    setPending((prev) => prev.filter((p) => p.id !== id)); // optimistic
-    startTransition(async () => {
-      try {
-        await acceptMember(id);
-        router.refresh();
-      } catch {
-        setActionError('accept_failed');
-        setPending(initialPending); // revert
-      }
+    const prev = pending;
+    onPendingChange(pending.filter((p) => p.id !== id));
+
+    void acceptMember(id).catch(() => {
+      setActionError('errAccept');
+      onPendingChange(prev);
     });
-  }, [initialPending, router]);
+  }, [pending, onPendingChange]);
 
   const handleReject = useCallback((id: string) => {
     setActionError(null);
-    setPending((prev) => prev.filter((p) => p.id !== id)); // optimistic
-    startTransition(async () => {
-      try {
-        await rejectMember(id);
-        router.refresh();
-      } catch {
-        setActionError('reject_failed');
-        setPending(initialPending); // revert
-      }
+    const prev = pending;
+    onPendingChange(pending.filter((p) => p.id !== id));
+
+    void rejectMember(id).catch(() => {
+      setActionError('errReject');
+      onPendingChange(prev);
     });
-  }, [initialPending, router]);
+  }, [pending, onPendingChange]);
 
   const handleStartSuspend = useCallback((id: string) => {
     setSuspendTargetId(id);
@@ -533,50 +616,42 @@ function MembersControl({
 
   const handleConfirmSuspend = useCallback((id: string) => {
     setActionError(null);
-    const until = new Date(Date.now() + suspendDays * 86400000).toISOString();
-    setMembers((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, isSuspended: true, suspendedUntil: until } : m))
-    ); // optimistic
+    const prev = members;
+    const days = suspendDays;
+    const until = new Date(Date.now() + days * 86400000).toISOString();
+
+    onMembersChange(
+      members.map((m) => (m.id === id ? { ...m, isSuspended: true, suspendedUntil: until } : m))
+    );
     setSuspendTargetId(null);
     setSuspendDays(1);
 
-    startTransition(async () => {
-      try {
-        await suspendMember(id, suspendDays);
-        router.refresh();
-      } catch {
-        setActionError('suspend_failed');
-        setMembers(initialMembers); // revert
-      }
+    void suspendMember(id, days).catch(() => {
+      setActionError('errSuspend');
+      onMembersChange(prev);
     });
-  }, [suspendDays, initialMembers, router]);
+  }, [members, suspendDays, onMembersChange]);
 
   const handleLiftSuspend = useCallback((id: string) => {
     setActionError(null);
-    setMembers((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, isSuspended: false, suspendedUntil: undefined } : m))
-    ); // optimistic
+    const prev = members;
 
-    startTransition(async () => {
-      try {
-        await liftSuspension(id);
-        router.refresh();
-      } catch {
-        setActionError('lift_failed');
-        setMembers(initialMembers); // revert
-      }
+    onMembersChange(
+      members.map((m) => (m.id === id ? { ...m, isSuspended: false, suspendedUntil: undefined } : m))
+    );
+
+    void liftSuspension(id).catch(() => {
+      setActionError('errLift');
+      onMembersChange(prev);
     });
-  }, [initialMembers, router]);
+  }, [members, onMembersChange]);
 
   return (
     <LazyMotion features={domAnimation}>
       <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
         {actionError && (
           <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-xs font-medium text-red-400">
-            {actionError === 'accept_failed' && 'تعذّر قبول الطلب، حاول مرة أخرى.'}
-            {actionError === 'reject_failed' && 'تعذّر رفض الطلب، حاول مرة أخرى.'}
-            {actionError === 'suspend_failed' && 'تعذّر تنفيذ الإيقاف — تأكد أن لديك صلاحية التحكم بهذا العضو.'}
-            {actionError === 'lift_failed' && 'تعذّر إلغاء الإيقاف، حاول مرة أخرى.'}
+            {copy[actionError]}
           </div>
         )}
 
@@ -618,7 +693,6 @@ function MembersControl({
                   lang={lang as Lang}
                   onAccept={handleAccept}
                   onReject={handleReject}
-                  isPending={isPending}
                 />
               ))}
             </AnimatePresence>
@@ -680,25 +754,56 @@ function MembersControl({
                 <p className="text-xs font-medium text-[var(--mc-text-muted)]">{copy.noResults}</p>
               </div>
             ) : (
-              filteredMembers.map((m, i) => (
-                <MemberRow
-                  key={m.id}
-                  member={m}
-                  isLast={i === filteredMembers.length - 1}
-                  isRTL={isRTL}
-                  lang={lang as Lang}
-                  canManage={!m.isChief}
-                  isSelected={selectedMemberId === m.id}
-                  isEditingSuspend={suspendTargetId === m.id}
-                  suspendDays={suspendDays}
-                  onSuspendDaysChange={setSuspendDays}
-                  onStartSuspend={handleStartSuspend}
-                  onConfirmSuspend={handleConfirmSuspend}
-                  onCancelSuspend={handleCancelSuspend}
-                  onLiftSuspend={handleLiftSuspend}
-                  onSelect={(id) => onSelectMember?.(id, m.name, m.isChief)}
-                />
-              ))
+              filteredMembers.map((m, i) => {
+                /*
+                  القواعد مستوردة من '@/lib/permissions/hierarchy' — نفس الملف
+                  اللي بتستخدمه الـ Server Actions، فما يصير انحراف بين اللي
+                  بيُعرض بالواجهة واللي بيُسمح فعليًا بالسيرفر.
+
+                  canOpen   = يفتح تفاصيل العضو (Add Task / Director Notes)
+                  canManage = يوقّف/يغيّر دور العضو
+                */
+                const actor: Actor | null = currentUser
+                  ? {
+                      id: currentUser.id,
+                      isDeveloper: currentUser.isDeveloper,
+                      isChief: currentUser.isChief,
+                      accessRole: currentUser.accessRole,
+                    }
+                  : null;
+
+                const target: Target = {
+                  id: m.id,
+                  isDeveloper: m.isDeveloper,
+                  isChief: m.isChief,
+                  accessRole: m.role,
+                };
+
+                const rowCanOpen = actor ? canOpen(actor, target) : false;
+                const rowCanManage = actor ? canManage(actor, target) : false;
+
+                return (
+                  <MemberRow
+                    key={m.id}
+                    member={m}
+                    isLast={i === filteredMembers.length - 1}
+                    isRTL={isRTL}
+                    lang={lang as Lang}
+                    canManage={rowCanManage}
+                    isLocked={!rowCanOpen}
+                    isSelected={selectedMemberId === m.id}
+                    isCurrentUser={m.id === currentUser?.id}
+                    isEditingSuspend={suspendTargetId === m.id}
+                    suspendDays={suspendDays}
+                    onSuspendDaysChange={setSuspendDays}
+                    onStartSuspend={handleStartSuspend}
+                    onConfirmSuspend={handleConfirmSuspend}
+                    onCancelSuspend={handleCancelSuspend}
+                    onLiftSuspend={handleLiftSuspend}
+                    onSelect={onSelectMember ?? (() => {})}
+                  />
+                );
+              })
             )}
           </div>
         </m.section>

@@ -1,50 +1,17 @@
 // src/app/(dashboard)/adminControl/actions.ts
 // كل عمليات Admin Control الحساسة (accept/reject/suspend) — دايمًا بتتفحص
 // صلاحيات الـ actor من طرف السيرفر، مش بس إخفاء بالواجهة.
+//
+// الحراسات نفسها بـ `./guards.ts`: نفس الفحص الموجود بـ proxy.ts، بس مستقل
+// تمامًا عنه (defense in depth) — الـ middleware ممكن ينخدع أو يتخطاه حد،
+// والـ Server Action لازم تتأكد بنفسها.
 'use server';
 
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-
-// ---------------------------------------------------------
-// Helper: يجيب هوية الأدمن الحالي (actor) ويتأكد إنه admin/chief فعليًا.
-// نفس الفحص الموجود بـ proxy.ts، بس هون مستقل تمامًا (defense in depth):
-// الـ middleware ممكن ينخدع أو يتخطاه حد، الـ Server Action لازم تتأكد بنفسها.
-// ---------------------------------------------------------
-async function requireAdminActor() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('unauthenticated');
-
-  const { data: actor } = await supabase
-    .from('profiles')
-    .select('id, is_chief, access_role')
-    .eq('id', user.id)
-    .single();
-
-  if (!actor || (!actor.is_chief && actor.access_role !== 'admin')) {
-    throw new Error('forbidden');
-  }
-
-  return { supabase, actor };
-}
-
-// ---------------------------------------------------------
-// قاعدة Actor × Target (قسم 3.3 بمستند Admin Control):
-// - Chief: يتحكم بأي حد ما عدا نفسه
-// - Admin ثانوي: يتحكم بـ Members بس (مش Admins، مش Chief)
-// - محدش يتحكم بنفسه
-// ---------------------------------------------------------
-function assertCanControlTarget(
-  actor: { id: string; is_chief: boolean },
-  target: { id: string; is_chief: boolean; access_role: string }
-) {
-  if (actor.id === target.id) throw new Error('cannot_control_self');
-  if (target.is_chief) throw new Error('cannot_control_chief');
-  if (!actor.is_chief && target.access_role === 'admin') throw new Error('cannot_control_admin');
-}
+import { canManage } from '@/lib/permissions/hierarchy';
+import { requireAdminActor, loadTarget } from './guards';
 
 // ===========================================================
 // Accept pending signup
@@ -121,14 +88,8 @@ export async function suspendMember(memberId: string, days: number) {
 
   if (!Number.isFinite(days) || days < 1) throw new Error('invalid_days');
 
-  const { data: target } = await supabase
-    .from('profiles')
-    .select('id, is_chief, access_role')
-    .eq('id', memberId)
-    .single();
-
-  if (!target) throw new Error('not_found');
-  assertCanControlTarget(actor, target);
+  const target = await loadTarget(supabase, memberId);
+  if (!canManage(actor, target)) throw new Error('forbidden');
 
   const suspendedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -152,14 +113,8 @@ export async function suspendMember(memberId: string, days: number) {
 export async function liftSuspension(memberId: string) {
   const { supabase, actor } = await requireAdminActor();
 
-  const { data: target } = await supabase
-    .from('profiles')
-    .select('id, is_chief, access_role')
-    .eq('id', memberId)
-    .single();
-
-  if (!target) throw new Error('not_found');
-  assertCanControlTarget(actor, target);
+  const target = await loadTarget(supabase, memberId);
+  if (!canManage(actor, target)) throw new Error('forbidden');
 
   const { error } = await supabase
     .from('profiles')
