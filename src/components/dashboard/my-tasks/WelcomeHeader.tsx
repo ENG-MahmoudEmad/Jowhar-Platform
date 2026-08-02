@@ -7,6 +7,7 @@ import { useLang }  from "@/context/LangContext";
 import DiamondGem   from "./DiamondGem";
 
 interface WelcomeHeaderProps {
+  /** الاسم الأول فقط — الاسم الكامل بيطلع برّا الإطار مع الأسماء الطويلة */
   name:    string;
   nameAr?: string;
   hue:     number;
@@ -63,7 +64,7 @@ function WelcomeHeader({ name, nameAr, hue, sat = 45 }: WelcomeHeaderProps) {
 
   const welcomeTextStyle = useMemo<React.CSSProperties>(
     () => ({
-      fontSize:      "clamp(2rem, 4vw, 3rem)",
+      fontSize:      "clamp(1.5rem, 3.2vw, 2.5rem)",
       color:         "var(--foreground)",
       fontFamily:    lang === "ar" ? "var(--font-arabic)" : "var(--font-display)",
       letterSpacing: lang === "ar" ? "0" : "-0.02em",
@@ -71,9 +72,14 @@ function WelcomeHeader({ name, nameAr, hue, sat = 45 }: WelcomeHeaderProps) {
     [lang]
   );
 
+  /*
+    الاسم أصغر من "Welcome" عن قصد: هو الجزء المتغيّر واللي ممكن يطول،
+    فتصغيره بيمنع الكسر قبل ما يبلّش. ومع `truncate` بيصير في سقف أكيد
+    مهما كان الاسم طويل.
+  */
   const nameTextStyle = useMemo<React.CSSProperties>(
     () => ({
-      fontSize:      "clamp(2rem, 4vw, 3rem)",
+      fontSize:      "clamp(1.25rem, 2.6vw, 2rem)",
       color:         nameColor,
       fontFamily:    lang === "ar" ? "var(--font-arabic)" : "var(--font-display)",
       letterSpacing: lang === "ar" ? "0" : "-0.02em",
@@ -86,21 +92,31 @@ function WelcomeHeader({ name, nameAr, hue, sat = 45 }: WelcomeHeaderProps) {
 
   return (
     <LazyMotion features={domAnimation}>
-      <div dir={isRTL ? "rtl" : "ltr"} className="flex items-center gap-6">
+      {/*
+        min-w-0 على الحاوية وعلى كتلة النص: بدونها عنصر الـ flex بيرفض
+        ينكمش تحت عرض محتواه، فالـ truncate ما بيشتغل إطلاقًا والنص
+        بيطلع برّا الكارد.
+      */}
+      <div dir={isRTL ? "rtl" : "ltr"} className="flex min-w-0 items-center gap-4 sm:gap-6">
 
-        {/* Gem */}
-        <m.div initial={GEM_INITIAL} animate={GEM_ANIMATE} transition={GEM_TRANSITION}>
-          <DiamondGem
-            memberColor={memberColor}
-            size={130}
-            floatDelay={0}
-            isDark={isDark}
-          />
+        {/* Gem — أصغر على الموبايل عشان يترك مساحة للنص */}
+        <m.div
+          initial={GEM_INITIAL}
+          animate={GEM_ANIMATE}
+          transition={GEM_TRANSITION}
+          className="shrink-0"
+        >
+          <div className="hidden sm:block">
+            <DiamondGem memberColor={memberColor} size={130} floatDelay={0} isDark={isDark} />
+          </div>
+          <div className="sm:hidden">
+            <DiamondGem memberColor={memberColor} size={88} floatDelay={0} isDark={isDark} />
+          </div>
         </m.div>
 
         {/* Text block */}
         <m.div
-          className="flex flex-col"
+          className="flex min-w-0 flex-col"
           initial="hidden"
           animate="show"
           variants={TEXT_BLOCK_VARIANTS}
@@ -118,8 +134,10 @@ function WelcomeHeader({ name, nameAr, hue, sat = 45 }: WelcomeHeaderProps) {
           <m.span
             variants={LINE_VARIANTS}
             transition={LINE_TRANSITION}
-            className="font-black leading-tight"
+            className="truncate font-black leading-tight"
             style={nameTextStyle}
+            // الاسم الكامل بالهوفر لو انقص
+            title={displayName}
           >
             {displayName}
           </m.span>

@@ -1,21 +1,28 @@
+//src\components\dashboard\profile\ProfileHero.tsx
+
 "use client"
 
 import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Shield, Calendar, Lock } from 'lucide-react';
+import { Camera, Shield, Calendar, Lock, Loader2 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang }  from '@/context/LangContext';
 
 /* ─── Types ─── */
 interface ProfileHeroProps {
   name:           string;
-  role:           string;
-  roleAr?:        string;
-  avatarUrl?:     string;
+  /** المسمّى الوظيفي — نص حر من `profiles.job_title_*`، مش قائمة ثابتة */
+  jobTitle?:      string;
+  jobTitleAr?:    string;
+  avatarUrl?:     string | null;
   joinedDate:     string;
-  memberColor?:   string;  // personal color — set by admin, read-only
+  /** لون العضو — يحدده الأدمن، وهو مصدر اللون الوحيد بكل المنصة */
+  memberColor:    string;
   isAdmin?:       boolean;
   canEditAvatar?: boolean;
+  uploading?:     boolean;
+  /** موجود فقط لو الشخص بيقدر يغيّر الصورة فعليًا */
+  onAvatarSelect?: (file: File) => void;
 }
 
 /* ─── Helpers ─── */
@@ -36,30 +43,18 @@ function formatJoinDate(iso: string, lang: string): string {
   );
 }
 
-/* ─── Role badge colour map ─── */
-const ROLE_COLORS: Record<string, string> = {
-  'animator pro':   '#458482',
-  'lead animator':  '#a855f7',
-  '3d modeler':     '#f59e0b',
-  'vfx artist':     '#ef4444',
-  'concept artist': '#3b82f6',
-  'admin':          '#10b981',
-};
-
-function getRoleColor(role: string): string {
-  return ROLE_COLORS[role.toLowerCase()] ?? '#458482';
-}
-
 /* ══════════════════════════════════════════════ */
 export default function ProfileHero({
   name,
-  role,
-  roleAr,
+  jobTitle,
+  jobTitleAr,
   avatarUrl,
   joinedDate,
   memberColor,
   isAdmin       = false,
   canEditAvatar = true,
+  uploading     = false,
+  onAvatarSelect,
 }: ProfileHeroProps) {
   const { theme }       = useTheme();
   const { lang, isRTL } = useLang();
@@ -69,7 +64,7 @@ export default function ProfileHero({
   const [preview, setPreview]   = useState<string | null>(null);
   const [hovering, setHovering] = useState(false);
 
-  /* ── palette (mirrors ProjectCalendar pattern) ── */
+  /* ── palette ── */
   const bg        = isDark ? 'var(--card)'           : '#ffffff';
   const border    = isDark ? 'var(--card-border)'    : 'rgba(0,0,0,0.07)';
   const headerBg  = isDark ? 'var(--background-alt)' : '#f5f5ef';
@@ -77,33 +72,40 @@ export default function ProfileHero({
   const textMain  = 'var(--foreground)';
   const textMuted = 'var(--foreground-muted)';
 
-  const roleColor   = getRoleColor(role);
-  const displayRole = lang === 'ar' && roleAr ? roleAr : role;
-  // name is always English regardless of selected language
+  /*
+    اللون كان بيتشتق من خريطة أدوار مكتوبة بالكود. الأدوار صارت نص حر
+    (`job_title_*`)، واللون صار عمود مستقل يحدده الأدمن — فأي خريطة هون
+    كانت رح تعطي لون لأدوار معروفة وتفشل بالباقي.
+  */
+  const accent      = memberColor;
+  const displayRole = (lang === 'ar' ? jobTitleAr : jobTitle) || jobTitle || jobTitleAr;
   const avatarSrc   = preview ?? avatarUrl ?? null;
 
   /* ── translations ── */
   const tx = {
-    joinedOn:      lang === 'ar' ? 'انضم في'           : 'Joined',
-    adminBadge:    lang === 'ar' ? 'مشرف'               : 'Admin',
-    changePhoto:   lang === 'ar' ? 'تغيير الصورة'       : 'Change photo',
-    photoLocked:   lang === 'ar' ? 'الصورة مقفلة'       : 'Photo locked',
-    uploading:     lang === 'ar' ? 'جاري الرفع…'        : 'Uploading…',
-    profileOf:     lang === 'ar' ? 'ملف'                : 'Profile of',
-    memberSince:   lang === 'ar' ? 'عضو منذ'            : 'Member since',
+    adminBadge:  lang === 'ar' ? 'مشرف'          : 'Admin',
+    changePhoto: lang === 'ar' ? 'تغيير الصورة'  : 'Change photo',
+    photoLocked: lang === 'ar' ? 'الصورة مقفلة'  : 'Photo locked',
+    uploading:   lang === 'ar' ? 'جاري الرفع…'   : 'Uploading…',
+    memberSince: lang === 'ar' ? 'عضو منذ'       : 'Member since',
   };
 
   /* ── avatar upload handler ── */
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    // TODO: wire to API upload when backend is ready
+
+    // معاينة فورية — الرفع الفعلي بيصير بالأب
+    setPreview(URL.createObjectURL(file));
+    onAvatarSelect?.(file);
+
+    // تصفير القيمة عشان اختيار نفس الملف مرة تانية يشغّل الحدث
+    e.target.value = '';
   };
 
+  const canUpload = canEditAvatar && Boolean(onAvatarSelect);
   const triggerUpload = () => {
-    if (canEditAvatar) fileInputRef.current?.click();
+    if (canUpload && !uploading) fileInputRef.current?.click();
   };
 
   return (
@@ -121,7 +123,7 @@ export default function ProfileHero({
         <div
           className="absolute inset-0 opacity-30"
           style={{
-            background: `radial-gradient(ellipse 70% 120% at ${isRTL ? '80%' : '20%'} 50%, ${roleColor}55 0%, transparent 70%)`,
+            background: `radial-gradient(ellipse 70% 120% at ${isRTL ? '80%' : '20%'} 50%, ${accent}55 0%, transparent 70%)`,
           }}
         />
         {/* Subtle grid dots */}
@@ -134,20 +136,20 @@ export default function ProfileHero({
         />
 
         {/* Label top-corner */}
-        <div
-          className={`absolute top-4 ${isRTL ? 'left-4' : 'right-4'} flex items-center gap-1.5`}
-        >
-          <span
-            className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full"
-            style={{
-              background: `${roleColor}22`,
-              color:      roleColor,
-              border:     `1px solid ${roleColor}44`,
-              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-            }}
-          >
-            {displayRole}
-          </span>
+        <div className={`absolute top-4 ${isRTL ? 'left-4' : 'right-4'} flex items-center gap-1.5`}>
+          {displayRole && (
+            <span
+              className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full"
+              style={{
+                background: `${accent}22`,
+                color:      accent,
+                border:     `1px solid ${accent}44`,
+                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+              }}
+            >
+              {displayRole}
+            </span>
+          )}
           {isAdmin && (
             <span
               className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full"
@@ -171,23 +173,20 @@ export default function ProfileHero({
         {/* Avatar — overlaps the banner */}
         <div className="relative -mt-12 mb-4" style={{ width: 'fit-content' }}>
           <div
-            className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden cursor-pointer group"
+            className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden group"
             style={{
               border:     `3px solid ${bg}`,
               boxShadow:  `0 4px 20px rgba(0,0,0,0.25)`,
-              background: roleColor,
+              background: accent,
+              cursor:     canUpload ? 'pointer' : 'default',
             }}
             onMouseEnter={() => setHovering(true)}
             onMouseLeave={() => setHovering(false)}
             onClick={triggerUpload}
           >
-            {/* Avatar image or initials */}
             {avatarSrc ? (
-              <img
-                src={avatarSrc}
-                alt={name}
-                className="w-full h-full object-cover"
-              />
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatarSrc} alt={name} className="w-full h-full object-cover" />
             ) : (
               <div
                 className="w-full h-full flex items-center justify-center text-white font-black text-2xl"
@@ -197,9 +196,25 @@ export default function ProfileHero({
               </div>
             )}
 
+            {/* Uploading overlay — أولوية على الهوفر */}
+            {uploading && (
+              <div
+                className="absolute inset-0 flex flex-col items-center justify-center gap-1"
+                style={{ background: 'rgba(0,0,0,0.6)' }}
+              >
+                <Loader2 className="w-5 h-5 text-white animate-spin" />
+                <span
+                  className="text-[8px] font-bold text-white"
+                  style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                >
+                  {tx.uploading}
+                </span>
+              </div>
+            )}
+
             {/* Hover overlay */}
             <AnimatePresence>
-              {hovering && (
+              {hovering && !uploading && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -208,7 +223,7 @@ export default function ProfileHero({
                   className="absolute inset-0 flex flex-col items-center justify-center gap-1"
                   style={{ background: 'rgba(0,0,0,0.55)' }}
                 >
-                  {canEditAvatar ? (
+                  {canUpload ? (
                     <>
                       <Camera className="w-5 h-5 text-white" />
                       <span
@@ -234,11 +249,11 @@ export default function ProfileHero({
             </AnimatePresence>
           </div>
 
-          {/* Hidden file input */}
+          {/* Hidden file input — الأنواع مطابقة لحدود الـ bucket */}
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
             className="hidden"
             onChange={handleFileChange}
           />
@@ -259,41 +274,26 @@ export default function ProfileHero({
             </h1>
           </motion.div>
 
-          {/* Member color block — replaces the duplicate role text */}
+          {/* Member color block */}
           <motion.div
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
             className="flex items-center gap-2"
           >
-            {memberColor ? (
-              <>
-                <div
-                  className="w-5 h-5 rounded-md shrink-0"
-                  style={{
-                    background: memberColor,
-                    boxShadow:  `0 0 0 3px ${memberColor}30, 0 2px 8px ${memberColor}60`,
-                  }}
-                />
-                <span
-                  className="text-xs font-bold"
-                  style={{ color: memberColor, fontFamily: 'monospace' }}
-                >
-                  {memberColor.toUpperCase()}
-                </span>
-              </>
-            ) : (
-              /* fallback — show role if no color assigned yet */
-              <span
-                className="text-xs font-bold uppercase tracking-widest"
-                style={{
-                  color:      roleColor,
-                  fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                }}
-              >
-                {displayRole}
-              </span>
-            )}
+            <div
+              className="w-5 h-5 rounded-md shrink-0"
+              style={{
+                background: accent,
+                boxShadow:  `0 0 0 3px ${accent}30, 0 2px 8px ${accent}60`,
+              }}
+            />
+            <span
+              className="text-xs font-bold"
+              style={{ color: accent, fontFamily: 'monospace' }}
+            >
+              {accent.toUpperCase()}
+            </span>
           </motion.div>
 
           {/* Join date */}
@@ -303,16 +303,10 @@ export default function ProfileHero({
             transition={{ duration: 0.35, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
             className="flex items-center gap-1.5 mt-1"
           >
-            <Calendar
-              className="w-3 h-3 shrink-0"
-              style={{ color: textMuted }}
-            />
+            <Calendar className="w-3 h-3 shrink-0" style={{ color: textMuted }} />
             <span
               className="text-xs"
-              style={{
-                color:      textMuted,
-                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-              }}
+              style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
             >
               {tx.memberSince} {formatJoinDate(joinedDate, lang)}
             </span>

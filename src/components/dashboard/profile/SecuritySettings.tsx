@@ -1,42 +1,63 @@
+//src\components\dashboard\profile\SecuritySettings.tsx
+
 "use client"
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Eye, EyeOff, Check, X, Clock, AlertCircle } from 'lucide-react';
+import { Shield, Eye, EyeOff, Check, X, Clock, AlertCircle, Loader2, CalendarClock } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang }  from '@/context/LangContext';
 
 /* ─── Types ─── */
-type PasswordStatus = 'idle' | 'editing' | 'success' | 'error';
+type PasswordStatus = 'idle' | 'editing' | 'saving' | 'success';
+
+export interface PasswordCooldown {
+  lastChangedAt: string | null;
+  nextAllowedAt: string | null;
+  canChange:     boolean;
+}
 
 interface SecuritySettingsProps {
-  lastLoginAt: string; // ISO string e.g. "2026-06-22T07:06:00Z"
+  /** من `auth.users.last_sign_in_at` — بيحتاج service_role فبيجي من السيرفر */
+  lastLoginAt: string | null;
+  cooldown:    PasswordCooldown;
+  onChangePassword: (current: string, next: string) => Promise<void>;
 }
 
 /* ─── Helpers ─── */
-function formatLastLogin(iso: string, lang: string): string {
-  const date = new Date(iso);
-  return date.toLocaleString(
+function formatDateTime(iso: string, lang: string): string {
+  return new Date(iso).toLocaleString(
     lang === 'ar' ? 'ar-SA' : 'en-US',
     { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }
   );
 }
 
+function formatDate(iso: string, lang: string): string {
+  return new Date(iso).toLocaleDateString(
+    lang === 'ar' ? 'ar-SA' : 'en-US',
+    { year: 'numeric', month: 'long', day: 'numeric' }
+  );
+}
+
 function getPasswordStrength(password: string): { score: number; label: string; labelAr: string; color: string } {
-  if (password.length === 0) return { score: 0, label: '',        labelAr: '',           color: 'transparent' };
-  if (password.length < 6)   return { score: 1, label: 'Weak',   labelAr: 'ضعيف',       color: '#ef4444' };
-  if (password.length < 10)  return { score: 2, label: 'Fair',   labelAr: 'مقبول',      color: '#f59e0b' };
+  if (password.length === 0) return { score: 0, label: '',       labelAr: '',      color: 'transparent' };
+  if (password.length < 8)   return { score: 1, label: 'Weak',   labelAr: 'ضعيف',  color: '#ef4444' };
+  if (password.length < 10)  return { score: 2, label: 'Fair',   labelAr: 'مقبول', color: '#f59e0b' };
   const hasUpper  = /[A-Z]/.test(password);
   const hasNum    = /[0-9]/.test(password);
   const hasSymbol = /[^A-Za-z0-9]/.test(password);
   const extras    = [hasUpper, hasNum, hasSymbol].filter(Boolean).length;
-  if (extras >= 2) return { score: 4, label: 'Strong', labelAr: 'قوي',        color: '#10b981' };
-  if (extras === 1) return { score: 3, label: 'Good',  labelAr: 'جيد',        color: '#458482' };
-  return               { score: 2, label: 'Fair',      labelAr: 'مقبول',      color: '#f59e0b' };
+  if (extras >= 2)  return { score: 4, label: 'Strong', labelAr: 'قوي',   color: '#10b981' };
+  if (extras === 1) return { score: 3, label: 'Good',   labelAr: 'جيد',   color: '#458482' };
+  return              { score: 2, label: 'Fair',   labelAr: 'مقبول', color: '#f59e0b' };
 }
 
 /* ══════════════════════════════════════════════ */
-export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps) {
+export default function SecuritySettings({
+  lastLoginAt,
+  cooldown,
+  onChangePassword,
+}: SecuritySettingsProps) {
   const { theme }       = useTheme();
   const { lang, isRTL } = useLang();
   const isDark = theme === 'dark';
@@ -70,36 +91,60 @@ export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps)
     newPass:        lang === 'ar' ? 'كلمة المرور الجديدة'         : 'New password',
     confirmPass:    lang === 'ar' ? 'تأكيد كلمة المرور'           : 'Confirm new password',
     updatePass:     lang === 'ar' ? 'تحديث كلمة المرور'           : 'Update password',
-    cancel:         lang === 'ar' ? 'إلغاء'                       : 'Cancel',
     changePass:     lang === 'ar' ? 'تغيير كلمة المرور'           : 'Change password',
     lastLogin:      lang === 'ar' ? 'آخر تسجيل دخول'              : 'Last sign-in',
+    never:          lang === 'ar' ? 'لا يوجد'                     : 'Never',
     strength:       lang === 'ar' ? 'قوة كلمة المرور'             : 'Password strength',
     successMsg:     lang === 'ar' ? 'تم تحديث كلمة المرور بنجاح'  : 'Password updated successfully',
+    signedOutNote:  lang === 'ar' ? 'تم تسجيل الخروج من باقي الأجهزة' : 'You were signed out of other devices',
     errMismatch:    lang === 'ar' ? 'كلمتا المرور غير متطابقتين'  : 'Passwords do not match',
     errOldRequired: lang === 'ar' ? 'أدخل كلمة المرور الحالية'    : 'Enter your current password',
     errNewRequired: lang === 'ar' ? 'أدخل كلمة المرور الجديدة'    : 'Enter a new password',
-    errTooShort:    lang === 'ar' ? 'كلمة المرور قصيرة جداً (6 أحرف على الأقل)' : 'Password too short (min 6 characters)',
+    errTooShort:    lang === 'ar' ? 'كلمة المرور قصيرة جداً (8 أحرف على الأقل)' : 'Password too short (min 8 characters)',
+    errWrongOld:    lang === 'ar' ? 'كلمة المرور الحالية غير صحيحة' : 'Current password is incorrect',
+    errSame:        lang === 'ar' ? 'كلمة المرور الجديدة مطابقة للحالية' : 'New password matches the current one',
+    errGeneric:     lang === 'ar' ? 'فشل التحديث، حاول مرة أخرى'  : 'Update failed, please try again',
+    cooldownTitle:  lang === 'ar' ? 'لا يمكن التغيير الآن'        : 'Can’t change yet',
+    lastChanged:    lang === 'ar' ? 'آخر تغيير'                   : 'Last changed',
+    nextAllowed:    lang === 'ar' ? 'أقرب موعد للتغيير'           : 'Next change allowed',
+    forgotNote:     lang === 'ar'
+      ? 'نسيت كلمة المرور؟ استعادتها متاحة دائماً بدون قيد زمني.'
+      : 'Forgot it? Password recovery is always available with no waiting period.',
   };
 
+  function messageFor(code: string): string {
+    if (code === 'wrong_current_password') return tx.errWrongOld;
+    if (code === 'password_too_short')     return tx.errTooShort;
+    if (code === 'password_unchanged')     return tx.errSame;
+    if (code === 'password_cooldown')      return tx.cooldownTitle;
+    return tx.errGeneric;
+  }
+
   const strength = getPasswordStrength(newPassword);
-  const isEditing = status === 'editing';
+  const isEditing = status === 'editing' || status === 'saving';
+  const isSaving  = status === 'saving';
 
   /* ── validation + submit ── */
-  const handleSubmit = () => {
-    if (!oldPassword)                         return setErrorMsg(tx.errOldRequired);
-    if (!newPassword)                         return setErrorMsg(tx.errNewRequired);
-    if (newPassword.length < 6)               return setErrorMsg(tx.errTooShort);
-    if (newPassword !== confirmPass)          return setErrorMsg(tx.errMismatch);
+  const handleSubmit = async () => {
+    if (!oldPassword)                return setErrorMsg(tx.errOldRequired);
+    if (!newPassword)                return setErrorMsg(tx.errNewRequired);
+    if (newPassword.length < 8)      return setErrorMsg(tx.errTooShort);
+    if (newPassword !== confirmPass) return setErrorMsg(tx.errMismatch);
 
     setErrorMsg('');
-    // TODO: call API — replace with real request
-    setStatus('success');
-    setTimeout(() => {
-      setStatus('idle');
+    setStatus('saving');
+
+    try {
+      await onChangePassword(oldPassword, newPassword);
+      setStatus('success');
       setOldPassword('');
       setNewPassword('');
       setConfirmPass('');
-    }, 2500);
+      setTimeout(() => setStatus('idle'), 3500);
+    } catch (e) {
+      setErrorMsg(messageFor((e as Error).message));
+      setStatus('editing');
+    }
   };
 
   const handleCancel = () => {
@@ -162,19 +207,54 @@ export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps)
               className="text-xs font-medium"
               style={{ color: textMain, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
             >
-              {formatLastLogin(lastLoginAt, lang)}
+              {lastLoginAt ? formatDateTime(lastLoginAt, lang) : tx.never}
             </p>
           </div>
         </div>
 
-        {/* divider */}
         <div style={{ height: '1px', background: divider }} />
 
         {/* ── Password section ── */}
         <AnimatePresence mode="wait">
 
-          {/* ── Idle state: just a button ── */}
-          {status === 'idle' && (
+          {/* ── Cooldown: التغيير ممنوع مؤقتًا ── */}
+          {status === 'idle' && !cooldown.canChange && (
+            <motion.div
+              key="cooldown"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col gap-2 px-4 py-3 rounded-xl"
+              style={{ background: '#f59e0b12', border: '1px solid #f59e0b30' }}
+            >
+              <div className="flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 shrink-0" style={{ color: '#f59e0b' }} />
+                <span
+                  className="text-[12px] font-bold"
+                  style={{ color: '#f59e0b', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                >
+                  {tx.cooldownTitle}
+                </span>
+              </div>
+              {cooldown.lastChangedAt && (
+                <p className="text-[11px]" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                  {tx.lastChanged}: {formatDate(cooldown.lastChangedAt, lang)}
+                </p>
+              )}
+              {cooldown.nextAllowedAt && (
+                <p className="text-[11px] font-semibold" style={{ color: textMain, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                  {tx.nextAllowed}: {formatDate(cooldown.nextAllowedAt, lang)}
+                </p>
+              )}
+              {/* القيد الأسبوعي على التغيير الطوعي فقط — الاستعادة متاحة دايمًا */}
+              <p className="text-[10px] leading-relaxed" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                {tx.forgotNote}
+              </p>
+            </motion.div>
+          )}
+
+          {/* ── Idle: زر البدء ── */}
+          {status === 'idle' && cooldown.canChange && (
             <motion.div
               key="idle"
               initial={{ opacity: 0 }}
@@ -202,7 +282,7 @@ export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps)
             </motion.div>
           )}
 
-          {/* ── Success state ── */}
+          {/* ── Success ── */}
           {status === 'success' && (
             <motion.div
               key="success"
@@ -219,17 +299,19 @@ export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps)
               >
                 <Check className="w-3.5 h-3.5 text-white" />
               </div>
-              <span
-                className="text-sm font-bold"
-                style={{ color: '#10b981', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-              >
-                {tx.successMsg}
-              </span>
+              <div>
+                <p className="text-sm font-bold" style={{ color: '#10b981', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                  {tx.successMsg}
+                </p>
+                <p className="text-[10px] mt-0.5" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                  {tx.signedOutNote}
+                </p>
+              </div>
             </motion.div>
           )}
 
-          {/* ── Editing state ── */}
-          {status === 'editing' && (
+          {/* ── Editing ── */}
+          {isEditing && (
             <motion.div
               key="editing"
               initial={{ opacity: 0, y: -6 }}
@@ -238,39 +320,22 @@ export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps)
               transition={{ duration: 0.22 }}
               className="flex flex-col gap-4"
             >
-
-              {/* Old password */}
               <PasswordInput
-                label={tx.oldPass}
-                value={oldPassword}
-                show={showOld}
-                onToggleShow={() => setShowOld(v => !v)}
-                onChange={setOldPassword}
-                lang={lang}
-                isRTL={isRTL}
-                isDark={isDark}
-                textMain={textMain}
-                textMuted={textMuted}
-                inputBg={inputBg}
-                inputBorder={inputBorder}
-                accentColor={accentColor}
+                label={tx.oldPass} value={oldPassword} show={showOld}
+                onToggleShow={() => setShowOld(v => !v)} onChange={setOldPassword}
+                disabled={isSaving}
+                lang={lang} isRTL={isRTL} isDark={isDark}
+                textMain={textMain} textMuted={textMuted}
+                inputBg={inputBg} inputBorder={inputBorder} accentColor={accentColor}
               />
 
-              {/* New password */}
               <PasswordInput
-                label={tx.newPass}
-                value={newPassword}
-                show={showNew}
-                onToggleShow={() => setShowNew(v => !v)}
-                onChange={setNewPassword}
-                lang={lang}
-                isRTL={isRTL}
-                isDark={isDark}
-                textMain={textMain}
-                textMuted={textMuted}
-                inputBg={inputBg}
-                inputBorder={inputBorder}
-                accentColor={accentColor}
+                label={tx.newPass} value={newPassword} show={showNew}
+                onToggleShow={() => setShowNew(v => !v)} onChange={setNewPassword}
+                disabled={isSaving}
+                lang={lang} isRTL={isRTL} isDark={isDark}
+                textMain={textMain} textMuted={textMuted}
+                inputBg={inputBg} inputBorder={inputBorder} accentColor={accentColor}
               />
 
               {/* Strength meter */}
@@ -308,25 +373,16 @@ export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps)
                 </motion.div>
               )}
 
-              {/* Confirm password */}
               <PasswordInput
-                label={tx.confirmPass}
-                value={confirmPass}
-                show={showConfirm}
-                onToggleShow={() => setShowConfirm(v => !v)}
-                onChange={setConfirmPass}
-                lang={lang}
-                isRTL={isRTL}
-                isDark={isDark}
-                textMain={textMain}
-                textMuted={textMuted}
-                inputBg={inputBg}
-                inputBorder={inputBorder}
-                accentColor={accentColor}
+                label={tx.confirmPass} value={confirmPass} show={showConfirm}
+                onToggleShow={() => setShowConfirm(v => !v)} onChange={setConfirmPass}
+                disabled={isSaving}
+                lang={lang} isRTL={isRTL} isDark={isDark}
+                textMain={textMain} textMuted={textMuted}
+                inputBg={inputBg} inputBorder={inputBorder} accentColor={accentColor}
                 hasMatch={confirmPass.length > 0 ? confirmPass === newPassword : undefined}
               />
 
-              {/* Error message */}
               <AnimatePresence>
                 {errorMsg && (
                   <motion.div
@@ -347,39 +403,35 @@ export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps)
                 )}
               </AnimatePresence>
 
-              {/* Actions */}
               <div className="flex items-center gap-2 pt-1" style={{ flexDirection: 'row' }}>
                 <button
                   onClick={handleSubmit}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all duration-150 cursor-pointer"
+                  disabled={isSaving}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all duration-150 cursor-pointer disabled:cursor-not-allowed"
                   style={{
                     background: accentColor,
                     color: '#ffffff',
+                    opacity: isSaving ? 0.7 : 1,
                     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#3a7270'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = accentColor; }}
                 >
-                  <Check className="w-4 h-4" />
+                  {isSaving
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Check className="w-4 h-4" />}
                   {tx.updatePass}
                 </button>
                 <button
                   onClick={handleCancel}
+                  disabled={isSaving}
                   className="w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer shrink-0"
                   style={{
                     background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
                     color: textMuted,
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#ef444422'; e.currentTarget.style.color = '#ef4444'; }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
-                    e.currentTarget.style.color = textMuted;
-                  }}
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-
             </motion.div>
           )}
 
@@ -393,24 +445,25 @@ export default function SecuritySettings({ lastLoginAt }: SecuritySettingsProps)
    Sub-component: PasswordInput
    ══════════════════════════════════════════════ */
 interface PasswordInputProps {
-  label:         string;
-  value:         string;
-  show:          boolean;
-  onToggleShow:  () => void;
-  onChange:      (v: string) => void;
-  lang:          string;
-  isRTL:         boolean;
-  isDark:        boolean;
-  textMain:      string;
-  textMuted:     string;
-  inputBg:       string;
-  inputBorder:   string;
-  accentColor:   string;
-  hasMatch?:     boolean; // undefined = not checked yet
+  label:        string;
+  value:        string;
+  show:         boolean;
+  onToggleShow: () => void;
+  onChange:     (v: string) => void;
+  disabled?:    boolean;
+  lang:         string;
+  isRTL:        boolean;
+  isDark:       boolean;
+  textMain:     string;
+  textMuted:    string;
+  inputBg:      string;
+  inputBorder:  string;
+  accentColor:  string;
+  hasMatch?:    boolean; // undefined = not checked yet
 }
 
 function PasswordInput({
-  label, value, show, onToggleShow, onChange,
+  label, value, show, onToggleShow, onChange, disabled = false,
   lang, isRTL, isDark,
   textMain, textMuted, inputBg, inputBorder, accentColor,
   hasMatch,
@@ -441,19 +494,21 @@ function PasswordInput({
         <input
           type={show ? 'text' : 'password'}
           value={value}
+          disabled={disabled}
           onChange={e => onChange(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           className="w-full px-3 py-2.5 rounded-xl text-sm font-medium outline-none transition-all duration-150"
           style={{
-            background:                inputBg,
-            border:                    `1px solid ${borderColor}`,
-            color:                     textMain,
-            fontFamily:                'inherit',
-            direction:                 'ltr',
-            paddingRight:              isRTL ? '12px' : '40px',
-            paddingLeft:               isRTL ? '40px' : '12px',
-            boxShadow:                 shadow,
+            background:   inputBg,
+            border:       `1px solid ${borderColor}`,
+            color:        textMain,
+            fontFamily:   'inherit',
+            direction:    'ltr',
+            paddingRight: isRTL ? '12px' : '40px',
+            paddingLeft:  isRTL ? '40px' : '12px',
+            boxShadow:    shadow,
+            opacity:      disabled ? 0.6 : 1,
           }}
         />
         <button
@@ -468,10 +523,7 @@ function PasswordInput({
           onMouseEnter={e => { e.currentTarget.style.color = textMain; }}
           onMouseLeave={e => { e.currentTarget.style.color = textMuted; }}
         >
-          {show
-            ? <EyeOff className="w-3.5 h-3.5" />
-            : <Eye    className="w-3.5 h-3.5" />
-          }
+          {show ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
         </button>
 
         {/* Match indicator */}
@@ -482,8 +534,7 @@ function PasswordInput({
           >
             {hasMatch
               ? <Check className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
-              : <X     className="w-3.5 h-3.5" style={{ color: '#ef4444' }} />
-            }
+              : <X     className="w-3.5 h-3.5" style={{ color: '#ef4444' }} />}
           </div>
         )}
       </div>

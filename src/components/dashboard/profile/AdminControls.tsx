@@ -1,93 +1,58 @@
+//src\components\dashboard\profile\AdminControls.tsx
 "use client"
 
-import React, { useState, useMemo } from 'react'
+import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Shield, Camera, User, Lock, Unlock, ChevronDown,
-  Check, X, AlertTriangle, Trash2, Clock, Mail, Pipette, Palette,
+  Shield, Camera, Lock, ChevronRight,
+  Check, X, AlertTriangle, Trash2, Mail, Pipette, Palette, Briefcase, Loader2,
 } from 'lucide-react'
+import Link from 'next/link'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang }  from '@/context/LangContext'
+import ImageColorPicker from './ImageColorPicker'
 
-
-  declare global {
-    interface Window {
-      EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> }
-    }
+declare global {
+  interface Window {
+    EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> }
   }
+}
 
 /* ══════════════════════════════════════════════
    Types
    ══════════════════════════════════════════════ */
-export type MemberRole =
-  | 'animator-pro'
-  | 'lead-animator'
-  | '3d-modeler'
-  | 'vfx-artist'
-  | 'concept-artist'
-  | 'supervisor'
-  | 'admin'
-
-export interface AdminPermissions {
-  canAddPlatform:    boolean
-  canManageMembers:  boolean
-  canPublishNews:    boolean
-  canManageArchive:  boolean
-}
-
 export interface MemberRestrictions {
   avatarLocked: boolean
   nameLocked:   boolean
 }
 
-export type BanDuration = '1d' | '3d' | '7d' | '30d' | 'custom'
-
-interface PendingEmailChange {
+export interface PendingEmailChange {
   newEmail:    string
   requestedAt: string // ISO
+  stage:       'pending_admin' | 'pending_email_verification'
 }
 
 interface AdminControlsProps {
-  memberId:           number
-  memberName:         string
-  currentRole:        MemberRole
-  memberColor?:       string
-  permissions:        AdminPermissions
-  restrictions:       MemberRestrictions
-  isBanned?:          boolean
-  banExpiresAt?:      string
-  pendingEmail?:      PendingEmailChange
-  onRoleChange:       (role: MemberRole)            => void
-  onColorChange:      (color: string)               => void
-  onPermissionToggle: (key: keyof AdminPermissions)  => void
-  onRestrictionToggle:(key: keyof MemberRestrictions)=> void
-  onApproveEmail:     ()                            => void
-  onRejectEmail:      ()                            => void
-  onBan:              (duration: BanDuration, customDays?: number, reason?: string) => void
-  onUnban:            ()                            => void
-  onDelete:           ()                            => void
+  memberId:     string
+  memberName:   string
+  memberColor:  string
+  jobTitleEn:   string
+  jobTitleAr:   string
+  restrictions: MemberRestrictions
+  pendingEmail?: PendingEmailChange | null
+  /** الدور والصلاحيات والإيقاف كلهم بـ Admin Control — هذا رابط لهناك */
+  canEditIdentity: boolean
+  /** بروفايلك أنت: الهوية بس، بدون أقفال ولا حذف ولا رابط الأدوار */
+  isSelf?: boolean
+  /** لالتقاط لون من صورة العضو مباشرة */
+  avatarUrl?: string | null
+  onColorChange:       (color: string) => Promise<void>
+  onJobTitleChange:    (en: string, ar: string) => Promise<void>
+  onRestrictionToggle: (key: keyof MemberRestrictions, value: boolean) => Promise<void>
+  onApproveEmail:      () => Promise<void>
+  onRejectEmail:       () => Promise<void>
+  onDelete:            () => Promise<void>
 }
-
-/* ══════════════════════════════════════════════
-   Constants
-   ══════════════════════════════════════════════ */
-const ROLES: { value: MemberRole; labelEn: string; labelAr: string; color: string }[] = [
-  { value: 'animator-pro',   labelEn: 'Animator Pro',   labelAr: 'محرك محترف',      color: '#458482' },
-  { value: 'lead-animator',  labelEn: 'Lead Animator',  labelAr: 'محرك رئيسي',      color: '#a855f7' },
-  { value: '3d-modeler',     labelEn: '3D Modeler',     labelAr: 'مصمم ثلاثي',      color: '#f59e0b' },
-  { value: 'vfx-artist',     labelEn: 'VFX Artist',     labelAr: 'فنان مؤثرات',     color: '#ef4444' },
-  { value: 'concept-artist', labelEn: 'Concept Artist', labelAr: 'فنان مفاهيمي',    color: '#3b82f6' },
-  { value: 'supervisor',     labelEn: 'Supervisor',     labelAr: 'مشرف',            color: '#10b981' },
-  { value: 'admin',          labelEn: 'Admin',          labelAr: 'مشرف عام',        color: '#f97316' },
-]
-
-const BAN_OPTIONS: { value: BanDuration; labelEn: string; labelAr: string }[] = [
-  { value: '1d',     labelEn: '1 Day',    labelAr: 'يوم واحد'   },
-  { value: '3d',     labelEn: '3 Days',   labelAr: '3 أيام'     },
-  { value: '7d',     labelEn: '7 Days',   labelAr: 'أسبوع'      },
-  { value: '30d',    labelEn: '30 Days',  labelAr: 'شهر'        },
-  { value: 'custom', labelEn: 'Custom…',  labelAr: 'مخصص…'      },
-]
 
 /* ══════════════════════════════════════════════
    Small helpers
@@ -106,7 +71,7 @@ function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }
 }
 
 function ToggleRow({
-  label, sublabel, checked, onChange, accentColor = '#458482', isDark,
+  label, sublabel, checked, onChange, accentColor = '#458482', isDark, busy,
 }: {
   label:        string
   sublabel?:    string
@@ -114,6 +79,7 @@ function ToggleRow({
   onChange:     () => void
   accentColor?: string
   isDark:       boolean
+  busy?:        boolean
 }) {
   return (
     <div
@@ -121,8 +87,9 @@ function ToggleRow({
       style={{
         background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.025)',
         border:     `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+        opacity:    busy ? 0.6 : 1,
       }}
-      onClick={onChange}
+      onClick={() => { if (!busy) onChange() }}
     >
       <div>
         <p className="text-[12px] font-semibold" style={{ color: 'var(--foreground)' }}>{label}</p>
@@ -130,7 +97,6 @@ function ToggleRow({
           <p className="text-[10px] mt-0.5" style={{ color: 'var(--foreground-muted)' }}>{sublabel}</p>
         )}
       </div>
-      {/* Toggle pill */}
       <div
         className="relative shrink-0 rounded-full transition-all duration-200"
         style={{
@@ -156,21 +122,19 @@ function ToggleRow({
 export default function AdminControls({
   memberId,
   memberName,
-  currentRole,
   memberColor,
-  permissions,
+  jobTitleEn,
+  jobTitleAr,
   restrictions,
-  isBanned       = false,
-  banExpiresAt,
-  pendingEmail,
-  onRoleChange,
+  pendingEmail = null,
+  canEditIdentity,
+  isSelf = false,
+  avatarUrl = null,
   onColorChange,
-  onPermissionToggle,
+  onJobTitleChange,
   onRestrictionToggle,
   onApproveEmail,
   onRejectEmail,
-  onBan,
-  onUnban,
   onDelete,
 }: AdminControlsProps) {
   const { theme }       = useTheme()
@@ -182,27 +146,35 @@ export default function AdminControls({
   const border    = isDark ? 'var(--card-border)'    : 'rgba(0,0,0,0.07)'
   const headerBg  = isDark ? 'var(--background-alt)' : '#f5f5ef'
   const divider   = isDark ? 'var(--divider)'        : 'rgba(0,0,0,0.06)'
+  const inputBg   = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'
+  const inputBorder = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.10)'
 
   /* ── local UI state ── */
-  const [roleOpen,      setRoleOpen]      = useState(false)
-  const [banOpen,       setBanOpen]       = useState(false)
-  const [banDuration,   setBanDuration]   = useState<BanDuration>('7d')
-  const [customDays,    setCustomDays]    = useState(14)
-  const [banReason,     setBanReason]     = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
-  const [colorVal,      setColorVal]      = useState(memberColor ?? '#458482')
+  const [countdown,     setCountdown]     = useState(10)
+  const [colorVal,      setColorVal]      = useState(memberColor)
+  const [titleEn,       setTitleEn]       = useState(jobTitleEn)
+  const [titleAr,       setTitleAr]       = useState(jobTitleAr)
+  const [savingTitle,   setSavingTitle]   = useState(false)
+  const [titleSaved,    setTitleSaved]    = useState(false)
+  const [busyLock,      setBusyLock]      = useState<keyof MemberRestrictions | null>(null)
+  const [busyEmail,     setBusyEmail]     = useState(false)
   const [eyedropperSupported, setEyedropperSupported] = useState(false)
 
   React.useEffect(() => {
-  setEyedropperSupported(typeof window !== 'undefined' && !!window.EyeDropper)
-}, [])
+    setEyedropperSupported(typeof window !== 'undefined' && !!window.EyeDropper)
+  }, [])
 
-  const selectedRole = useMemo(
-    () => ROLES.find(r => r.value === currentRole) ?? ROLES[0],
-    [currentRole]
-  )
-
-  /* ── EyeDropper type ── */
+  /*
+    المواصفات: زر الحذف معطّل 10 ثواني مع عد تنازلي — الحذف بيمس تاريخ
+    شغل كامل، فالتأخير المتعمّد بيمنع الضغطة الانعكاسية.
+  */
+  React.useEffect(() => {
+    if (!deleteConfirm) { setCountdown(10); return }
+    if (countdown === 0) return
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [deleteConfirm, countdown])
 
   const handleEyeDropper = async () => {
     if (!window.EyeDropper) return
@@ -210,7 +182,7 @@ export default function AdminControls({
       const dropper = new window.EyeDropper()
       const result  = await dropper.open()
       setColorVal(result.sRGBHex)
-      onColorChange(result.sRGBHex)
+      void onColorChange(result.sRGBHex)
     } catch { /* user cancelled */ }
   }
 
@@ -218,65 +190,87 @@ export default function AdminControls({
     const v = e.target.value
     if (/^#[0-9A-Fa-f]{0,6}$/.test(v)) {
       setColorVal(v)
-      if (v.length === 7) onColorChange(v)
+      if (v.length === 7) void onColorChange(v)
     }
+  }
+
+  const handleSaveTitle = async () => {
+    setSavingTitle(true)
+    try {
+      await onJobTitleChange(titleEn, titleAr)
+      setTitleSaved(true)
+      setTimeout(() => setTitleSaved(false), 2000)
+    } finally {
+      setSavingTitle(false)
+    }
+  }
+
+  const handleToggleLock = async (key: keyof MemberRestrictions) => {
+    setBusyLock(key)
+    try {
+      await onRestrictionToggle(key, !restrictions[key])
+    } finally {
+      setBusyLock(null)
+    }
+  }
+
+  const handleEmailAction = async (action: () => Promise<void>) => {
+    setBusyEmail(true)
+    try { await action() } finally { setBusyEmail(false) }
   }
 
   /* ── translations ── */
   const tx = {
     title:            lang === 'ar' ? 'صلاحيات الأدمن'            : 'Admin Controls',
-    subtitle:         lang === 'ar' ? 'إدارة العضو وصلاحياته'     : 'Manage member & permissions',
-    sectionRole:      lang === 'ar' ? 'الدور'                     : 'Role',
+    subtitle:         isSelf
+      ? (lang === 'ar' ? 'لونك ومسمّاك الوظيفي' : 'Your color & job title')
+      : (lang === 'ar' ? 'إدارة هوية العضو'      : 'Manage member identity'),
+    sectionTitle:     lang === 'ar' ? 'المسمّى الوظيفي'           : 'Job Title',
     sectionColor:     lang === 'ar' ? 'اللون الشخصي'              : 'Member Color',
-    sectionPerms:     lang === 'ar' ? 'الصلاحيات'                 : 'Permissions',
     sectionProfile:   lang === 'ar' ? 'قيود البروفايل'            : 'Profile Restrictions',
     sectionEmail:     lang === 'ar' ? 'طلب تغيير الإيميل'         : 'Email Change Request',
     sectionDanger:    lang === 'ar' ? 'منطقة الخطر'               : 'Danger Zone',
-    roleLabel:        lang === 'ar' ? 'الرول الحالي'              : 'Current Role',
-    colorHex:         lang === 'ar' ? 'كود اللون'                  : 'Hex color',
+    titleEn:          lang === 'ar' ? 'بالإنجليزية'               : 'English',
+    titleAr:          lang === 'ar' ? 'بالعربية'                  : 'Arabic',
+    titleNote:        lang === 'ar'
+      ? 'الاثنان اختياريان — لو تُرك أحدهما فارغاً يُعرض الآخر بدلاً منه'
+      : 'Both optional — if one is empty the other is shown instead',
+    save:             lang === 'ar' ? 'حفظ'                       : 'Save',
+    saved:            lang === 'ar' ? 'تم الحفظ'                  : 'Saved',
+    identityLocked:   lang === 'ar'
+      ? 'اللون والمسمّى الوظيفي يحددهما الـ Chief أو الـ Developer فقط'
+      : 'Color and job title can only be set by the Chief or Developer',
     eyedropper:       lang === 'ar' ? 'قطارة اللون'               : 'Eyedropper',
     eyedropperNo:     lang === 'ar' ? 'غير مدعوم في هذا المتصفح'  : 'Not supported in this browser',
-    eyedropperNote:   lang === 'ar' ? '⚠️ القطارة تعمل فقط في Chrome وEdge' : '⚠️ Eyedropper only works in Chrome & Edge',
-    permAddPlatform:  lang === 'ar' ? 'إضافة منصة'               : 'Add Platform',
-    permManageMembers:lang === 'ar' ? 'إدارة الأعضاء'             : 'Manage Members',
-    permPublishNews:  lang === 'ar' ? 'نشر أخبار'                 : 'Publish News',
-    permManageArchive:lang === 'ar' ? 'إدارة الأرشيف'             : 'Manage Archive',
+    eyedropperNote:   lang === 'ar'
+      ? '⚠️ القطارة تلتقط من أي مكان بالشاشة، وتعمل في Chrome وEdge فقط. لالتقاط لون من صورة العضو استخدم المربّع على اليمين.'
+      : '⚠️ The eyedropper samples anywhere on screen (Chrome & Edge only). To sample from the member photo, use the thumbnail.',
     lockAvatar:       lang === 'ar' ? 'قفل الصورة الشخصية'        : 'Lock Profile Photo',
     lockAvatarSub:    lang === 'ar' ? 'يمنع العضو من تغيير صورته' : 'Prevents member from changing their photo',
     lockName:         lang === 'ar' ? 'قفل الاسم'                 : 'Lock Name',
     lockNameSub:      lang === 'ar' ? 'يمنع العضو من تغيير اسمه'  : 'Prevents member from editing their name',
     pendingNew:       lang === 'ar' ? 'الإيميل الجديد المطلوب'    : 'Requested new email',
     requestedAt:      lang === 'ar' ? 'طُلب في'                   : 'Requested at',
+    awaitingVerify:   lang === 'ar'
+      ? 'تمت الموافقة — بانتظار تأكيد العضو من الإيميل الجديد'
+      : 'Approved — awaiting confirmation from the new inbox',
     approve:          lang === 'ar' ? 'موافقة'                    : 'Approve',
     reject:           lang === 'ar' ? 'رفض'                       : 'Reject',
-    banTitle:         lang === 'ar' ? 'إيقاف مؤقت (باند)'         : 'Temporary Ban',
-    banActive:        lang === 'ar' ? 'الحساب موقوف حالياً'       : 'Account is currently banned',
-    banUntil:         lang === 'ar' ? 'حتى'                       : 'until',
-    unban:            lang === 'ar' ? 'رفع الإيقاف'               : 'Lift Ban',
-    banReason:        lang === 'ar' ? 'سبب الإيقاف (اختياري)'     : 'Reason (optional)',
-    customDays:       lang === 'ar' ? 'عدد الأيام'                : 'Number of days',
-    applyBan:         lang === 'ar' ? 'تطبيق الإيقاف'             : 'Apply Ban',
-    cancelBan:        lang === 'ar' ? 'إلغاء'                     : 'Cancel',
+    rolesElsewhere:   lang === 'ar' ? 'الدور والصلاحيات والإيقاف' : 'Role, permissions & suspension',
+    rolesElsewhereSub:lang === 'ar' ? 'تُدار من صفحة Admin Control' : 'Managed from Admin Control',
+    goToAdmin:        lang === 'ar' ? 'فتح'                       : 'Open',
     deleteTitle:      lang === 'ar' ? 'حذف الحساب'                : 'Delete Account',
     deleteSub:        lang === 'ar' ? 'هذا الإجراء لا يمكن التراجع عنه' : 'This action cannot be undone',
     deleteBtn:        lang === 'ar' ? 'حذف الحساب'                : 'Delete Account',
     deleteConfirmMsg: lang === 'ar'
-      ? `هل أنت متأكد من حذف حساب ${memberName}؟`
-      : `Are you sure you want to delete ${memberName}'s account?`,
+      ? `سيختفي حساب ${memberName} من كل الواجهات، وتبقى تاسكاته محفوظة في سجل المشاريع. الحذف النهائي بعد 90 يوماً.`
+      : `${memberName}'s account will disappear from every view, while their tasks stay in the project history. Permanent removal after 90 days.`,
     confirmDelete:    lang === 'ar' ? 'نعم، احذف'                 : 'Yes, delete',
+    waitSeconds:      lang === 'ar' ? 'انتظر'                     : 'Wait',
     cancelDelete:     lang === 'ar' ? 'إلغاء'                     : 'Cancel',
   }
 
-  const handleApplyBan = () => {
-    onBan(banDuration, banDuration === 'custom' ? customDays : undefined, banReason || undefined)
-    setBanOpen(false)
-    setBanReason('')
-  }
-
-  const formatBanExpiry = (iso: string) =>
-    new Date(iso).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US', {
-      year: 'numeric', month: 'long', day: 'numeric',
-    })
+  const arabicFont = lang === 'ar' ? 'var(--font-arabic)' : 'inherit'
 
   return (
     <div
@@ -296,14 +290,12 @@ export default function AdminControls({
           <Shield className="w-4 h-4" style={{ color: '#f97416' }} />
         </div>
         <div>
-          <h2
-            className="text-sm font-black uppercase tracking-widest"
-            style={{ color: 'var(--foreground)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-          >
+          <h2 className="text-sm font-black uppercase tracking-widest"
+            style={{ color: 'var(--foreground)', fontFamily: arabicFont }}>
             {tx.title}
           </h2>
           <p className="text-[11px] mt-0.5"
-            style={{ color: 'var(--foreground-muted)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+            style={{ color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
             {tx.subtitle}
           </p>
         </div>
@@ -311,179 +303,154 @@ export default function AdminControls({
 
       <div className="px-6 py-5 flex flex-col gap-6">
 
-        {/* ══ 1. ROLE ══ */}
+        {/* ══ 1. JOB TITLE ══ */}
         <div>
-          <SectionHeader icon={<User className="w-3.5 h-3.5" />} label={tx.sectionRole} />
-          <div className="relative">
-            <button
-              onClick={() => setRoleOpen(v => !v)}
-              className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-150"
-              style={{
-                background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                border:     `1px solid ${selectedRole.color}44`,
-              }}
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-2 h-2 rounded-full" style={{ background: selectedRole.color }} />
-                <span className="text-sm font-bold"
-                  style={{ color: selectedRole.color, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-                  {lang === 'ar' ? selectedRole.labelAr : selectedRole.labelEn}
-                </span>
+          <SectionHeader icon={<Briefcase className="w-3.5 h-3.5" />} label={tx.sectionTitle} />
+          {canEditIdentity ? (
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] font-bold uppercase tracking-widest"
+                    style={{ color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
+                    {tx.titleEn}
+                  </label>
+                  <input
+                    value={titleEn}
+                    onChange={e => setTitleEn(e.target.value)}
+                    maxLength={60}
+                    placeholder="Lead Animator"
+                    className="px-3 py-2 rounded-xl text-sm font-medium outline-none"
+                    style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: 'var(--foreground)', direction: 'ltr' }}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] font-bold uppercase tracking-widest"
+                    style={{ color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
+                    {tx.titleAr}
+                  </label>
+                  <input
+                    value={titleAr}
+                    onChange={e => setTitleAr(e.target.value)}
+                    maxLength={60}
+                    placeholder="محرك رئيسي"
+                    className="px-3 py-2 rounded-xl text-sm font-medium outline-none"
+                    style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: 'var(--foreground)', direction: 'rtl', fontFamily: 'var(--font-arabic)' }}
+                  />
+                </div>
               </div>
-              <motion.div animate={{ rotate: roleOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
-                <ChevronDown className="w-4 h-4" style={{ color: 'var(--foreground-muted)' }} />
-              </motion.div>
-            </button>
 
-            <AnimatePresence>
-              {roleOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0,  scale: 1    }}
-                  exit={{    opacity: 0, y: -6, scale: 0.98 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute z-20 w-full rounded-xl overflow-hidden mt-1.5"
-                  style={{
-                    background: isDark ? '#161b22' : '#ffffff',
-                    border:     `1px solid ${isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)'}`,
-                    boxShadow:  '0 12px 32px rgba(0,0,0,0.3)',
-                  }}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveTitle}
+                  disabled={savingTitle}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-bold cursor-pointer transition-all disabled:cursor-not-allowed"
+                  style={{ background: '#458482', color: '#fff', opacity: savingTitle ? 0.7 : 1, fontFamily: arabicFont }}
                 >
-                  {ROLES.map(role => (
-                    <button
-                      key={role.value}
-                      onClick={() => { onRoleChange(role.value); setRoleOpen(false) }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-100"
-                      style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                  {savingTitle
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <Check className="w-3.5 h-3.5" />}
+                  {tx.save}
+                </button>
+                <AnimatePresence>
+                  {titleSaved && (
+                    <motion.span
+                      initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                      style={{ background: '#10b98122', color: '#10b981', fontFamily: arabicFont }}
                     >
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: role.color }} />
-                      <span className="flex-1 text-[12px] font-semibold text-start"
-                        style={{ color: 'var(--foreground)' }}>
-                        {lang === 'ar' ? role.labelAr : role.labelEn}
-                      </span>
-                      {currentRole === role.value && (
-                        <Check className="w-3.5 h-3.5" style={{ color: role.color }} />
-                      )}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+                      {tx.saved}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <p className="text-[10px]" style={{ color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
+                {tx.titleNote}
+              </p>
+            </div>
+          ) : (
+            <p className="text-[11px] px-3 py-2.5 rounded-xl"
+              style={{ background: inputBg, color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
+              {tx.identityLocked}
+            </p>
+          )}
         </div>
 
         {/* ══ 2. MEMBER COLOR ══ */}
-        <div>
-          <SectionHeader icon={<Palette className="w-3.5 h-3.5" />} label={tx.sectionColor} />
-          <div className="flex flex-col gap-3">
+        {canEditIdentity && (
+          <div>
+            <SectionHeader icon={<Palette className="w-3.5 h-3.5" />} label={tx.sectionColor} />
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                {/*
+                  عيّنة من صورة العضو — القطارة الأصلية بتجمّد المتصفح
+                  فما بتقدر تسكرول لصورته فوق، وما إلها وجود على الجوال.
+                */}
+                <ImageColorPicker
+                  imageUrl={avatarUrl}
+                  onPick={hex => { setColorVal(hex); void onColorChange(hex) }}
+                  isDark={isDark}
+                />
 
-            {/* Preview + controls row */}
-            <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="color"
+                  value={colorVal.length === 7 ? colorVal : '#458482'}
+                  onChange={e => { setColorVal(e.target.value); void onColorChange(e.target.value) }}
+                  className="w-10 h-10 rounded-lg cursor-pointer p-0.5 shrink-0"
+                  style={{ background: 'transparent', border: `2px solid ${colorVal}60`, borderRadius: '10px' }}
+                />
 
-              {/* Native color input */}
-              <input
-                type="color"
-                value={colorVal.length === 7 ? colorVal : '#458482'}
-                onChange={e => { setColorVal(e.target.value); onColorChange(e.target.value) }}
-                className="w-10 h-10 rounded-lg cursor-pointer p-0.5 shrink-0"
-                style={{
-                  background: 'transparent',
-                  border:     `2px solid ${colorVal}60`,
-                  borderRadius: '10px',
-                }}
-              />
+                <input
+                  type="text"
+                  value={colorVal}
+                  onChange={handleColorHexChange}
+                  placeholder="#458482"
+                  className="px-3 py-2 rounded-xl text-sm font-medium outline-none transition-all duration-150"
+                  style={{
+                    width: '110px', background: inputBg,
+                    border: `1px solid ${inputBorder}`,
+                    color: 'var(--foreground)', fontFamily: 'monospace', direction: 'ltr',
+                  }}
+                />
 
-              {/* Hex input */}
-              <input
-                type="text"
-                value={colorVal}
-                onChange={handleColorHexChange}
-                placeholder="#458482"
-                className="px-3 py-2 rounded-xl text-sm font-medium outline-none transition-all duration-150"
-                style={{
-                  width:      '110px',
-                  background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                  border:     `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.10)'}`,
-                  color:      'var(--foreground)',
-                  fontFamily: 'monospace',
-                  direction:  'ltr',
-                }}
-              />
+                <button
+                  onClick={handleEyeDropper}
+                  disabled={!eyedropperSupported}
+                  title={eyedropperSupported ? tx.eyedropper : tx.eyedropperNo}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold transition-all"
+                  style={{
+                    background: eyedropperSupported ? 'rgba(69,132,130,0.15)' : inputBg,
+                    border:     `1px solid ${eyedropperSupported ? 'rgba(69,132,130,0.35)' : inputBorder}`,
+                    color:      eyedropperSupported ? '#458482' : 'var(--foreground-muted)',
+                    opacity:    eyedropperSupported ? 1 : 0.5,
+                    cursor:     eyedropperSupported ? 'pointer' : 'not-allowed',
+                    fontFamily: arabicFont,
+                  }}
+                >
+                  <Pipette className="w-3.5 h-3.5" />
+                  {tx.eyedropper}
+                </button>
 
-              {/* EyeDropper */}
-              <button
-                onClick={handleEyeDropper}
-                disabled={!eyedropperSupported}
-                title={eyedropperSupported ? tx.eyedropper : tx.eyedropperNo}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
-                style={{
-                  background: eyedropperSupported ? 'rgba(69,132,130,0.15)' : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'),
-                  border:     `1px solid ${eyedropperSupported ? 'rgba(69,132,130,0.35)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)')}`,
-                  color:      eyedropperSupported ? '#458482' : 'var(--foreground-muted)',
-                  opacity:    eyedropperSupported ? 1 : 0.5,
-                  cursor:     eyedropperSupported ? 'pointer' : 'not-allowed',
-                  fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                }}
-                onMouseEnter={e => { if (eyedropperSupported) e.currentTarget.style.background = 'rgba(69,132,130,0.25)' }}
-                onMouseLeave={e => { if (eyedropperSupported) e.currentTarget.style.background = 'rgba(69,132,130,0.15)' }}
-              >
-                <Pipette className="w-3.5 h-3.5" />
-                {tx.eyedropper}
-              </button>
+                <div
+                  className="w-10 h-10 rounded-xl shrink-0"
+                  style={{
+                    background: colorVal.length === 7 ? colorVal : '#458482',
+                    boxShadow:  `0 4px 12px ${colorVal.length === 7 ? colorVal : '#458482'}50`,
+                  }}
+                />
+              </div>
 
-              {/* Swatch preview */}
-              <div
-                className="w-10 h-10 rounded-xl shrink-0"
-                style={{
-                  background: colorVal.length === 7 ? colorVal : '#458482',
-                  boxShadow:  `0 4px 12px ${colorVal.length === 7 ? colorVal : '#458482'}50`,
-                }}
-              />
+              {!eyedropperSupported && (
+                <p className="text-[10px]" style={{ color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
+                  {tx.eyedropperNote}
+                </p>
+              )}
             </div>
-
-            {!eyedropperSupported && (
-              <p className="text-[10px]"
-                style={{ color: 'var(--foreground-muted)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-                {tx.eyedropperNote}
-              </p>
-            )}
           </div>
-        </div>
-
-        {/* ══ 3. PERMISSIONS ══ */}
-        <div>
-          <SectionHeader icon={<Lock className="w-3.5 h-3.5" />} label={tx.sectionPerms} />
-          <div className="flex flex-col gap-2">
-            <ToggleRow
-              label={tx.permAddPlatform}
-              checked={permissions.canAddPlatform}
-              onChange={() => onPermissionToggle('canAddPlatform')}
-              isDark={isDark}
-            />
-            <ToggleRow
-              label={tx.permManageMembers}
-              checked={permissions.canManageMembers}
-              onChange={() => onPermissionToggle('canManageMembers')}
-              isDark={isDark}
-            />
-            <ToggleRow
-              label={tx.permPublishNews}
-              checked={permissions.canPublishNews}
-              onChange={() => onPermissionToggle('canPublishNews')}
-              isDark={isDark}
-            />
-            <ToggleRow
-              label={tx.permManageArchive}
-              checked={permissions.canManageArchive}
-              onChange={() => onPermissionToggle('canManageArchive')}
-              isDark={isDark}
-            />
-          </div>
-        </div>
+        )}
 
         {/* ══ 3. PROFILE RESTRICTIONS ══ */}
+        {!isSelf && (
         <div>
           <SectionHeader icon={<Camera className="w-3.5 h-3.5" />} label={tx.sectionProfile} />
           <div className="flex flex-col gap-2">
@@ -491,28 +458,31 @@ export default function AdminControls({
               label={tx.lockAvatar}
               sublabel={tx.lockAvatarSub}
               checked={restrictions.avatarLocked}
-              onChange={() => onRestrictionToggle('avatarLocked')}
+              onChange={() => handleToggleLock('avatarLocked')}
               accentColor="#ef4444"
               isDark={isDark}
+              busy={busyLock === 'avatarLocked'}
             />
             <ToggleRow
               label={tx.lockName}
               sublabel={tx.lockNameSub}
               checked={restrictions.nameLocked}
-              onChange={() => onRestrictionToggle('nameLocked')}
+              onChange={() => handleToggleLock('nameLocked')}
               accentColor="#ef4444"
               isDark={isDark}
+              busy={busyLock === 'nameLocked'}
             />
           </div>
         </div>
+        )}
 
         {/* ══ 4. PENDING EMAIL ══ */}
         <AnimatePresence>
-          {pendingEmail && (
+          {!isSelf && pendingEmail && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
-              exit={{    opacity: 0, height: 0 }}
+              exit={{ opacity: 0, height: 0 }}
             >
               <SectionHeader icon={<Mail className="w-3.5 h-3.5" />} label={tx.sectionEmail} />
               <div
@@ -521,220 +491,99 @@ export default function AdminControls({
               >
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5"
-                    style={{ color: '#f59e0b', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                    style={{ color: '#f59e0b', fontFamily: arabicFont }}>
                     {tx.pendingNew}
                   </p>
                   <p className="text-sm font-medium" style={{ color: 'var(--foreground)', direction: 'ltr' }}>
                     {pendingEmail.newEmail}
                   </p>
-                  <p className="text-[10px] mt-1" style={{ color: 'var(--foreground-muted)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
                     {tx.requestedAt}: {new Date(pendingEmail.requestedAt).toLocaleDateString(lang === 'ar' ? 'ar-SA' : 'en-US')}
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={onApproveEmail}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-bold cursor-pointer transition-all"
-                    style={{ background: '#10b98120', color: '#10b981', border: '1px solid #10b98140', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = '#10b98130' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = '#10b98120' }}
-                  >
-                    <Check className="w-3.5 h-3.5" /> {tx.approve}
-                  </button>
-                  <button
-                    onClick={onRejectEmail}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-bold cursor-pointer transition-all"
-                    style={{ background: '#ef444420', color: '#ef4444', border: '1px solid #ef444440', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = '#ef444430' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = '#ef444420' }}
-                  >
-                    <X className="w-3.5 h-3.5" /> {tx.reject}
-                  </button>
-                </div>
+
+                {/*
+                  المرحلة الثانية: الأدمن خلص شغله والكرة بملعب العضو.
+                  عرض أزرار موافقة/رفض هون بيوحي إن في قرار لسا مطلوب.
+                */}
+                {pendingEmail.stage === 'pending_email_verification' ? (
+                  <p className="text-[11px] font-semibold" style={{ color: '#f59e0b', fontFamily: arabicFont }}>
+                    {tx.awaitingVerify}
+                  </p>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEmailAction(onApproveEmail)}
+                      disabled={busyEmail}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-bold cursor-pointer transition-all disabled:cursor-not-allowed"
+                      style={{ background: '#10b98120', color: '#10b981', border: '1px solid #10b98140', opacity: busyEmail ? 0.6 : 1, fontFamily: arabicFont }}
+                    >
+                      <Check className="w-3.5 h-3.5" /> {tx.approve}
+                    </button>
+                    <button
+                      onClick={() => handleEmailAction(onRejectEmail)}
+                      disabled={busyEmail}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-bold cursor-pointer transition-all disabled:cursor-not-allowed"
+                      style={{ background: '#ef444420', color: '#ef4444', border: '1px solid #ef444440', opacity: busyEmail ? 0.6 : 1, fontFamily: arabicFont }}
+                    >
+                      <X className="w-3.5 h-3.5" /> {tx.reject}
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* ══ 5. DANGER ZONE ══ */}
+        {/* ══ 5. ما يُدار من مكان آخر ══ */}
+        {!isSelf && (
+        <div>
+          <SectionHeader icon={<Lock className="w-3.5 h-3.5" />} label={tx.rolesElsewhere} />
+          {/*
+            الدور والصلاحيات والإيقاف كلهم بـ Admin Control. تكرارهم هون كان
+            بيخلق مكانين بيغيّروا نفس البيانات بقواعد مختلفة — رابط أوضح
+            وأأمن من نسخة تانية.
+          */}
+          <Link
+            href="/adminControl"
+            className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all"
+            style={{ background: inputBg, border: `1px solid ${inputBorder}` }}
+          >
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
+              {tx.rolesElsewhereSub}
+            </span>
+            <span className="flex items-center gap-1 text-[11px] font-bold shrink-0" style={{ color: '#458482', fontFamily: arabicFont }}>
+              {tx.goToAdmin}
+              <ChevronRight className="w-3.5 h-3.5" style={{ transform: isRTL ? 'rotate(180deg)' : 'none' }} />
+            </span>
+          </Link>
+        </div>
+        )}
+
+        {/*
+          ══ 6. DANGER ZONE ══
+          مخفية ببروفايلك: حذف حسابك بنفسك بيقفلك برّا النظام، و`is_chief`
+          ما بينتغيّر إلا بـ SQL يدوي.
+        */}
+        {!isSelf && (
         <div>
           <SectionHeader icon={<AlertTriangle className="w-3.5 h-3.5" />} label={tx.sectionDanger} />
-          <div className="flex flex-col gap-3">
-
-            {/* Ban / Unban */}
-            {isBanned ? (
-              <div
-                className="px-4 py-3 rounded-xl flex items-center justify-between gap-3"
-                style={{ background: '#ef444415', border: '1px solid #ef444433' }}
-              >
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 shrink-0" style={{ color: '#ef4444' }} />
-                  <div>
-                    <p className="text-[12px] font-bold" style={{ color: '#ef4444', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-                      {tx.banActive}
-                    </p>
-                    {banExpiresAt && (
-                      <p className="text-[10px]" style={{ color: 'var(--foreground-muted)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-                        {tx.banUntil} {formatBanExpiry(banExpiresAt)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={onUnban}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer transition-all shrink-0"
-                  style={{ background: '#10b98120', color: '#10b981', border: '1px solid #10b98140', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#10b98130' }}
-                  onMouseLeave={e => { e.currentTarget.style.background = '#10b98120' }}
-                >
-                  <Unlock className="w-3.5 h-3.5" /> {tx.unban}
-                </button>
-              </div>
-            ) : (
-              <div>
-                <button
-                  onClick={() => setBanOpen(v => !v)}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold cursor-pointer transition-all duration-150"
-                  style={{
-                    background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                    border:     '1px solid #f59e0b44',
-                    color:      '#f59e0b',
-                    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#f59e0b15' }}
-                  onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}
-                >
-                  <Lock className="w-4 h-4" /> {tx.banTitle}
-                </button>
-
-                <AnimatePresence>
-                  {banOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{    opacity: 0, height: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="flex flex-col gap-3 pt-3">
-                        {/* Duration pills */}
-                        <div className="flex flex-wrap gap-2">
-                          {BAN_OPTIONS.map(opt => (
-                            <button
-                              key={opt.value}
-                              onClick={() => setBanDuration(opt.value)}
-                              className="px-3 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer transition-all"
-                              style={{
-                                background: banDuration === opt.value ? '#f59e0b' : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
-                                color:      banDuration === opt.value ? '#ffffff' : 'var(--foreground-muted)',
-                                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                              }}
-                            >
-                              {lang === 'ar' ? opt.labelAr : opt.labelEn}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Custom days input */}
-                        <AnimatePresence>
-                          {banDuration === 'custom' && (
-                            <motion.div
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: 'auto' }}
-                              exit={{    opacity: 0, height: 0 }}
-                            >
-                              <label className="text-[10px] font-bold uppercase tracking-widest block mb-1"
-                                style={{ color: 'var(--foreground-muted)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-                                {tx.customDays}
-                              </label>
-                              <input
-                                type="number"
-                                min={1}
-                                max={365}
-                                value={customDays}
-                                onChange={e => setCustomDays(Number(e.target.value))}
-                                className="px-3 py-2 rounded-xl text-sm font-medium outline-none w-28"
-                                style={{
-                                  background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                                  border:     `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.10)'}`,
-                                  color:      'var(--foreground)',
-                                }}
-                              />
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-
-                        {/* Reason */}
-                        <div>
-                          <label className="text-[10px] font-bold uppercase tracking-widest block mb-1"
-                            style={{ color: 'var(--foreground-muted)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-                            {tx.banReason}
-                          </label>
-                          <input
-                            type="text"
-                            value={banReason}
-                            onChange={e => setBanReason(e.target.value)}
-                            placeholder={lang === 'ar' ? 'مثال: مخالفة قواعد المجتمع' : 'e.g. Community guideline violation'}
-                            className="w-full px-3 py-2 rounded-xl text-sm font-medium outline-none"
-                            style={{
-                              background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                              border:     `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.10)'}`,
-                              color:      'var(--foreground)',
-                              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                            }}
-                          />
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex gap-2">
-                          <button
-                            onClick={handleApplyBan}
-                            className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer transition-all"
-                            style={{ background: '#f59e0b', color: '#ffffff', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = '#d97706' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = '#f59e0b' }}
-                          >
-                            {tx.applyBan}
-                          </button>
-                          <button
-                            onClick={() => setBanOpen(false)}
-                            className="w-10 h-10 flex items-center justify-center rounded-xl cursor-pointer transition-all shrink-0"
-                            style={{
-                              background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-                              color:      'var(--foreground-muted)',
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.background = '#ef444422'; e.currentTarget.style.color = '#ef4444' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'; e.currentTarget.style.color = 'var(--foreground-muted)' }}
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-
-            {/* Delete */}
-            <div>
-              <button
-                onClick={() => setDeleteConfirm(true)}
-                className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold cursor-pointer transition-all duration-150"
-                style={{
-                  background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                  border:     '1px solid #ef444444',
-                  color:      '#ef4444',
-                  fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = '#ef444415' }}
-                onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}
-              >
-                <Trash2 className="w-4 h-4" /> {tx.deleteBtn}
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => setDeleteConfirm(true)}
+            className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold cursor-pointer transition-all duration-150"
+            style={{
+              background: inputBg,
+              border:     '1px solid #ef444444',
+              color:      '#ef4444',
+              fontFamily: arabicFont,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#ef444415' }}
+            onMouseLeave={e => { e.currentTarget.style.background = inputBg }}
+          >
+            <Trash2 className="w-4 h-4" /> {tx.deleteBtn}
+          </button>
         </div>
+        )}
       </div>
 
       {/* ── Delete Confirmation Modal ── */}
@@ -769,29 +618,33 @@ export default function AdminControls({
                     <Trash2 className="w-5 h-5" style={{ color: '#ef4444' }} />
                   </div>
                   <div>
-                    <h3 className="text-sm font-black" style={{ color: 'var(--foreground)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                    <h3 className="text-sm font-black" style={{ color: 'var(--foreground)', fontFamily: arabicFont }}>
                       {tx.deleteTitle}
                     </h3>
-                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--foreground-muted)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--foreground-muted)', fontFamily: arabicFont }}>
                       {tx.deleteSub}
                     </p>
                   </div>
                 </div>
 
                 <p className="text-[12px] leading-relaxed"
-                  style={{ color: 'var(--foreground)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                  style={{ color: 'var(--foreground)', fontFamily: arabicFont }}>
                   {tx.deleteConfirmMsg}
                 </p>
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => { onDelete(); setDeleteConfirm(false) }}
-                    className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer transition-all"
-                    style={{ background: '#ef4444', color: '#ffffff', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = '#dc2626' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = '#ef4444' }}
+                    onClick={() => { void onDelete(); setDeleteConfirm(false) }}
+                    disabled={countdown > 0}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all"
+                    style={{
+                      background: countdown > 0 ? '#ef444455' : '#ef4444',
+                      color:      '#ffffff',
+                      cursor:     countdown > 0 ? 'not-allowed' : 'pointer',
+                      fontFamily: arabicFont,
+                    }}
                   >
-                    {tx.confirmDelete}
+                    {countdown > 0 ? `${tx.waitSeconds} ${countdown}` : tx.confirmDelete}
                   </button>
                   <button
                     onClick={() => setDeleteConfirm(false)}
@@ -799,10 +652,8 @@ export default function AdminControls({
                     style={{
                       background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
                       color:      'var(--foreground-muted)',
-                      fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                      fontFamily: arabicFont,
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
                   >
                     {tx.cancelDelete}
                   </button>

@@ -1,128 +1,117 @@
-"use client"
+// src/app/(dashboard)/profile/[userId]/page.tsx
+import { redirect, notFound } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { canAccessAdminControl, canEditRoles, canManage } from '@/lib/permissions/hierarchy';
+import MemberProfileClient from './MemberProfileClient';
+import type { PendingEmailChange } from '@/components/dashboard/profile/AdminControls';
 
-import { use } from "react"
-import ProfileHero      from "@/components/dashboard/profile/ProfileHero"
-import PersonalInfo     from "@/components/dashboard/profile/PersonalInfo"
-import SecuritySettings from "@/components/dashboard/profile/SecuritySettings"
-import AdminControls from "@/components/dashboard/profile/AdminControls"
-import { type MemberRole, type AdminPermissions, type MemberRestrictions } from "@/components/dashboard/profile/AdminControls"
-interface MemberData {
-  id:            number
-  name:          string
-  role:          string
-  roleAr:        string
-  email:         string
-  joinedDate:    string
-  lastLoginAt:   string
-  isAdmin:       boolean
-  canEditEmail:  boolean
-  isBanned:      boolean
-  memberColor?:  string
-  banExpiresAt?: string
-  pendingEmail?: { newEmail: string; requestedAt: string }
-  permissions:   AdminPermissions
-  restrictions:  MemberRestrictions
-  currentRole:   MemberRole
-}
+const FALLBACK_COLOR = '#0d9488';
 
-const MOCK_MEMBERS: Record<string, MemberData> = {
-  "1": {
-    id: 1, name: "Jowhar", role: "Supervisor", roleAr: "مشرف",
-    email: "jowhar@jowhar.com", joinedDate: "2023-01-10",
-    lastLoginAt: "2026-06-22T07:06:00Z",
-    isAdmin: true, canEditEmail: true, isBanned: false,
-    memberColor: '#769171',
-    permissions: { canAddPlatform: true, canManageMembers: true, canPublishNews: true, canManageArchive: true },
-    restrictions: { avatarLocked: false, nameLocked: false },
-    currentRole: "supervisor",
-  },
-  "2": {
-    id: 2, name: "KB", role: "Animator Pro", roleAr: "محرك محترف",
-    email: "kb@jowhar.com", joinedDate: "2024-03-15",
-    lastLoginAt: "2026-06-22T07:06:00Z",
-    isAdmin: false, canEditEmail: true, isBanned: false,
-    memberColor: '#f59e0b',
-    pendingEmail: { newEmail: "kb.new@gmail.com", requestedAt: "2026-06-20T10:00:00Z" },
-    permissions: { canAddPlatform: false, canManageMembers: false, canPublishNews: true, canManageArchive: false },
-    restrictions: { avatarLocked: false, nameLocked: false },
-    currentRole: "animator-pro",
-  },
-  "3": {
-    id: 3, name: "Medoma", role: "Concept Artist", roleAr: "فنانة مفاهيمية",
-    email: "medoma@jowhar.com", joinedDate: "2024-05-01",
-    lastLoginAt: "2026-06-21T14:30:00Z",
-    isAdmin: false, canEditEmail: true, isBanned: true,
-    memberColor: '#3b82f6',
-    banExpiresAt: "2026-06-29T00:00:00Z",
-    permissions: { canAddPlatform: false, canManageMembers: false, canPublishNews: false, canManageArchive: true },
-    restrictions: { avatarLocked: true, nameLocked: false },
-    currentRole: "concept-artist",
-  },
-}
-
-function getMemberById(userId: string): MemberData {
-  return MOCK_MEMBERS[userId] ?? MOCK_MEMBERS["2"]
-}
-
-const CURRENT_USER_IS_ADMIN = true
-
-export default function MemberProfilePage({
+export default async function MemberProfilePage({
   params,
 }: {
-  params: Promise<{ userId: string }>
+  // ⚠️ Next.js 16: params صارت Promise
+  params: Promise<{ userId: string }>;
 }) {
-  const { userId } = use(params)
-  const member     = getMemberById(userId)
+  const { userId } = await params;
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
+
+  // فتح رابط بروفايلك من هون = نفس صفحتك، وهناك بتقدر تعدّل فعليًا
+  if (userId === user.id) redirect('/profile');
+
+  const { data: viewer } = await supabase
+    .from('profiles')
+    .select('id, is_chief, is_developer, access_role')
+    .eq('id', user.id)
+    .single();
+
+  if (!viewer) redirect('/login');
+
+  const actor = {
+    id: viewer.id,
+    isDeveloper: viewer.is_developer,
+    isChief: viewer.is_chief,
+    accessRole: viewer.access_role,
+  };
+
+  // بروفايلات الآخرين مرئية لمين بيوصل Admin Control فقط
+  if (!canAccessAdminControl(actor)) redirect('/profile');
+
+  const { data: member } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, color, avatar_url, job_title_en, job_title_ar, access_role, is_chief, is_developer, lock_name, lock_avatar, created_at, deleted_at')
+    .eq('id', userId)
+    .single();
+
+  if (!member || member.deleted_at) notFound();
+
+  const target = {
+    id: member.id,
+    isDeveloper: member.is_developer,
+    isChief: member.is_chief,
+    accessRole: member.access_role,
+  };
+
+  // ما بتقدر تدير هذا العضو؟ ما إلك شغل ببروفايله
+  if (!canManage(actor, target)) redirect('/adminControl');
+
+  /*
+    اللون والمسمّى الوظيفي حصريان للـ Chief والـ Developer — مطابق
+    لـ `requireIdentityEditor` بالأكشنز. الإخفاء هون للوضوح، والفرض
+    بالسيرفر.
+  */
+  const canEditIdentity = canEditRoles(actor);
+
+  const { data: request } = await supabase
+    .from('email_change_requests')
+    .select('new_email, status, requested_at')
+    .eq('user_id', userId)
+    .in('status', ['pending_admin', 'pending_email_verification'])
+    .maybeSingle();
+
+  const pendingEmail: PendingEmailChange | null = request
+    ? {
+        newEmail: request.new_email,
+        requestedAt: request.requested_at,
+        stage: request.status,
+      }
+    : null;
+
+  // الإيميل بـ auth.users فقط
+  let email = '—';
+  try {
+    const adminClient = createAdminClient();
+    const { data } = await adminClient.auth.admin.getUserById(userId);
+    email = data?.user?.email ?? '—';
+  } catch {
+    // فشلها ما بيمنع عرض الصفحة
+  }
+
+  const name = `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim() || '—';
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-
-      <ProfileHero
-        name={member.name}
-        role={member.role}
-        roleAr={member.roleAr}
-        joinedDate={member.joinedDate}
-        memberColor={member.memberColor}
-        isAdmin={member.isAdmin}
-        canEditAvatar={CURRENT_USER_IS_ADMIN ? true : !member.restrictions.avatarLocked}
+      <MemberProfileClient
+        memberId={member.id}
+        name={name}
+        email={email}
+        jobTitleEn={member.job_title_en ?? ''}
+        jobTitleAr={member.job_title_ar ?? ''}
+        avatarUrl={member.avatar_url}
+        joinedDate={member.created_at}
+        initialColor={member.color || FALLBACK_COLOR}
+        isAdmin={member.is_chief || member.is_developer || member.access_role === 'admin'}
+        initialRestrictions={{
+          nameLocked: member.lock_name,
+          avatarLocked: member.lock_avatar,
+        }}
+        pendingEmail={pendingEmail}
+        canEditIdentity={canEditIdentity}
       />
-
-      <PersonalInfo
-        name={member.name}
-        email={member.email}
-        memberColor={member.memberColor}
-        canEditName={CURRENT_USER_IS_ADMIN ? true : !member.restrictions.nameLocked}
-        canEditEmail={CURRENT_USER_IS_ADMIN ? true : member.canEditEmail}
-      />
-
-      {/* SecuritySettings — يظهر فقط للمستخدم نفسه، مش للأدمن */}
-      {!CURRENT_USER_IS_ADMIN && (
-        <SecuritySettings lastLoginAt={member.lastLoginAt} />
-      )}
-
-      {CURRENT_USER_IS_ADMIN && (
-        <AdminControls
-          memberId={member.id}
-          memberName={member.name}
-          currentRole={member.currentRole}
-          memberColor={member.memberColor}
-          permissions={member.permissions}
-          restrictions={member.restrictions}
-          isBanned={member.isBanned}
-          banExpiresAt={member.banExpiresAt}
-          pendingEmail={member.pendingEmail}
-          onRoleChange={(role) => { console.log("role →", role) }}
-          onColorChange={(color) => { console.log("color →", color) }}
-          onPermissionToggle={(key) => { console.log("permission →", key) }}
-          onRestrictionToggle={(key) => { console.log("restriction →", key) }}
-          onApproveEmail={() => { console.log("email approved") }}
-          onRejectEmail={() => { console.log("email rejected") }}
-          onBan={(duration, customDays, reason) => { console.log("ban →", duration, customDays, reason) }}
-          onUnban={() => { console.log("unbanned") }}
-          onDelete={() => { console.log("deleted") }}
-        />
-      )}
-
     </div>
-  )
+  );
 }

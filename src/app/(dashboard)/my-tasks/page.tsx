@@ -35,7 +35,8 @@ export default async function MyTasksPage() {
   const accentColor = profile?.color || FALLBACK_COLOR;
   const { hue, sat } = hexToHsl(accentColor);
 
-  const name = `${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim() || '—';
+// الاسم الأول فقط بترحيب الصفحة — الاسم الكامل يطلع برّا الإطار
+const name = (profile?.first_name ?? '').trim() || '—';
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
