@@ -29,6 +29,7 @@ import {
   deleteNote,
   markNoteSeen,
   type DirectorNoteDTO,
+  type NotePriority,
 } from './notesActions';
 
 /** معرّف مؤقت للصف المتفائل، بينستبدل بالحقيقي لما يرجع السيرفر. */
@@ -203,29 +204,35 @@ export default function AdminControlClient({
   // =========================================================
   // Director Notes
   // =========================================================
-  const handleCreateNote = useCallback((memberId: string, text: string) => {
-    const optimisticId = tempId('note');
-    const now = new Date().toISOString();
+  const handleCreateNote = useCallback(
+    (memberId: string, input: { title: string; text: string; priority: NotePriority }) => {
+      const optimisticId = tempId('note');
+      const now = new Date().toISOString();
 
-    const optimistic: DirectorNoteDTO = {
-      id: optimisticId,
-      text: text.trim(),
-      createdAt: now,
-      replies: [],
-      // كاتب الملاحظة شافها بالتعريف
-      directorLastSeenAt: now,
-    };
+      const optimistic: DirectorNoteDTO = {
+        id: optimisticId,
+        title: input.title.trim(),
+        text: input.text.trim(),
+        priority: input.priority,
+        createdAt: now,
+        replies: [],
+        // كاتب الملاحظة شافها بالتعريف
+        directorLastSeenAt: now,
+        memberReadAt: null,
+      };
 
-    setNotes((prev) => [optimistic, ...prev]);
+      setNotes((prev) => [optimistic, ...prev]);
 
-    void createNote(memberId, text)
-      .then((saved) => {
-        setNotes((prev) => prev.map((n) => (n.id === optimisticId ? saved : n)));
-      })
-      .catch(() => {
-        setNotes((prev) => prev.filter((n) => n.id !== optimisticId));
-      });
-  }, []);
+      void createNote(memberId, input)
+        .then((saved) => {
+          setNotes((prev) => prev.map((n) => (n.id === optimisticId ? saved : n)));
+        })
+        .catch(() => {
+          setNotes((prev) => prev.filter((n) => n.id !== optimisticId));
+        });
+    },
+    []
+  );
 
   const handleAddReply = useCallback((noteId: string, text: string) => {
     const optimisticId = tempId('reply');

@@ -6,6 +6,7 @@ import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
 import { Plus, X, ChevronDown, ChevronLeft, ChevronRight, Calendar, ListTodo, Trash2 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import SkeletonRows from './SkeletonRows';
 import type { TaskDTO, TaskInput } from '@/app/(dashboard)/adminControl/tasksActions';
 
 type Lang = 'en' | 'ar';
@@ -1007,16 +1008,11 @@ function AddTask({
             className="flex-1 bg-[var(--at-bg)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--at-scrollbar-thumb)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--at-scrollbar-thumb)]"
             style={{ height: LIST_HEIGHT_PX }}
           >
+
             {loading ? (
-              <div className="flex h-full items-center justify-center">
-                <p
-                  className="text-xs font-medium text-[var(--at-text-muted)]"
-                  style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                >
-                  {copy.loading}
-                </p>
-              </div>
+              <SkeletonRows />
             ) : tasks.length === 0 ? (
+
               <button
                 type="button"
                 onClick={openModal}

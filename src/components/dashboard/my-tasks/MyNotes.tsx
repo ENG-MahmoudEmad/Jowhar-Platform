@@ -1,3 +1,4 @@
+// src/components/dashboard/my-tasks/MyNotes.tsx
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react";
@@ -6,37 +7,10 @@ import { Plus, Pencil, Trash2, X, Check, Search, Clock3 } from "lucide-react";
 import { useSearchParams, usePathname } from "next/navigation";
 import { useTheme } from "@/context/ThemeContext";
 import { useLang } from "@/context/LangContext";
+import type { MemberNoteDTO } from "@/app/(dashboard)/my-tasks/notesActions";
 
 /* ─── Types ─────────────────────────────────────────────────────────────────── */
-export interface Note {
-  id:        string;
-  title:     string;
-  content:   string;
-  color:     string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/* ─── API stubs ─────────────────────────────────────────────────────────────── */
-// GET    /api/notes
-// POST   /api/notes
-// PUT    /api/notes/:id
-// DELETE /api/notes/:id
-async function apiCreate(data: Omit<Note, "id"|"createdAt"|"updatedAt">): Promise<Note> {
-  const now = new Date().toISOString();
-  return { ...data, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
-}
-async function apiUpdate(id: string, data: Partial<Note>): Promise<Note> {
-  return { ...data, id, updatedAt: new Date().toISOString() } as Note;
-}
-async function apiDelete(id: string): Promise<void> { void id; }
-
-/* ─── Demo ───────────────────────────────────────────────────────────────────── */
-const DEMO: Note[] = [
-  { id:"1", title:"Animation Pipeline",  content:"Finalize the animation pipeline structure before the next production sprint. Make sure rendering, compositing, and export flow are aligned with the team.",       color:"#458482", createdAt:"2026-05-10T09:00:00Z", updatedAt:"2026-05-10T09:00:00Z" },
-  { id:"2", title:"Visual Direction",    content:"Experiment with cinematic gradients and layered lighting for dashboard cards. Consider reducing glow intensity globally and testing the new type scale.",          color:"#8b5cf6", createdAt:"2026-05-12T14:30:00Z", updatedAt:"2026-05-12T14:30:00Z" },
-  { id:"3", title:"Launch Ideas",        content:"Potential future expansion for Jowhar ecosystem: AI tools, creator dashboards, realtime collaboration, archive spaces with smart search and tagging.",            color:"#f59e0b", createdAt:"2026-05-14T08:00:00Z", updatedAt:"2026-05-14T08:00:00Z" },
-];
+export type Note = MemberNoteDTO & { clientKey?: string };
 
 const COLORS = [
   "#458482","#5ea8a4","#8b5cf6","#6366f1",
@@ -90,7 +64,7 @@ const ColorDot = memo(function ColorDot({ color, active, onSelect }: {
 }) {
   const handleClick = useCallback(() => onSelect(color), [onSelect, color]);
   return (
-    <button onClick={handleClick}
+    <button type="button" onClick={handleClick}
       className="w-6 h-6 rounded-full cursor-pointer transition-all"
       style={{ background:color, transform: active?"scale(1.3)":"scale(1)",
         outline: active ? `2px solid ${color}` : "none", outlineOffset:"2px" }}
@@ -167,11 +141,11 @@ const NoteCard = memo(function NoteCard({ note, active, isDark, textMain, textMu
 });
 
 /* ─── NoteForm (create / edit) ───────────────────────────────────────────────── */
-const NoteForm = memo(function NoteForm({ note, isDark, textMain, textMuted, inputBg, inputBorder, lang, isRTL, onSave, onCancel, saving }: {
+const NoteForm = memo(function NoteForm({ note, isDark, textMain, textMuted, inputBg, inputBorder, lang, isRTL, onSave, onCancel }: {
   note: Partial<Note>; isDark: boolean; textMain: string; textMuted: string;
   inputBg: string; inputBorder: string; lang: string; isRTL: boolean;
   onSave: (d: { title:string; content:string; color:string }) => void;
-  onCancel: () => void; saving: boolean;
+  onCancel: () => void;
 }) {
   const [title,   setTitle]   = useState(note.title   ?? "");
   const [content, setContent] = useState(note.content ?? "");
@@ -213,6 +187,7 @@ const NoteForm = memo(function NoteForm({ note, isDark, textMain, textMuted, inp
     <div className="flex flex-col gap-4">
       <input value={title} onChange={handleTitleChange}
         placeholder={lang==="ar" ? "عنوان الملاحظة..." : "Note title..."}
+        maxLength={120}
         style={{ ...base, fontWeight:600 }}
         onFocus={handleInputFocus}
         onBlur={handleInputBlur}
@@ -233,20 +208,18 @@ const NoteForm = memo(function NoteForm({ note, isDark, textMain, textMuted, inp
 
       {/* Actions */}
       <div className="flex gap-2 justify-end" style={{ flexDirection: isRTL?"row-reverse":"row" }}>
-        <button onClick={onCancel}
+        <button type="button" onClick={onCancel}
           className="px-4 py-2 rounded-xl text-[12px] font-bold cursor-pointer"
           style={{ background: isDark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.05)", color:textMuted }}
         >
           {lang==="ar" ? "إلغاء" : "Cancel"}
         </button>
-        <button onClick={handleSaveClick}
-          disabled={!title.trim()||saving}
-          className="px-4 py-2 rounded-xl text-[12px] font-bold cursor-pointer flex items-center gap-2"
-          style={{ background:title.trim()?color:"rgba(69,132,130,0.4)", color:"#fff", opacity:saving?0.7:1 }}
+        <button type="button" onClick={handleSaveClick}
+          disabled={!title.trim()}
+          className="px-4 py-2 rounded-xl text-[12px] font-bold cursor-pointer flex items-center gap-2 disabled:cursor-not-allowed"
+          style={{ background:title.trim()?color:"rgba(69,132,130,0.4)", color:"#fff" }}
         >
-          {saving
-            ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"/>
-            : <Check className="w-3.5 h-3.5"/>}
+          <Check className="w-3.5 h-3.5"/>
           {lang==="ar" ? "حفظ" : "Save"}
         </button>
       </div>
@@ -255,7 +228,20 @@ const NoteForm = memo(function NoteForm({ note, isDark, textMain, textMuted, inp
 });
 
 /* ─── Main Component ─────────────────────────────────────────────────────────── */
-function MyNotes() {
+function MyNotes({
+  notes,
+  loading = false,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: {
+  notes: Note[];
+  loading?: boolean;
+  /* الحالة مرفوعة للصفحة — الكارد بيطلب، والأب بيحدّث ويتراجع لو فشل. */
+  onCreate: (data: { title:string; content:string; color:string }) => void;
+  onUpdate: (id: string, data: { title:string; content:string; color:string }) => void;
+  onDelete: (id: string) => void;
+}) {
   const { theme }       = useTheme();
   const { lang, isRTL } = useLang();
   const isDark          = theme === "dark";
@@ -278,13 +264,17 @@ function MyNotes() {
   }), [isDark]);
   const { bg, border, headerBg, divider, inputBg, inputBorder, panelBg } = palette;
 
-  const [notes,   setNotes]   = useState<Note[]>(DEMO);
-  const [selected,setSelected]= useState<Note | null>(null);
+  /* الملاحظة المعروضة بتتقرأ من `notes` عبر الـ id بدل ما نحتفظ بنسخة منها:
+     النسخة المكررة كانت بتصير بايتة بعد أي حفظ. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode,    setMode]    = useState<"view"|"edit"|"create">("view");
   const [panelOpen,setPanelOpen] = useState(false);
   const [search,  setSearch]  = useState("");
-  const [saving,  setSaving]  = useState(false);
-  const [deleting,setDeleting]= useState<string|null>(null);
+
+  const selected = useMemo(
+    () => notes.find(n => n.id === selectedId) ?? null,
+    [notes, selectedId],
+  );
 
   /* ── Detect mobile ── */
   const [isMobile, setIsMobile] = useState(false);
@@ -306,48 +296,34 @@ function MyNotes() {
 
   /* ── Handlers ── */
   const openNote = useCallback((note: Note) => {
-    setSelected(note); setMode("view"); setPanelOpen(true);
+    setSelectedId(note.id); setMode("view"); setPanelOpen(true);
   }, []);
   const openCreate = useCallback(() => {
-    setSelected(null); setMode("create"); setPanelOpen(true);
+    setSelectedId(null); setMode("create"); setPanelOpen(true);
   }, []);
   const closePanel = useCallback(() => {
     setPanelOpen(false);
-    setTimeout(() => { setSelected(null); setMode("view"); setSearch(""); }, 300);
+    setTimeout(() => { setSelectedId(null); setMode("view"); setSearch(""); }, 300);
   }, []);
 
-  const handleCreate = useCallback(async (data: { title:string; content:string; color:string }) => {
-    setSaving(true);
-    try {
-      const created = await apiCreate(data);
-      setNotes(prev => [created, ...prev]);
-      setSelected(created); setMode("view");
-    } finally { setSaving(false); }
-  }, []);
+  const handleCreate = useCallback((data: { title:string; content:string; color:string }) => {
+    onCreate(data);
+    setMode("view");
+  }, [onCreate]);
 
-  const handleUpdate = useCallback(async (data: { title:string; content:string; color:string }) => {
+  const handleUpdate = useCallback((data: { title:string; content:string; color:string }) => {
+    if (!selectedId) return;
+    onUpdate(selectedId, data);
+    setMode("view");
+  }, [selectedId, onUpdate]);
+
+  const handleDeleteSelected = useCallback(() => {
     if (!selected) return;
-    setSaving(true);
-    try {
-      const updated = await apiUpdate(selected.id, { ...selected, ...data });
-      const merged  = { ...selected, ...data, updatedAt: updated.updatedAt };
-      setNotes(prev => prev.map(n => n.id===selected.id ? merged : n));
-      setSelected(merged); setMode("view");
-    } finally { setSaving(false); }
-  }, [selected]);
-
-  const handleDelete = useCallback(async (id: string) => {
-    setDeleting(id);
-    try {
-      await apiDelete(id);
-      const remaining = notes.filter(n => n.id !== id);
-      setNotes(remaining);
-      if (selected?.id === id) {
-        if (remaining.length > 0) { setSelected(remaining[0]); setMode("view"); }
-        else closePanel();
-      }
-    } finally { setDeleting(null); }
-  }, [notes, selected, closePanel]);
+    const remaining = notes.filter(n => n.id !== selected.id);
+    onDelete(selected.id);
+    if (remaining.length > 0) { setSelectedId(remaining[0].id); setMode("view"); }
+    else closePanel();
+  }, [selected, notes, onDelete, closePanel]);
 
   const handleOpenFirst = useCallback(() => {
     if (notes.length > 0) openNote(notes[0]);
@@ -356,12 +332,8 @@ function MyNotes() {
   const handleEnterEditMode = useCallback(() => setMode("edit"), []);
   const handleCancelEdit = useCallback(() => setMode("view"), []);
 
-  const handleDeleteSelected = useCallback(() => {
-    if (selected) handleDelete(selected.id);
-  }, [selected, handleDelete]);
-
   const handleSelectNote = useCallback((note: Note) => {
-    setSelected(note); setMode("view");
+    setSelectedId(note.id); setMode("view");
   }, []);
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -413,15 +385,16 @@ function MyNotes() {
             {lang==="ar" ? "ملاحظاتي" : "My Notes"}
           </h2>
           <div className="flex items-center gap-2" style={{ flexDirection:"row" }}>
-            <button onClick={openCreate}
+            <button type="button" onClick={openCreate}
               className="w-7 h-7 rounded-xl flex items-center justify-center cursor-pointer transition-all"
               style={{ background:"#458482", color:"#fff" }}
               title={lang==="ar" ? "ملاحظة جديدة" : "New Note"}
             >
               <Plus className="w-3.5 h-3.5"/>
             </button>
-            <button onClick={handleOpenFirst}
-              className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all"
+            <button type="button" onClick={handleOpenFirst}
+              disabled={notes.length === 0}
+              className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background:"transparent", color:textMuted, border:`1px solid ${divider}` }}
               onMouseEnter={handleHoverBgEnter}
               onMouseLeave={handleTransparentLeave}
@@ -434,7 +407,15 @@ function MyNotes() {
         {/* Preview — 3 cards */}
         <div className="flex flex-col gap-2 px-3 pt-3 pb-3" style={{ marginBottom: 0 }}>
           <AnimatePresence>
-            {preview.length === 0 ? (
+            {loading ? (
+              <div className="flex items-center justify-center py-10" style={{ color:textMuted }}>
+                <span className="text-[12px] font-medium"
+                  style={{ fontFamily:lang==="ar"?"var(--font-arabic)":"inherit" }}
+                >
+                  {lang==="ar" ? "جارٍ التحميل" : "Loading..."}
+                </span>
+              </div>
+            ) : preview.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 gap-2" style={{ color:textMuted }}>
                 <span className="text-2xl">📝</span>
                 <span className="text-[12px] font-medium"
@@ -445,16 +426,17 @@ function MyNotes() {
               </div>
             ) : (
               preview.map(note => (
-                <NoteCard key={note.id} note={note}
-                  active={false} isDark={isDark}
-                  textMain={textMain} textMuted={textMuted} lang={lang}
-                  onSelect={openNote}
-                />
+                <NoteCard key={note.clientKey ?? note.id} note={note}
+  active={false} isDark={isDark}
+  textMain={textMain} textMuted={textMuted} lang={lang}
+  onSelect={openNote}
+/>
               ))
             )}
           </AnimatePresence>
         </div>
       </div>
+
       <AnimatePresence>
         {panelOpen && (
           <>
@@ -517,13 +499,13 @@ function MyNotes() {
               <div className="px-5 py-4 flex items-center justify-between shrink-0"
                 style={{ background:headerBg, borderBottom:`1px solid ${divider}`, flexDirection:"row" }}
               >
-                <div className="flex items-center gap-2" style={{ flexDirection:"row" }}>
+                <div className="flex items-center gap-2 min-w-0" style={{ flexDirection:"row" }}>
                   {selected && mode==="view" && (
                     <span className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{ background:selected.color }}
                     />
                   )}
-                  <h3 className="text-sm font-bold"
+                  <h3 className="text-sm font-bold truncate"
                     style={{ color:textMain, fontFamily:lang==="ar"?"var(--font-arabic)":"inherit" }}
                   >
                     {mode==="create"
@@ -534,10 +516,10 @@ function MyNotes() {
                   </h3>
                 </div>
 
-                <div className="flex items-center gap-1.5" style={{ flexDirection:"row" }}>
+                <div className="flex items-center gap-1.5 shrink-0" style={{ flexDirection:"row" }}>
                   {mode==="view" && selected && (
                     <>
-                      <button onClick={handleEnterEditMode}
+                      <button type="button" onClick={handleEnterEditMode}
                         className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
                         style={{ color:selected.color }}
                         onMouseEnter={handleEditHoverEnter}
@@ -545,20 +527,17 @@ function MyNotes() {
                       >
                         <Pencil className="w-3.5 h-3.5"/>
                       </button>
-                      <button onClick={handleDeleteSelected}
-                        disabled={deleting===selected.id}
+                      <button type="button" onClick={handleDeleteSelected}
                         className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer transition-colors"
                         style={{ color:"#ef4444" }}
                         onMouseEnter={handleDeleteHoverEnter}
                         onMouseLeave={handleTransparentLeave}
                       >
-                        {deleting===selected.id
-                          ? <span className="w-3 h-3 border-2 border-red-400/40 border-t-red-400 rounded-full animate-spin"/>
-                          : <Trash2 className="w-3.5 h-3.5"/>}
+                        <Trash2 className="w-3.5 h-3.5"/>
                       </button>
                     </>
                   )}
-                  <button onClick={closePanel}
+                  <button type="button" onClick={closePanel}
                     className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer"
                     style={{ color:textMuted }}
                     onMouseEnter={handleHoverBgEnter}
@@ -584,7 +563,7 @@ function MyNotes() {
                         direction:isRTL?"rtl":"ltr" }}
                     />
                     {search && (
-                      <button onClick={handleClearSearch} style={{ color:textMuted }}>
+                      <button type="button" onClick={handleClearSearch} style={{ color:textMuted }}>
                         <X className="w-3 h-3"/>
                       </button>
                     )}
@@ -604,7 +583,7 @@ function MyNotes() {
                     >
                       <NoteForm note={{}} isDark={isDark} textMain={textMain} textMuted={textMuted}
                         inputBg={inputBg} inputBorder={inputBorder} lang={lang} isRTL={isRTL}
-                        onSave={handleCreate} onCancel={closePanel} saving={saving}
+                        onSave={handleCreate} onCancel={closePanel}
                       />
                     </motion.div>
                   )}
@@ -617,7 +596,7 @@ function MyNotes() {
                     >
                       <NoteForm note={selected} isDark={isDark} textMain={textMain} textMuted={textMuted}
                         inputBg={inputBg} inputBorder={inputBorder} lang={lang} isRTL={isRTL}
-                        onSave={handleUpdate} onCancel={handleCancelEdit} saving={saving}
+                        onSave={handleUpdate} onCancel={handleCancelEdit}
                       />
                     </motion.div>
                   )}
@@ -645,7 +624,7 @@ function MyNotes() {
                                   {lang==="ar" ? "آخر تعديل" : "Last edited"} · {fmtDate(selected.updatedAt, lang)}
                                 </span>
                               </div>
-                              <p className="text-[13px] leading-[1.9]"
+                              <p className="text-[13px] leading-[1.9] whitespace-pre-wrap"
                                 style={{ color:textMain,
                                   fontFamily:lang==="ar"?"var(--font-arabic)":"inherit",
                                   direction:isRTL?"rtl":"ltr" }}
@@ -673,11 +652,11 @@ function MyNotes() {
                             </p>
                           ) : (
                             filtered.map(note => (
-                              <NoteCard key={note.id} note={note}
-                                active={selected?.id===note.id} isDark={isDark}
-                                textMain={textMain} textMuted={textMuted} lang={lang}
-                                onSelect={handleSelectNote}
-                              />
+                              <NoteCard key={note.clientKey ?? note.id} note={note}
+  active={false} isDark={isDark}
+  textMain={textMain} textMuted={textMuted} lang={lang}
+  onSelect={openNote}
+/>
                             ))
                           )}
                         </AnimatePresence>
@@ -693,7 +672,7 @@ function MyNotes() {
                 <div className="px-5 py-4 shrink-0"
                   style={{ borderTop:`1px solid ${divider}` }}
                 >
-                  <button onClick={openCreate}
+                  <button type="button" onClick={openCreate}
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12px] font-bold cursor-pointer transition-all"
                     style={{ background:rgba("#458482", isDark?0.15:0.10), color:"#458482",
                       border:`1px solid ${rgba("#458482",0.2)}` }}

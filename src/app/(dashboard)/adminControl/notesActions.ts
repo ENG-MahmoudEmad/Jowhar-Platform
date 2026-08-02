@@ -3,11 +3,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireAdminActor, requireManagedTarget, fullName } from './guards';
+import { requireAdminActor, requireOpenableTarget, fullName } from './guards';
 
 const CAPABILITY = 'admin.director_notes';
 
 export type NoteAuthorRole = 'director' | 'member';
+export type NotePriority = 'low' | 'medium' | 'high';
 
 export type NoteReplyDTO = {
   id: string;
@@ -20,10 +21,14 @@ export type NoteReplyDTO = {
 
 export type DirectorNoteDTO = {
   id: string;
+  title: string;
   text: string;
+  priority: NotePriority;
   createdAt: string;
   replies: NoteReplyDTO[];
   directorLastSeenAt: string | null;
+  /** متى فتحها العضو أول مرة — إيصال قراءة نهائي، بيُعرض للمدير. */
+  memberReadAt: string | null;
 };
 
 type ProfileJoin = { first_name: string | null; last_name: string | null } | null;
@@ -39,9 +44,12 @@ type ReplyRow = {
 
 type NoteRow = {
   id: string;
+  title: string;
   text: string;
+  priority: NotePriority;
   created_at: string;
   director_last_seen_at: string | null;
+  member_read_at: string | null;
   note_replies: ReplyRow[];
 };
 
@@ -51,7 +59,7 @@ type NoteRow = {
   بيثبّت الاسم القديم للأبد.
 */
 const SELECT_NOTES = `
-  id, text, created_at, director_last_seen_at,
+  id, title, text, priority, created_at, director_last_seen_at, member_read_at,
   note_replies (
     id, author_id, author_role, text, created_at,
     author:profiles!note_replies_author_id_fkey ( first_name, last_name )
@@ -72,9 +80,12 @@ function toReplyDTO(row: ReplyRow): NoteReplyDTO {
 function toNoteDTO(row: NoteRow): DirectorNoteDTO {
   return {
     id: row.id,
+    title: row.title,
     text: row.text,
+    priority: row.priority,
     createdAt: row.created_at,
     directorLastSeenAt: row.director_last_seen_at,
+    memberReadAt: row.member_read_at,
     // الردود لازم تكون تصاعدية — الفقاعات بتتقرأ من الأقدم للأحدث
     replies: [...(row.note_replies ?? [])]
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
@@ -102,13 +113,17 @@ export async function listMemberNotes(memberId: string): Promise<DirectorNoteDTO
 // ===========================================================
 // إضافة ملاحظة
 // ===========================================================
-export async function createNote(memberId: string, text: string): Promise<DirectorNoteDTO> {
-  const { supabase, actor } = await requireManagedTarget(memberId, CAPABILITY, {
-    allowSelf: true,
-  });
+export async function createNote(
+  memberId: string,
+  input: { title: string; text: string; priority: NotePriority }
+): Promise<DirectorNoteDTO> {
+  const { supabase, actor } = await requireOpenableTarget(memberId, CAPABILITY);
 
-  const body = text.trim();
-  if (!body) throw new Error('invalid_input');
+  const title = input.title.trim();
+  const body = input.text.trim();
+
+  if (!title || !body) throw new Error('invalid_input');
+  if (title.length > 120) throw new Error('title_too_long');
   if (body.length > 2000) throw new Error('text_too_long');
 
   const { data, error } = await supabase
@@ -116,11 +131,13 @@ export async function createNote(memberId: string, text: string): Promise<Direct
     .insert({
       member_id: memberId,
       author_id: actor.id,
+      title,
       text: body,
+      priority: input.priority,
       // كاتب الملاحظة شافها بالتعريف — بدون هذا بتظهرله كـ"غير مقروءة" فورًا
       director_last_seen_at: new Date().toISOString(),
     })
-    .select('id, text, created_at, director_last_seen_at')
+    .select('id, title, text, priority, created_at, director_last_seen_at, member_read_at')
     .single();
 
   if (error || !data) throw new Error('note_create_failed');
@@ -129,9 +146,12 @@ export async function createNote(memberId: string, text: string): Promise<Direct
 
   return {
     id: data.id,
+    title: data.title,
     text: data.text,
+    priority: data.priority,
     createdAt: data.created_at,
     directorLastSeenAt: data.director_last_seen_at,
+    memberReadAt: data.member_read_at,
     replies: [],
   };
 }
@@ -154,7 +174,7 @@ export async function addNoteReply(noteId: string, text: string): Promise<NoteRe
 
   if (!note) throw new Error('not_found');
 
-  await requireManagedTarget(note.member_id, CAPABILITY, { allowSelf: true });
+  await requireOpenableTarget(note.member_id, CAPABILITY);
 
   /*
     author_role مش مبعوت من هون عن قصد — trigger بالداتابيز بيحسبه
@@ -211,7 +231,7 @@ export async function deleteNote(noteId: string) {
 
   if (!note) throw new Error('not_found');
 
-  await requireManagedTarget(note.member_id, CAPABILITY, { allowSelf: true });
+  await requireOpenableTarget(note.member_id, CAPABILITY);
 
   const { error } = await supabase.from('director_notes').delete().eq('id', noteId);
   if (error) throw new Error('note_delete_failed');

@@ -5,15 +5,20 @@
 // count through these helpers rather than reimplementing the rules, otherwise two
 // screens can show contradictory numbers for the same data.
 
-export type TaskStatus = "todo" | "in-progress" | "done";
+/** الحالات المخزّنة فعليًا بالداتابيز. لا يوجد `in-progress` ولا `todo`. */
+export type TaskStatus = "open" | "done";
+
+export type TaskPriority = "low" | "medium" | "high";
 
 export interface Task {
   id: string;
   title: string;
-  titleAr: string;
   status: TaskStatus;
-  /** Deadline: full timestamp (date + end hour), set when the admin creates the task. */
-  deadline: string; // ISO
+  priority: TaskPriority;
+  /** yyyy-mm-dd — بداية التاسك، بتحدد موقع البار بالـ Gantt */
+  startDate: string;
+  /** yyyy-mm-dd — الموعد النهائي (`end_date` بالداتابيز) */
+  deadline: string;
   /**
    * When the task was actually marked done — NOT the deadline.
    *
@@ -37,6 +42,11 @@ export function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+/** yyyy-mm-dd → Date محلي بدون انزياح المنطقة الزمنية. */
+export function parseDateOnly(iso: string): Date {
+  return new Date(`${iso}T00:00:00`);
+}
+
 export function addDays(date: Date, days: number): Date {
   const next = startOfDay(date);
   next.setDate(next.getDate() + days);
@@ -57,6 +67,26 @@ export function getCurrentMonthRange(now: Date): { start: Date; end: Date } {
   return { start: startOfMonth(now), end: endOfMonth(now) };
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ⚠️ "DUE" بتعني شيئين مختلفين بالمنصة — الاتنين صح بمكانهم، بس ممنوع توحيدهم:
+
+   1. `isOverdue(task)`      → التاسك **فات موعدها** ولسا مفتوحة.
+                               هاي اللي بتتعرض كشارة حمرا/صفرا على التاسك نفسها،
+                               بكارد الأدمن وبالـ Gantt.
+
+   2. `countNeedsAttention()` → التاسك **محتاجة انتباه**: باقي عليها ≤7 أيام
+                               أو فاتت أصلاً. هاي رقم عدّاد Today Focus.
+
+   تاسك موعدها بعد 3 أيام: محتاجة انتباه ✅ بس مش متأخرة ❌
+   توحيد الاتنين تحت اسم واحد بيكسر وحدة منهم بالتأكيد.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** الشارة المعروضة على التاسك نفسها. */
+export function isOverdue(task: Pick<Task, "status" | "deadline">, now: Date): boolean {
+  if (task.status === "done") return false;
+  return startOfDay(parseDateOnly(task.deadline)) < startOfDay(now);
+}
+
 /* ─── Counters ─────────────────────────────────────────────────────────────── */
 
 /** OPEN — anything not finished, regardless of dates. */
@@ -65,23 +95,21 @@ export function countOpen(tasks: Task[]): number {
 }
 
 /**
- * DUE — unfinished work that needs attention now: due within the next `days`
- * days, plus everything already overdue.
+ * NEEDS ATTENTION — unfinished work due within the next `days` days, plus
+ * everything already overdue. معروضة بالواجهة تحت اسم "Due".
  *
  * Note the window is a ROLLING 7 days from today, deliberately different from the
  * Leaderboard's fixed work week. The question here is "what is due soon?", so the
  * horizon must stay 7 days ahead even on a Thursday; the Leaderboard asks "who
  * performed best this week?", which needs fixed week boundaries. Do not unify them.
- *
- * Completed tasks are excluded — a finished task is not pending attention.
  */
-export function countDue(tasks: Task[], now: Date, days = 7): number {
+export function countNeedsAttention(tasks: Task[], now: Date, days = 7): number {
   const horizon = addDays(now, days);
 
   return tasks.filter((task) => {
     if (task.status === "done") return false;
     // `<= horizon` covers overdue too, since past days are below the horizon.
-    return startOfDay(new Date(task.deadline)) <= horizon;
+    return startOfDay(parseDateOnly(task.deadline)) <= horizon;
   }).length;
 }
 
@@ -120,7 +148,7 @@ export interface TodayFocusCounts {
 export function getTodayFocusCounts(tasks: Task[], now: Date): TodayFocusCounts {
   return {
     open: countOpen(tasks),
-    due: countDue(tasks, now),
+    due: countNeedsAttention(tasks, now),
     done: countDoneThisMonth(tasks, now),
   };
 }
@@ -128,19 +156,18 @@ export function getTodayFocusCounts(tasks: Task[], now: Date): TodayFocusCounts 
 /* ═══════════════════════════════════════════════════════════════════════════
    BACKEND NOTE
    ═══════════════════════════════════════════════════════════════════════════
-   These helpers exist so the frontend can compute counters over mock data while
-   the backend is being built. Once tasks come from Supabase, move the counting
-   to the server (a view or RPC returning `{ open, due, done }` for a member) and
-   keep this file only for whatever the client still derives locally.
+   العدّ بيصير بالكلاينت هون لأن تاسكات العضو الواحد رقم صغير، فجلبها كاملة
+   أرخص من round-trip إضافي لكل عدّاد.
 
-   The rules above are the contract the server must implement:
+   بس الـ Leaderboard و Team Performance بيعدّوا عبر **كل** الأعضاء — هدول
+   لازم ينتقلوا لـ RPC بالسيرفر، لأن جلب تاسكات الاستوديو كامل للمتصفح
+   عشان تعدّها محليًا ما بيتوسّع.
+
+   القواعد اللي لازم السيرفر ينفّذها بالحرف:
      OPEN → status <> 'done'
-     DUE  → status <> 'done' AND deadline::date <= current_date + 7
-             (overdue is included by construction)
+     DUE  → status <> 'done' AND end_date <= current_date + 7
      DONE → status = 'done' AND completed_at BETWEEN <period start> AND <period end>
 
-   Period boundaries belong on the server in the studio's timezone, not the
-   visitor's — the same rule already stated for the Leaderboard. The month used by
-   the DONE card and the month used by the Leaderboard's Monthly view MUST be the
-   identical range, or the two screens will disagree.
+   حدود الفترة تُحسب بتوقيت الاستوديو، مش توقيت الزائر — وإلا الشهر بكارد
+   DONE والشهر باللوحة بيختلفوا لبعض المستخدمين.
    ═══════════════════════════════════════════════════════════════════════════ */

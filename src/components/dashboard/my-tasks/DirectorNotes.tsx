@@ -1,3 +1,4 @@
+// src/components/dashboard/my-tasks/DirectorNotes.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, memo } from "react";
@@ -5,71 +6,14 @@ import { LazyMotion, domMax, m, AnimatePresence } from "framer-motion";
 import { X, Send, CheckCheck, ChevronDown, ChevronUp, Clock3 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useLang } from "@/context/LangContext";
+import type {
+  MemberCommentDTO,
+  MemberDirectorNoteDTO,
+} from "@/app/(dashboard)/my-tasks/notesActions";
 
 /* ─── Types ─────────────────────────────────────────────────────────────────── */
-export interface MemberComment {
-  id:         string;
-  authorId:   string;
-  authorName: string;
-  text:       string;
-  createdAt:  string;
-}
-
-export interface DirectorNote {
-  id:       string;
-  title:    string;
-  content:  string;
-  color:    string;
-  priority: "low" | "medium" | "high";
-  isRead:   boolean;
-  /**
-   * When the member first opened this note. `null` while unread.
-   * Kept alongside `isRead` so the director can see not just *whether* a note was
-   * read but *when* — useful when chasing up an unacknowledged instruction.
-   * The server should treat the first read as final and ignore later writes.
-   */
-  readAt:   string | null;
-  comments: MemberComment[];
-  createdAt:string;
-}
-
-/* ─── API stubs ─────────────────────────────────────────────────────────────── */
-// GET  /api/director-notes
-// POST /api/director-notes/:id/read
-// POST /api/director-notes/:id/comments
-
-/**
- * Marks a note read. Returns the authoritative `readAt` from the server so the
- * client never invents its own timestamp — the member's clock may be wrong, and
- * this value is shown to the director.
- */
-async function apiMarkRead(id: string): Promise<{ readAt: string }> {
-  void id;
-  return { readAt: new Date().toISOString() };
-}
-
-async function apiAddComment(noteId: string, text: string): Promise<MemberComment> {
-  void noteId;
-  return { id: crypto.randomUUID(), authorId:"current-user", authorName:"KB",
-    text, createdAt: new Date().toISOString() };
-}
-
-/* ─── Demo seed ─────────────────────────────────────────────────────────────── */
-const DEMO: DirectorNote[] = [
-  { id:"dn1", title:"Character Rigging Feedback",
-    content:"The shoulder deformation needs more weight painting work. Please review the collarbone area — it's collapsing on extreme poses. Reference the approved concept sheets in the shared folder.",
-    color:"#458482", priority:"high", isRead:false, readAt:null, comments:[], createdAt:"2026-05-14T10:00:00Z" },
-  { id:"dn2", title:"Walk Cycle — Great Progress",
-    content:"The timing is much better on the latest version. Just polish the foot plant on frame 12 and we're good to go. Also make sure the secondary motion on the hair is subtle.",
-    color:"#5ea8a4", priority:"medium", isRead:true, readAt:"2026-05-13T10:12:00Z",
-    comments:[{ id:"c1", authorId:"current-user", authorName:"KB",
-      text:"Understood, will fix the foot plant and reduce the hair secondary motion.",
-      createdAt:"2026-05-14T11:30:00Z" }],
-    createdAt:"2026-05-13T09:00:00Z" },
-  { id:"dn3", title:"Deadline Reminder",
-    content:"All deliverables for Phase 1 are due May 23rd EOD. Please upload final files to the shared drive and send a completion report.",
-    color:"#f59e0b", priority:"high", isRead:false, readAt:null, comments:[], createdAt:"2026-05-12T08:00:00Z" },
-];
+export type MemberComment = MemberCommentDTO;
+export type DirectorNote = MemberDirectorNoteDTO & { clientKey?: string };
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
 function fmtDate(iso: string, lang: string) {
@@ -87,11 +31,19 @@ function hexToRgba(hex: string, a: number) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+/*
+  اللون مشتق من الأولوية مش مخزّن بالداتابيز — نفس القيم بكارد الأدمن
+  بالضبط، فما في لون بيتناقض مع الأولوية.
+*/
 const PRIORITY = {
   high:   { en:"High",   ar:"عالية",  color:"#ef4444" },
-  medium: { en:"Medium", ar:"متوسطة", color:"#f59e0b" },
+  medium: { en:"Medium", ar:"متوسطة", color:"#e0a740" },
   low:    { en:"Low",    ar:"منخفضة", color:"#22c55e" },
 };
+
+function noteColorOf(note: DirectorNote): string {
+  return PRIORITY[note.priority].color;
+}
 
 // ─── Module-level constants (zero per-render allocation) ───────────────────────
 
@@ -118,39 +70,42 @@ const PreviewCard = memo(function PreviewCard({ note, active, isDark, lang, onSe
   lang: string; onSelect: (note: DirectorNote) => void;
 }) {
   const p = PRIORITY[note.priority];
+  const color = p.color;
 
   const containerStyle = useMemo<React.CSSProperties>(() => ({
     background: active
-      ? hexToRgba(note.color, isDark ? 0.18 : 0.10)
+      ? hexToRgba(color, isDark ? 0.18 : 0.10)
       : isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
     border: active
-      ? `1px solid ${hexToRgba(note.color, 0.35)}`
+      ? `1px solid ${hexToRgba(color, 0.35)}`
       : `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
-  }), [active, isDark, note.color]);
+  }), [active, isDark, color]);
 
   const topLineStyle = useMemo<React.CSSProperties>(() => ({
-    height:"2px", background:note.color, opacity: active ? 1 : 0.6,
-  }), [note.color, active]);
+    height:"2px", background:color, opacity: active ? 1 : 0.6,
+  }), [color, active]);
 
   const titleStyle = useMemo<React.CSSProperties>(() => ({
     color: TEXT_MAIN, fontFamily: lang==="ar" ? "var(--font-arabic)" : "inherit",
   }), [lang]);
 
   const openBadgeStyle = useMemo<React.CSSProperties>(() => ({
-    background: hexToRgba(note.color,0.2), color: note.color,
-  }), [note.color]);
+    background: hexToRgba(color,0.2), color,
+  }), [color]);
 
   const priorityBadgeStyle = useMemo<React.CSSProperties>(() => ({
-    background: hexToRgba(p.color,0.15), color: p.color,
-  }), [p.color]);
+    background: hexToRgba(color,0.15), color,
+  }), [color]);
 
   const previewTextStyle = useMemo<React.CSSProperties>(() => ({
     color: TEXT_MUTED, fontFamily: lang==="ar" ? "var(--font-arabic)" : "inherit",
   }), [lang]);
 
   const dateRowStyle = useMemo<React.CSSProperties>(() => ({
-    color: hexToRgba(note.color,0.85),
-  }), [note.color]);
+    color: hexToRgba(color,0.85),
+  }), [color]);
+
+  const handleClick = useCallback(() => onSelect(note), [onSelect, note]);
 
   return (
     <m.button
@@ -160,7 +115,7 @@ const PreviewCard = memo(function PreviewCard({ note, active, isDark, lang, onSe
       exit={{ opacity:0, y:-8 }}
       whileHover={{ scale:1.012, transition:{ duration:0.15 } }}
       whileTap={{ scale:0.985 }}
-      onClick={() => onSelect(note)}
+      onClick={handleClick}
       className="relative w-full overflow-hidden rounded-2xl p-4.5 text-start block cursor-pointer"
       style={containerStyle}
     >
@@ -211,7 +166,7 @@ const PreviewCard = memo(function PreviewCard({ note, active, isDark, lang, onSe
                 💬 {note.comments.length}
               </span>
             )}
-            {note.isRead && <CheckCheck className="w-3.5 h-3.5" style={{ color:note.color }}/>}
+            {note.isRead && <CheckCheck className="w-3.5 h-3.5" style={{ color }}/>}
           </div>
         </div>
       </div>
@@ -220,9 +175,9 @@ const PreviewCard = memo(function PreviewCard({ note, active, isDark, lang, onSe
 });
 
 /* ─── CommentBubble ──────────────────────────────────────────────────────────── */
-const CommentBubble = memo(function CommentBubble({ comment, isDark, accentColor, lang, isRTL }: {
+const CommentBubble = memo(function CommentBubble({ comment, isDark, accentColor, lang, isRTL, youLabel }: {
   comment: MemberComment; isDark: boolean;
-  accentColor: string; lang: string; isRTL: boolean;
+  accentColor: string; lang: string; isRTL: boolean; youLabel: string;
 }) {
   const bubbleStyle = useMemo<React.CSSProperties>(() => ({
     background: isDark ? hexToRgba(accentColor,0.1) : hexToRgba(accentColor,0.08),
@@ -234,7 +189,10 @@ const CommentBubble = memo(function CommentBubble({ comment, isDark, accentColor
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between" style={ROW_STYLE}>
-        <span className="text-[10px] font-bold" style={{ color:accentColor }}>{comment.authorName}</span>
+        {/* اسم فاضي من السيرفر = تعليقك إنت */}
+        <span className="text-[10px] font-bold" style={{ color:accentColor }}>
+          {comment.authorName || youLabel}
+        </span>
         <span className="text-[10px]" style={MUTED_TEXT_STYLE}>{fmtTime(comment.createdAt, lang)}</span>
       </div>
       <div className="rounded-xl px-3 py-2 text-[11px] leading-relaxed" style={bubbleStyle}>
@@ -245,7 +203,18 @@ const CommentBubble = memo(function CommentBubble({ comment, isDark, accentColor
 });
 
 /* ─── Main Component ─────────────────────────────────────────────────────────── */
-function DirectorNotes() {
+function DirectorNotes({
+  notes,
+  loading = false,
+  onMarkRead,
+  onAddComment,
+}: {
+  notes: DirectorNote[];
+  loading?: boolean;
+  /** فتح الملاحظة هو اللي بيعلّمها مقروءة — ما في زر منفصل. */
+  onMarkRead: (noteId: string) => void;
+  onAddComment: (noteId: string, text: string) => void;
+}) {
   const { theme }       = useTheme();
   const { lang, isRTL } = useLang();
   const isDark          = theme === "dark";
@@ -258,11 +227,9 @@ function DirectorNotes() {
   const inputBg     = isDark ? "var(--input-bg)"       : "#f9f9f3";
   const inputBorder = isDark ? "var(--input-border)"   : "rgba(0,0,0,0.10)";
 
-  const [notes,           setNotes]          = useState<DirectorNote[]>(DEMO);
   const [selectedId,      setSelectedId]     = useState<string | null>(null);
   const [panelOpen,       setPanelOpen]      = useState(false);
   const [commentText,     setCommentText]    = useState("");
-  const [sending,         setSending]        = useState(false);
   const [showAllComments, setShowAllComments]= useState(false);
 
   /* The panel renders from `notes` via the selected id rather than holding its own
@@ -287,6 +254,7 @@ function DirectorNotes() {
     title:      lang==="ar" ? "ملاحظات المدير"      : "Director Notes",
     open:       lang==="ar" ? "فتح"                  : "Open",
     empty:      lang==="ar" ? "لا توجد ملاحظات"     : "No notes yet",
+    loading:    lang==="ar" ? "جارٍ التحميل"        : "Loading...",
     readAt:     lang==="ar" ? "تمت القراءة"          : "Read",
     marking:    lang==="ar" ? "جارٍ التعليم كمقروءة" : "Marking as read",
     comments:   lang==="ar" ? "التعليقات"            : "Comments",
@@ -297,6 +265,7 @@ function DirectorNotes() {
     from:       lang==="ar" ? "من المدير"            : "From Director",
     allNotes:   lang==="ar" ? "كل الملاحظات"         : "All Notes",
     unread:     lang==="ar" ? "ملاحظات غير مقروءة"  : "unread notes",
+    you:        lang==="ar" ? "أنت"                  : "You",
   }), [lang]);
 
   const unreadCount = useMemo(() => notes.filter(n => !n.isRead).length, [notes]);
@@ -305,6 +274,8 @@ function DirectorNotes() {
     if (!selectedNote) return [];
     return showAllComments ? selectedNote.comments : selectedNote.comments.slice(-COMMENTS_PREVIEW);
   }, [selectedNote, showAllComments]);
+
+  const selectedColor = selectedNote ? noteColorOf(selectedNote) : "#458482";
 
   /* ── Composite dynamic styles (memoized so unrelated re-renders — e.g. typing — don't recompute them) ── */
   const headerRowStyle = useMemo<React.CSSProperties>(() => ({
@@ -326,23 +297,21 @@ function DirectorNotes() {
     }
   ), [isMobile, panelBg, border, isRTL]);
 
-  const selectedPriorityBadgeStyle = useMemo<React.CSSProperties>(() => {
-    if (!selectedNote) return {};
-    const c = PRIORITY[selectedNote.priority].color;
-    return { background: hexToRgba(c,0.15), color:c };
-  }, [selectedNote]);
+  const selectedPriorityBadgeStyle = useMemo<React.CSSProperties>(() => (
+    { background: hexToRgba(selectedColor,0.15), color:selectedColor }
+  ), [selectedColor]);
 
   const noteContentBorderStyle = useMemo<React.CSSProperties>(() => (
-    selectedNote ? { border:`1px solid ${hexToRgba(selectedNote.color,0.2)}` } : {}
-  ), [selectedNote]);
+    { border:`1px solid ${hexToRgba(selectedColor,0.2)}` }
+  ), [selectedColor]);
 
   const noteContentBodyStyle = useMemo<React.CSSProperties>(() => (
-    selectedNote ? { background:hexToRgba(selectedNote.color, isDark?0.08:0.05) } : {}
-  ), [selectedNote, isDark]);
+    { background:hexToRgba(selectedColor, isDark?0.08:0.05) }
+  ), [selectedColor, isDark]);
 
   const noteClockColorStyle = useMemo<React.CSSProperties>(() => (
-    selectedNote ? { color:hexToRgba(selectedNote.color,0.85) } : {}
-  ), [selectedNote]);
+    { color:hexToRgba(selectedColor,0.85) }
+  ), [selectedColor]);
 
   const noteContentTextStyle = useMemo<React.CSSProperties>(() => ({
     color: TEXT_MAIN, fontFamily: lang==="ar"?"var(--font-arabic)":"inherit",
@@ -350,8 +319,8 @@ function DirectorNotes() {
   }), [lang, isRTL]);
 
   const readStatusStyle = useMemo<React.CSSProperties>(() => (
-    selectedNote ? { color: selectedNote.isRead ? selectedNote.color : TEXT_MUTED } : {}
-  ), [selectedNote]);
+    selectedNote ? { color: selectedNote.isRead ? selectedColor : TEXT_MUTED } : {}
+  ), [selectedNote, selectedColor]);
 
   const noCommentsStyle = useMemo<React.CSSProperties>(() => ({
     color: TEXT_MUTED, fontFamily: lang==="ar"?"var(--font-arabic)":"inherit",
@@ -366,53 +335,27 @@ function DirectorNotes() {
   /**
    * Opening a note is what marks it read — there is no separate button, since the
    * note is shown in a dedicated panel and opening it is unambiguous.
-   *
-   * The update is optimistic: the badge drops immediately rather than after a
-   * round trip, and is rolled back if the request fails. Every write targets the
-   * note by id, so switching notes mid-request can never mark the wrong one.
+   * التحديث المتفائل بيصير بالأب، فالبادچ بينزل فورًا وبيتراجع لو فشل.
    */
-  const openNote = useCallback(async (note: DirectorNote) => {
+  const openNote = useCallback((note: DirectorNote) => {
     setSelectedId(note.id);
     setPanelOpen(true);
     setCommentText("");
     setShowAllComments(false);
 
-    if (note.isRead) return;
-
-    const optimisticReadAt = new Date().toISOString();
-    setNotes(prev => prev.map(n =>
-      n.id === note.id ? { ...n, isRead: true, readAt: optimisticReadAt } : n
-    ));
-
-    try {
-      const { readAt } = await apiMarkRead(note.id);
-      // Replace the optimistic timestamp with the server's authoritative one.
-      setNotes(prev => prev.map(n => n.id === note.id ? { ...n, readAt } : n));
-    } catch {
-      // Roll back so the unread counter stays truthful.
-      setNotes(prev => prev.map(n =>
-        n.id === note.id ? { ...n, isRead: false, readAt: null } : n
-      ));
-    }
-  }, []);
+    if (!note.isRead) onMarkRead(note.id);
+  }, [onMarkRead]);
 
   const closePanel = useCallback(() => {
     setPanelOpen(false);
     setTimeout(() => { setSelectedId(null); setCommentText(""); }, 300);
   }, []);
 
-  const handleSendComment = useCallback(async () => {
+  const handleSendComment = useCallback(() => {
     if (!selectedNote || !commentText.trim()) return;
-    const noteId = selectedNote.id;
-    setSending(true);
-    try {
-      const newComment = await apiAddComment(noteId, commentText.trim());
-      setNotes(prev => prev.map(n =>
-        n.id === noteId ? { ...n, comments: [...n.comments, newComment] } : n
-      ));
-      setCommentText("");
-    } finally { setSending(false); }
-  }, [selectedNote, commentText]);
+    onAddComment(selectedNote.id, commentText.trim());
+    setCommentText("");
+  }, [selectedNote, commentText, onAddComment]);
 
   const handleOpenFirst = useCallback(() => {
     if (notes.length > 0) openNote(notes[0]);
@@ -448,7 +391,8 @@ function DirectorNotes() {
             )}
           </div>
           <button onClick={handleOpenFirst}
-            className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all"
+            disabled={notes.length === 0}
+            className="px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background:"transparent", color:"var(--foreground-muted)", border:`1px solid ${divider}` }}
             onMouseEnter={handleHoverBgEnter}
             onMouseLeave={handleHoverBgLeave}
@@ -460,7 +404,15 @@ function DirectorNotes() {
         {/* Preview */}
         <div className="flex flex-col gap-2 p-3">
           <AnimatePresence>
-            {preview.length === 0 ? (
+            {loading ? (
+              <div className="flex items-center justify-center py-8" style={MUTED_TEXT_STYLE}>
+                <span className="text-[12px] font-medium"
+                  style={{ fontFamily:lang==="ar"?"var(--font-arabic)":"inherit" }}
+                >
+                  {tx.loading}
+                </span>
+              </div>
+            ) : preview.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 gap-2" style={MUTED_TEXT_STYLE}>
                 <span className="text-2xl">📋</span>
                 <span className="text-[12px] font-medium"
@@ -471,7 +423,7 @@ function DirectorNotes() {
               </div>
             ) : (
               preview.map(note => (
-                <PreviewCard key={note.id} note={note}
+                <PreviewCard key={note.clientKey ?? note.id} note={note}
                   active={false} isDark={isDark} lang={lang}
                   onSelect={openNote}
                 />
@@ -522,15 +474,15 @@ function DirectorNotes() {
 
               {/* Panel header */}
               <div className="px-5 py-4 flex items-center justify-between shrink-0" style={headerRowStyle}>
-                <div className="flex items-center gap-2" style={ROW_STYLE}>
+                <div className="flex items-center gap-2 min-w-0" style={ROW_STYLE}>
                   <span className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ background:selectedNote.color }}
+                    style={{ background:selectedColor }}
                   />
-                  <h3 className="text-sm font-bold" style={titleTextStyle}>
+                  <h3 className="text-sm font-bold truncate" style={titleTextStyle}>
                     {selectedNote.title}
                   </h3>
                 </div>
-                <div className="flex items-center gap-2" style={ROW_STYLE}>
+                <div className="flex items-center gap-2 shrink-0" style={ROW_STYLE}>
                   <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full"
                     style={selectedPriorityBadgeStyle}
                   >
@@ -553,7 +505,7 @@ function DirectorNotes() {
                 {/* Note content */}
                 <div className="p-5" style={{ borderBottom:`1px solid ${divider}` }}>
                   <div className="rounded-2xl overflow-hidden" style={noteContentBorderStyle}>
-                    <div className="h-[3px] w-full" style={{ background:selectedNote.color }}/>
+                    <div className="h-[3px] w-full" style={{ background:selectedColor }}/>
                     <div className="p-5" style={noteContentBodyStyle}>
                       <div className="flex items-center justify-between mb-4" style={ROW_STYLE}>
                         <span className="text-[10px] font-semibold" style={MUTED_TEXT_STYLE}>
@@ -597,7 +549,7 @@ function DirectorNotes() {
                       {selectedNote.comments.length > COMMENTS_PREVIEW && (
                         <button onClick={handleToggleComments}
                           className="flex items-center gap-1 text-[10px] font-semibold cursor-pointer w-fit"
-                          style={{ color:selectedNote.color }}
+                          style={{ color:selectedColor }}
                         >
                           {showAllComments
                             ? <><ChevronUp className="w-3 h-3"/>{tx.showLess}</>
@@ -610,8 +562,8 @@ function DirectorNotes() {
                             initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-6 }}
                           >
                             <CommentBubble comment={c} isDark={isDark}
-                              accentColor={selectedNote.color}
-                              lang={lang} isRTL={isRTL}
+                              accentColor={selectedColor}
+                              lang={lang} isRTL={isRTL} youLabel={tx.you}
                             />
                           </m.div>
                         ))}
@@ -627,21 +579,19 @@ function DirectorNotes() {
                       placeholder={tx.addComment} rows={2}
                       onKeyDown={e=>{ if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)) handleSendComment(); }}
                       style={{ flex:1, background:inputBg,
-                        border:`1px solid ${commentText?selectedNote.color:inputBorder}`,
+                        border:`1px solid ${commentText?selectedColor:inputBorder}`,
                         borderRadius:"12px", padding:"10px 12px", fontSize:"12px",
                         color:TEXT_MAIN, outline:"none", resize:"none",
                         fontFamily:lang==="ar"?"var(--font-arabic)":"inherit",
                         direction:isRTL?"rtl":"ltr", transition:"border-color 0.15s" }}
                     />
                     <button onClick={handleSendComment}
-                      disabled={!commentText.trim()||sending}
-                      className="w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all shrink-0"
-                      style={{ background:commentText.trim()?selectedNote.color:(isDark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.05)"),
-                        color:commentText.trim()?"#fff":"var(--foreground-muted)", opacity:sending?0.6:1 }}
+                      disabled={!commentText.trim()}
+                      className="w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all shrink-0 disabled:cursor-not-allowed"
+                      style={{ background:commentText.trim()?selectedColor:(isDark?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.05)"),
+                        color:commentText.trim()?"#fff":"var(--foreground-muted)" }}
                     >
-                      {sending
-                        ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin"/>
-                        : <Send className="w-3.5 h-3.5" style={{ transform:isRTL?"scaleX(-1)":"none" }}/>}
+                      <Send className="w-3.5 h-3.5" style={{ transform:isRTL?"scaleX(-1)":"none" }}/>
                     </button>
                   </div>
                   <p className="text-[10px]" style={MUTED_TEXT_STYLE}>
@@ -656,7 +606,7 @@ function DirectorNotes() {
                   <div className="flex flex-col gap-2">
                     <AnimatePresence>
                       {notes.map(note => (
-                        <PreviewCard key={note.id} note={note}
+                        <PreviewCard key={note.clientKey ?? note.id} note={note}
                           active={selectedNote.id===note.id} isDark={isDark} lang={lang}
                           onSelect={openNote}
                         />

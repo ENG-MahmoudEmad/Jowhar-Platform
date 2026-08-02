@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/server';
 import {
   canAccessAdminControl,
   canManage,
+  canOpen,
   type Actor,
   type Target,
 } from '@/lib/permissions/hierarchy';
@@ -86,16 +87,12 @@ export async function hasCapability(
 }
 
 /**
- * الحارس الكامل لأي إجراء بيمسّ عضو معيّن:
- * actor صالح + يحمل المفتاح + مسموح له يتحكم بهذا العضو تحديدًا.
- *
- * `allowSelf` لأن كل واحد يقدر يضيف لنفسه تاسكات، بينما `canManage`
- * بترجع false على النفس (ما حدا يقدر يوقّف نفسه أو يغيّر دوره).
+ * حارس الإجراءات الإدارية الثقيلة: إيقاف، تغيير دور، منح صلاحية.
+ * الـ Chief والـ Developer محميين منها تمامًا، وما حدا بيديرها على نفسه.
  */
 export async function requireManagedTarget(
   memberId: string,
-  permissionKey: string,
-  options: { allowSelf?: boolean } = {}
+  permissionKey: string
 ) {
   const { supabase, actor } = await requireAdminActor();
 
@@ -103,12 +100,38 @@ export async function requireManagedTarget(
     throw new Error('forbidden');
   }
 
-  if (options.allowSelf && memberId === actor.id) {
+  const target = await loadTarget(supabase, memberId);
+  if (!canManage(actor, target)) throw new Error('forbidden');
+
+  return { supabase, actor, target };
+}
+
+/**
+ * حارس "الفتح": إضافة تاسك أو ملاحظة — أوسع من الإدارة.
+ *
+ * كل واحد يقدر يفتح صفه، والـ Chief والـ Developer يفتحوا أي حد بما فيهم
+ * بعض. إضافة تاسكة أو ملاحظة مش تدخّل بالصلاحيات، فما في سبب تمنعها عن
+ * الـ Chief — هذا اللي كان بيمنع الـ Developer من إعطاء الـ Chief تاسكات.
+ *
+ * مطابق لـ `can_open_member()` بالداتابيز (مايجريشن 011) — أي تعديل هون
+ * لازم يقابله مايجريشن، والعكس (درس #9).
+ */
+export async function requireOpenableTarget(
+  memberId: string,
+  permissionKey: string
+) {
+  const { supabase, actor } = await requireAdminActor();
+
+  if (!(await hasCapability(supabase, actor, permissionKey))) {
+    throw new Error('forbidden');
+  }
+
+  if (memberId === actor.id) {
     return { supabase, actor, target: null };
   }
 
   const target = await loadTarget(supabase, memberId);
-  if (!canManage(actor, target)) throw new Error('forbidden');
+  if (!canOpen(actor, target)) throw new Error('forbidden');
 
   return { supabase, actor, target };
 }

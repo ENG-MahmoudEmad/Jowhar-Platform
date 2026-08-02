@@ -5,7 +5,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { canManage } from '@/lib/permissions/hierarchy';
-import { requireAdminActor, requireManagedTarget, loadTarget, fullName } from './guards';
+import { requireAdminActor, requireOpenableTarget, loadTarget, fullName } from './guards';
 
 const CAPABILITY = 'admin.add_task';
 
@@ -147,9 +147,7 @@ export async function listMemberTasks(memberId: string): Promise<TaskDTO[]> {
 // إضافة تاسك
 // ===========================================================
 export async function createTask(memberId: string, values: TaskInput): Promise<TaskDTO> {
-  const { supabase, actor } = await requireManagedTarget(memberId, CAPABILITY, {
-    allowSelf: true,
-  });
+  const { supabase, actor } = await requireOpenableTarget(memberId, CAPABILITY);
 
   const title = values.title.trim();
   const description = values.description.trim();
@@ -198,7 +196,7 @@ export async function setTaskStatus(taskId: string, status: TaskStatus) {
 
   if (!task) throw new Error('not_found');
 
-  await requireManagedTarget(task.assigned_to, CAPABILITY, { allowSelf: true });
+  await requireOpenableTarget(task.assigned_to, CAPABILITY);
 
   // completed_at بتتظبط تلقائيًا بـ trigger — ما بنبعتها من هون
   const { error } = await supabase.from('tasks').update({ status }).eq('id', taskId);
@@ -222,7 +220,7 @@ export async function deleteTask(taskId: string) {
   if (!task) throw new Error('not_found');
 
   // (1) لازم تقدر تدير العضو المكلّف
-  await requireManagedTarget(task.assigned_to, CAPABILITY, { allowSelf: true });
+  await requireOpenableTarget(task.assigned_to, CAPABILITY);
 
   /*
     (2) ولازم تقدر تدير اللي ضاف التاسك.

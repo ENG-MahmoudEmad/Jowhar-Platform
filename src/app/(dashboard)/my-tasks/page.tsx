@@ -1,23 +1,54 @@
-//src\app\(dashboard)\my-tasks\page.tsx
+// src/app/(dashboard)/my-tasks/page.tsx
+import { createClient } from '@/lib/supabase/server';
+import { hexToHsl } from '@/lib/color';
+import { listMyTasks } from './actions';
+import { listMyDirectorNotes, listMyNotes } from './notesActions';
+import MyTasksClient from './MyTasksClient';
 
-import MyTasksHero      from "@/components/dashboard/my-tasks/MyTasksHero";
-import PersonalCalendar from "@/components/dashboard/my-tasks/PersonalCalendar";
-import MyNotes          from "@/components/dashboard/my-tasks/MyNotes";
-import DirectorNotes    from "@/components/dashboard/my-tasks/DirectorNotes";
+const FALLBACK_COLOR = '#0d9488';
 
-export default function MyTasksPage() {
+export default async function MyTasksPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('first_name, last_name, color')
+    .eq('id', user?.id ?? '')
+    .single();
+
+  /*
+    التلاتة مستقلين عن بعض، فبنجيبهم بالتوازي بدل ما ننتظر كل واحد يخلص
+    قبل ما يبلّش اللي بعده.
+  */
+  const [tasks, directorNotes, myNotes] = await Promise.all([
+    listMyTasks(),
+    listMyDirectorNotes(),
+    listMyNotes(),
+  ]);
+
+  /*
+    الاسم واللون كانوا مكتوبين يدويًا بالكومبوننت (`name="KB"`, `hue={170}`).
+    اللون بيجي من `profiles.color` — نفس المصدر اللي بيلوّن العضو بكل مكان
+    تاني بالمنصة (القرار المعماري #7).
+  */
+  const accentColor = profile?.color || FALLBACK_COLOR;
+  const { hue, sat } = hexToHsl(accentColor);
+
+  const name = `${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim() || '—';
+
   return (
     <div className="max-w-6xl mx-auto space-y-8">
-      <MyTasksHero />
-
-      <section>
-        <PersonalCalendar accentColor="#458482" />
-      </section>
-
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <MyNotes />
-        <DirectorNotes />
-      </section>
+      <MyTasksClient
+        initialTasks={tasks}
+        initialDirectorNotes={directorNotes}
+        initialMyNotes={myNotes}
+        userId={user?.id ?? ''}
+        name={name}
+        hue={hue}
+        sat={sat}
+        accentColor={accentColor}
+      />
     </div>
   );
 }

@@ -3,10 +3,11 @@
 
 import React, { memo, useMemo, useState, useCallback, useEffect } from 'react';
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
-import { NotebookPen, Send, Trash2, ArrowLeft, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react';
+import { NotebookPen, Send, Trash2, ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, CheckCheck } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
-import type { DirectorNoteDTO, NoteReplyDTO } from '@/app/(dashboard)/adminControl/notesActions';
+import SkeletonRows from './SkeletonRows';
+import type { DirectorNoteDTO, NoteReplyDTO, NotePriority } from '@/app/(dashboard)/adminControl/notesActions';
 
 type Lang = 'en' | 'ar';
 
@@ -20,10 +21,6 @@ export type DirectorNote = DirectorNoteDTO;
 type DirectorNotesStyle = React.CSSProperties & Record<`--dn-${string}`, string>;
 
 // ---- Layout constants ----
-// Same fixed-height-list pattern as MembersControl: the notes list always
-// reserves space for 5 rows, so the card's footprint doesn't jump around
-// as notes are added/removed. The conversation view reuses the same height
-// so switching views doesn't resize the card either.
 const ROW_MIN_HEIGHT_PX = 64;
 const VISIBLE_ROWS = 5;
 const LIST_HEIGHT_PX = ROW_MIN_HEIGHT_PX * VISIBLE_ROWS;
@@ -43,18 +40,35 @@ const VIEW_TRANSITION = {
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
+/*
+  اللون مشتق من الأولوية مش مخزّن — فما في لون بيتناقض مع الأولوية،
+  ولا منتقي ألوان زايد بفورم المدير. نفس القيم بجهة العضو بالضبط.
+*/
+const PRIORITY_COLORS: Record<NotePriority, string> = {
+  low: '#22c55e',
+  medium: '#e0a740',
+  high: '#ef4444',
+};
+
+const PRIORITY_ORDER: NotePriority[] = ['low', 'medium', 'high'];
+
 const TEXT = {
   en: {
     title: 'Director Notes',
     subtitle: 'Feedback visible on their My Tasks page',
+    titlePlaceholder: 'Note title...',
     placeholder: 'Write a note for this member...',
     send: 'Add Note',
     empty: 'No notes yet',
     loading: 'Loading notes...',
-    deleteConfirm: 'Delete this note?',
     confirm: 'Delete',
     cancel: 'Cancel',
-    // Conversation view
+    priority: 'Priority',
+    priorityLow: 'Low',
+    priorityMedium: 'Medium',
+    priorityHigh: 'High',
+    readAt: 'Read',
+    unread: 'Not read yet',
     conversation: 'Conversation',
     back: 'Back to notes',
     prev: 'Previous note',
@@ -69,14 +83,19 @@ const TEXT = {
   ar: {
     title: 'ملاحظات المدير',
     subtitle: 'ملاحظات ظاهرة بصفحة تاسكاته',
+    titlePlaceholder: 'عنوان الملاحظة...',
     placeholder: 'اكتب ملاحظة لهذا العضو...',
     send: 'إضافة ملاحظة',
     empty: 'لا توجد ملاحظات بعد',
     loading: 'جارِ تحميل الملاحظات...',
-    deleteConfirm: 'حذف هذه الملاحظة؟',
     confirm: 'حذف',
     cancel: 'إلغاء',
-    // Conversation view
+    priority: 'الأولوية',
+    priorityLow: 'منخفضة',
+    priorityMedium: 'متوسطة',
+    priorityHigh: 'عالية',
+    readAt: 'قرأها',
+    unread: 'لم تُقرأ بعد',
     conversation: 'المحادثة',
     back: 'رجوع للملاحظات',
     prev: 'الملاحظة السابقة',
@@ -89,6 +108,12 @@ const TEXT = {
     you: 'أنت',
   },
 } satisfies Record<Lang, Record<string, string>>;
+
+function priorityLabel(p: NotePriority, copy: (typeof TEXT)[Lang]): string {
+  if (p === 'high') return copy.priorityHigh;
+  if (p === 'low') return copy.priorityLow;
+  return copy.priorityMedium;
+}
 
 function getPalette(isDark: boolean): DirectorNotesStyle {
   return {
@@ -141,6 +166,7 @@ const NoteRow = memo(function NoteRow({
   isLast,
   isRTL,
   lang,
+  copy,
   confirmingDelete,
   onRequestDelete,
   onConfirmDelete,
@@ -151,15 +177,16 @@ const NoteRow = memo(function NoteRow({
   isLast: boolean;
   isRTL: boolean;
   lang: Lang;
+  copy: (typeof TEXT)[Lang];
   confirmingDelete: boolean;
   onRequestDelete: (id: string) => void;
   onConfirmDelete: (id: string) => void;
   onCancelDelete: () => void;
   onOpen: (id: string) => void;
 }) {
-  const copy = TEXT[lang];
   const unread = countUnreadReplies(note);
   const replyCount = note.replies.length;
+  const color = PRIORITY_COLORS[note.priority];
 
   const handleOpen = useCallback(() => onOpen(note.id), [onOpen, note.id]);
 
@@ -173,19 +200,49 @@ const NoteRow = memo(function NoteRow({
       className="group flex items-start justify-between gap-3 px-4 py-3 transition-colors hover:bg-[var(--dn-row-hover)] sm:px-5"
       style={{ borderBottom: isLast ? 'none' : '1px solid var(--dn-divider)' }}
     >
-      {/* The whole text block opens the thread — the row is the natural target,
-          not a small icon. */}
       <button
         type="button"
         onClick={handleOpen}
         aria-label={copy.openThread}
         className="min-w-0 flex-1 cursor-pointer text-start"
       >
-        <p className="text-sm font-medium leading-snug text-[var(--dn-text-main)]">{note.text}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: color }}
+            aria-hidden="true"
+          />
+          <p className="truncate text-sm font-bold leading-snug text-[var(--dn-text-main)]">
+            {note.title}
+          </p>
+        </div>
+
+        <p className="mt-0.5 truncate ps-3.5 text-[11px] font-medium text-[var(--dn-text-muted)]">
+          {note.text}
+        </p>
+
+        <div className="mt-1 flex flex-wrap items-center gap-2 ps-3.5">
           <span className="text-[10px] font-medium text-[var(--dn-text-muted)]">
             {formatTimestamp(note.createdAt, lang)}
           </span>
+
+          {/* إيصال القراءة — بيقول للمدير إذا العضو فتحها أصلاً */}
+          {note.memberReadAt ? (
+            <span
+              className="flex items-center gap-1 text-[10px] font-medium"
+              style={{ color, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+            >
+              <CheckCheck size={11} aria-hidden="true" />
+              {copy.readAt}
+            </span>
+          ) : (
+            <span
+              className="text-[10px] font-medium text-[var(--dn-text-muted)] opacity-70"
+              style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+            >
+              {copy.unread}
+            </span>
+          )}
 
           {replyCount > 0 && (
             <span className="flex items-center gap-1 text-[10px] font-medium text-[var(--dn-text-muted)]">
@@ -328,7 +385,7 @@ function DirectorNotes({
   notes: DirectorNote[];
   loading?: boolean;
   /** الحالة مرفوعة للصفحة — الكارد بيطلب، والأب بيحدّث ويتراجع لو فشل. */
-  onCreateNote: (memberId: string, text: string) => void;
+  onCreateNote: (memberId: string, input: { title: string; text: string; priority: NotePriority }) => void;
   onAddReply: (noteId: string, text: string) => void;
   onDeleteNote: (noteId: string) => void;
   onMarkSeen: (noteId: string) => void;
@@ -341,10 +398,11 @@ function DirectorNotes({
   const copy = TEXT[lang as Lang];
   const palette = useMemo(() => getPalette(isDark), [isDark]);
 
+  const [titleDraft, setTitleDraft] = useState('');
   const [draft, setDraft] = useState('');
+  const [priority, setPriority] = useState<NotePriority>('medium');
   const [replyDraft, setReplyDraft] = useState('');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  /** `null` = list view, otherwise the id of the note whose thread is open. */
   const [openNoteId, setOpenNoteId] = useState<string | null>(null);
 
   const sortedNotes = useMemo(
@@ -361,8 +419,6 @@ function DirectorNotes({
 
   const totalUnread = useMemo(() => countUnreadRepliesForNotes(notes), [notes]);
 
-  /* Report upward whenever the count changes, so the members list badge and this
-     card can never disagree. */
   useEffect(() => {
     onUnreadChange?.(memberId, totalUnread);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -372,7 +428,6 @@ function DirectorNotes({
     setOpenNoteId(id);
     setReplyDraft('');
     setDeleteTargetId(null);
-    // فتح المحادثة هو اللي بيعلّم ردود العضو كمقروءة
     onMarkSeen(id);
   }, [onMarkSeen]);
 
@@ -381,7 +436,6 @@ function DirectorNotes({
     setReplyDraft('');
   }, []);
 
-  /** Arrow navigation through the notes without returning to the list. */
   const handleStep = useCallback((direction: 1 | -1) => {
     if (openIndex < 0) return;
     const nextIndex = openIndex + direction;
@@ -395,17 +449,20 @@ function DirectorNotes({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      const title = titleDraft.trim();
       const text = draft.trim();
-      if (!text) return;
+      if (!title || !text) return;
 
       /*
         بعد الحفظ الملاحظة بتظهر بمكانين تانيين:
         قسم Director Notes بصفحة My Tasks تبع العضو، وعدّاد جرس الإشعارات عنده.
       */
-      onCreateNote(memberId, text);
+      onCreateNote(memberId, { title, text, priority });
+      setTitleDraft('');
       setDraft('');
+      setPriority('medium');
     },
-    [draft, onCreateNote, memberId]
+    [titleDraft, draft, priority, onCreateNote, memberId]
   );
 
   const handleSendReply = useCallback(
@@ -431,6 +488,7 @@ function DirectorNotes({
 
   const hasPrev = openIndex > 0;
   const hasNext = openIndex >= 0 && openIndex < sortedNotes.length - 1;
+  const canSubmit = Boolean(titleDraft.trim() && draft.trim());
 
   return (
     <LazyMotion features={domAnimation}>
@@ -469,18 +527,16 @@ function DirectorNotes({
               {openNote ? copy.conversation : copy.title}
             </h2>
             <p className="mt-0.5 truncate text-[10px] font-medium text-[var(--dn-text-muted)]">
-              {openNote ? formatTimestamp(openNote.createdAt, lang as Lang) : copy.subtitle}
+              {openNote ? openNote.title : copy.subtitle}
             </p>
           </div>
 
-          {/* Unread total (list view) */}
           {!openNote && totalUnread > 0 && (
             <span className="ms-auto shrink-0 rounded-full bg-[#ef4444] px-2.5 py-1 text-[10px] font-black text-white">
               {totalUnread}
             </span>
           )}
 
-          {/* Arrow navigation between notes (conversation view) */}
           {openNote && (
             <div className="ms-auto flex shrink-0 items-center gap-1">
               <span className="me-1 text-[10px] font-medium text-[var(--dn-text-muted)]">
@@ -493,9 +549,7 @@ function DirectorNotes({
                 aria-label={copy.prev}
                 className="cursor-pointer rounded-lg p-1.5 text-[var(--dn-text-muted)] transition-colors hover:bg-[var(--dn-input-bg)] hover:text-[var(--dn-text-main)] disabled:cursor-not-allowed disabled:opacity-30"
               >
-                {isRTL
-                  ? <ChevronRight size={14} aria-hidden="true" />
-                  : <ChevronLeft size={14} aria-hidden="true" />}
+                {isRTL ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronLeft size={14} aria-hidden="true" />}
               </button>
               <button
                 type="button"
@@ -504,15 +558,13 @@ function DirectorNotes({
                 aria-label={copy.next}
                 className="cursor-pointer rounded-lg p-1.5 text-[var(--dn-text-muted)] transition-colors hover:bg-[var(--dn-input-bg)] hover:text-[var(--dn-text-main)] disabled:cursor-not-allowed disabled:opacity-30"
               >
-                {isRTL
-                  ? <ChevronLeft size={14} aria-hidden="true" />
-                  : <ChevronRight size={14} aria-hidden="true" />}
+                {isRTL ? <ChevronLeft size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
               </button>
             </div>
           )}
         </div>
 
-        {/* ---------- Body: list view or conversation view ---------- */}
+        {/* ---------- Body ---------- */}
         {openNote ? (
           <m.div
             key={`thread-${openNote.id}`}
@@ -529,8 +581,27 @@ function DirectorNotes({
                   border: '1px solid rgba(69,132,130,0.25)',
                 }}
               >
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <p className="truncate text-sm font-bold text-[var(--dn-text-main)]">{openNote.title}</p>
+                  <span
+                    className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black"
+                    style={{
+                      backgroundColor: `${PRIORITY_COLORS[openNote.priority]}26`,
+                      color: PRIORITY_COLORS[openNote.priority],
+                      fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                    }}
+                  >
+                    {priorityLabel(openNote.priority, copy)}
+                  </span>
+                </div>
                 <p className="text-sm font-medium leading-snug text-[var(--dn-text-main)]">
                   {openNote.text}
+                </p>
+                <p className="mt-2 text-[10px] font-medium text-[var(--dn-text-muted)]">
+                  {formatTimestamp(openNote.createdAt, lang as Lang)}
+                  {openNote.memberReadAt
+                    ? ` · ${copy.readAt} ${formatTimestamp(openNote.memberReadAt, lang as Lang)}`
+                    : ` · ${copy.unread}`}
                 </p>
               </div>
             </div>
@@ -579,43 +650,73 @@ function DirectorNotes({
             animate={{ opacity: 1, x: 0 }}
             transition={VIEW_TRANSITION}
           >
-            <form onSubmit={handleSubmit} className="flex items-start gap-2 border-b border-[var(--dn-divider)] p-4 sm:p-5">
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={copy.placeholder}
-                rows={2}
-                className="w-full resize-none rounded-lg border border-[var(--dn-border)] bg-[var(--dn-input-bg)] px-3 py-2 text-sm font-medium text-[var(--dn-text-main)] outline-none placeholder:text-[var(--dn-text-muted)] focus:border-[#458482]/40"
+            <form onSubmit={handleSubmit} className="flex flex-col gap-2 border-b border-[var(--dn-divider)] p-4 sm:p-5">
+              <input
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                placeholder={copy.titlePlaceholder}
+                maxLength={120}
+                className="w-full rounded-lg border border-[var(--dn-border)] bg-[var(--dn-input-bg)] px-3 py-2 text-sm font-bold text-[var(--dn-text-main)] outline-none placeholder:font-medium placeholder:text-[var(--dn-text-muted)] focus:border-[#458482]/40"
               />
-              <button
-                type="submit"
-                disabled={!draft.trim()}
-                aria-label={copy.send}
-                className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#458482] p-2.5 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Send size={14} aria-hidden="true" style={{ transform: isRTL ? 'scaleX(-1)' : 'none' }} />
-              </button>
+
+              <div className="flex items-start gap-2">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={copy.placeholder}
+                  rows={2}
+                  className="w-full resize-none rounded-lg border border-[var(--dn-border)] bg-[var(--dn-input-bg)] px-3 py-2 text-sm font-medium text-[var(--dn-text-main)] outline-none placeholder:text-[var(--dn-text-muted)] focus:border-[#458482]/40"
+                />
+                <button
+                  type="submit"
+                  disabled={!canSubmit}
+                  aria-label={copy.send}
+                  className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#458482] p-2.5 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Send size={14} aria-hidden="true" style={{ transform: isRTL ? 'scaleX(-1)' : 'none' }} />
+                </button>
+              </div>
+
+              {/* Priority — أزرار مباشرة بدل dropdown، 3 خيارات بس */}
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="me-1 text-[9px] font-black uppercase tracking-wide text-[var(--dn-text-muted)]"
+                  style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                >
+                  {copy.priority}
+                </span>
+                {PRIORITY_ORDER.map((p) => {
+                  const active = priority === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setPriority(p)}
+                      aria-pressed={active}
+                      className="cursor-pointer rounded-full px-2.5 py-1 text-[9px] font-black transition-colors"
+                      style={{
+                        backgroundColor: active ? `${PRIORITY_COLORS[p]}26` : 'var(--dn-input-bg)',
+                        color: active ? PRIORITY_COLORS[p] : 'var(--dn-text-muted)',
+                        border: `1px solid ${active ? `${PRIORITY_COLORS[p]}59` : 'transparent'}`,
+                        fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                      }}
+                    >
+                      {priorityLabel(p, copy)}
+                    </button>
+                  );
+                })}
+              </div>
             </form>
 
-            {/*
-              Fixed-height viewport = exactly 5 rows worth of space, same pattern
-              as MembersControl's member list — keeps the card's footprint
-              constant whether there are 0 notes or 20.
-            */}
             <div
               className="bg-[var(--dn-bg)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--dn-scrollbar-thumb)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--dn-scrollbar-thumb)]"
               style={{ height: LIST_HEIGHT_PX }}
             >
+
               {loading ? (
-                <div className="flex h-full items-center justify-center">
-                  <p
-                    className="text-xs font-medium text-[var(--dn-text-muted)]"
-                    style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                  >
-                    {copy.loading}
-                  </p>
-                </div>
+                <SkeletonRows />
               ) : sortedNotes.length === 0 ? (
+
                 <div className="flex h-full items-center justify-center">
                   <p className="text-xs font-medium text-[var(--dn-text-muted)]">{copy.empty}</p>
                 </div>
@@ -628,6 +729,7 @@ function DirectorNotes({
                       isLast={i === sortedNotes.length - 1}
                       isRTL={isRTL}
                       lang={lang as Lang}
+                      copy={copy}
                       confirmingDelete={deleteTargetId === note.id}
                       onRequestDelete={handleRequestDelete}
                       onConfirmDelete={handleConfirmDelete}
