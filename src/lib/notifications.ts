@@ -1,15 +1,22 @@
 // src/lib/notifications.ts
 // أنواع الإشعارات ومساعداتها — مشتركة بين الجرس وصفحة "عرض الكل" لاحقًا.
+//
+// ⚠️ لازم تطابق enum `notification_type` بالداتابيز حرفيًا (مايجريشن 016).
+// أي قيمة هون بدون مقابل بالـ enum، أو العكس، بتفشل بصمت أو بتكسر الواجهة —
+// نفس الدرس اللي ضربنا فيه بمايجريشن 018 (cast الأنواع).
 
 export type NotificationType =
-  | 'task_assigned'      // تاسك جديدة انعطتلك
-  | 'note_received'      // ملاحظة مدير جديدة
-  | 'note_reply'         // رد على ملاحظة
-  | 'signup_pending'     // طلب تسجيل بانتظار الموافقة (للأدمن)
-  | 'account_approved'   // حسابك انقبل
-  | 'account_rejected'   // حسابك انرفض
-  | 'email_rejected'     // طلب تغيير الإيميل انرفض
-  | 'news_published';    // خبر جديد
+  | 'task_assigned'          // تاسك جديدة انعطتلك
+  | 'note_received'          // ملاحظة مدير جديدة
+  | 'note_reply'             // رد على ملاحظة
+  | 'signup_pending'         // طلب تسجيل بانتظار الموافقة (للأدمن)
+  | 'signup_resolved'        // فلان حسم طلب تسجيل (لباقي الأدمنية)
+  | 'account_approved'       // حسابك انقبل
+  | 'account_rejected'       // حسابك انرفض
+  | 'email_change_pending'   // طلب تغيير إيميل بانتظار الموافقة (للأدمن)
+  | 'email_change_approved'  // تمت الموافقة على تغيير إيميلك
+  | 'email_change_rejected'  // تم رفض تغيير إيميلك
+  | 'news_published';        // خبر جديد
 
 export interface AppNotification {
   id: string;
@@ -35,10 +42,6 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/**
- * "منذ ساعتين" بدل تاريخ كامل: بالإشعارات السؤال دايمًا "قدّيش صار له"
- * مش "إمتى بالضبط".
- */
 export function relativeTime(iso: string, lang: string, now = Date.now()): string {
   const diff = Math.max(0, now - new Date(iso).getTime());
   const isAr = lang === 'ar';
@@ -86,10 +89,6 @@ export function groupOf(iso: string, now = Date.now()): NotificationGroup {
   return 'older';
 }
 
-/**
- * تجميع مرتّب: الأحدث أولاً داخل كل مجموعة، والمجموعات بترتيب ثابت.
- * بيرجّع المجموعات غير الفاضية بس عشان الواجهة ما تعرض عناوين بلا محتوى.
- */
 export function groupNotifications(
   items: AppNotification[],
   now = Date.now()

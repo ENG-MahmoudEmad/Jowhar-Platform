@@ -2,24 +2,37 @@
 "use client";
 
 import React, { memo, useCallback, useMemo } from 'react';
-import { ListTodo, NotebookPen, MessageSquare, UserPlus, CheckCircle2, XCircle, Newspaper } from 'lucide-react';
+import {
+  ListTodo, NotebookPen, MessageSquare, UserPlus, UserCheck,
+  CheckCircle2, XCircle, Mail, Newspaper, Bell,
+} from 'lucide-react';
 import { useLang } from '@/context/LangContext';
 import { relativeTime, type AppNotification, type NotificationType } from '@/lib/notifications';
 
 /*
   شارة صغيرة على الأفاتار بتقول نوع الحدث — أسرع من قراءة الجملة كاملة
   لما تكون بتمسح القائمة بسرعة.
+
+  ⚠️ Record<NotificationType, ...> كامل عن قصد: لو نوع جديد انضاف
+  بالـ enum بالداتابيز ونُسي هون، TypeScript بيرفض يبني — بدل ما ينهار
+  وقت التشغيل زي ما صار (meta === undefined).
 */
 const TYPE_META: Record<NotificationType, { Icon: React.ComponentType<{ size?: number; className?: string }>; color: string }> = {
-  task_assigned:    { Icon: ListTodo,      color: '#458482' },
-  note_received:    { Icon: NotebookPen,   color: '#e0a740' },
-  note_reply:       { Icon: MessageSquare, color: '#458482' },
-  signup_pending:   { Icon: UserPlus,      color: '#8b5cf6' },
-  account_approved: { Icon: CheckCircle2,  color: '#10b981' },
-  account_rejected: { Icon: XCircle,       color: '#ef4444' },
-  email_rejected:   { Icon: XCircle,       color: '#ef4444' },
-  news_published:   { Icon: Newspaper,     color: '#3b82f6' },
+  task_assigned:          { Icon: ListTodo,      color: '#458482' },
+  note_received:          { Icon: NotebookPen,   color: '#e0a740' },
+  note_reply:             { Icon: MessageSquare, color: '#458482' },
+  signup_pending:         { Icon: UserPlus,      color: '#8b5cf6' },
+  signup_resolved:        { Icon: UserCheck,     color: '#8b5cf6' },
+  account_approved:       { Icon: CheckCircle2,  color: '#10b981' },
+  account_rejected:       { Icon: XCircle,       color: '#ef4444' },
+  email_change_pending:   { Icon: Mail,          color: '#e0a740' },
+  email_change_approved:  { Icon: CheckCircle2,  color: '#10b981' },
+  email_change_rejected:  { Icon: XCircle,       color: '#ef4444' },
+  news_published:         { Icon: Newspaper,     color: '#3b82f6' },
 };
+
+/* حارس أخير: لو نوع ما بالخريطة لأي سبب، أيقونة محايدة بدل انهيار الصفحة */
+const FALLBACK_META = { Icon: Bell, color: '#458482' };
 
 function initialsOf(name: string | null): string {
   if (!name) return '•';
@@ -38,7 +51,7 @@ function NotificationItem({
   const { lang, isRTL } = useLang();
   const arabicFont = lang === 'ar' ? 'var(--font-arabic)' : 'inherit';
 
-  const meta = TYPE_META[notification.type];
+  const meta = TYPE_META[notification.type] ?? FALLBACK_META;
   const { Icon } = meta;
 
   /* الجملة بتتركّب هون مش بتتخزن — تغيير الصياغة ما بيحتاج migration */
@@ -55,11 +68,17 @@ function NotificationItem({
         return isAr ? `${actor} رد على ملاحظة` : `${actor} replied to a note`;
       case 'signup_pending':
         return isAr ? `${actor} يطلب الانضمام` : `${actor} requested to join`;
+      case 'signup_resolved':
+        return isAr ? `${actor} حسم طلب انضمام` : `${actor} resolved a signup request`;
       case 'account_approved':
         return isAr ? 'تم تفعيل حسابك' : 'Your account was approved';
       case 'account_rejected':
         return isAr ? 'لم تتم الموافقة على حسابك' : 'Your account was not approved';
-      case 'email_rejected':
+      case 'email_change_pending':
+        return isAr ? `${actor} يطلب تغيير إيميله` : `${actor} requested an email change`;
+      case 'email_change_approved':
+        return isAr ? 'تمت الموافقة على تغيير إيميلك' : 'Your email change was approved';
+      case 'email_change_rejected':
         return isAr ? 'تم رفض طلب تغيير الإيميل' : 'Your email change was rejected';
       case 'news_published':
         return isAr ? `${actor} نشر خبراً جديداً` : `${actor} published an update`;
@@ -77,7 +96,6 @@ function NotificationItem({
       dir={isRTL ? 'rtl' : 'ltr'}
       className="group flex w-full items-start gap-3 px-4 py-3 text-start transition-colors"
       style={{
-        // خلفية خفيفة لغير المقروء — أوضح من نقطة لحالها لما تمسح بسرعة
         background: notification.isRead
           ? 'transparent'
           : (isDark ? 'rgba(69,132,130,0.06)' : 'rgba(69,132,130,0.05)'),
