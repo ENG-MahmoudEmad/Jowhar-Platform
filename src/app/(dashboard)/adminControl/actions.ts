@@ -13,6 +13,52 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { canManage } from '@/lib/permissions/hierarchy';
 import { requireAdminActor, loadTarget } from './guards';
 
+async function sendAccountApprovedEmail(email: string) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+
+  if (!apiKey || !from) return;
+
+  const subject = 'تم تفعيل حسابك | Your account was approved';
+  const text = [
+    'تم تفعيل حسابك بنجاح.',
+    'يمكنك الآن تسجيل الدخول إلى المنصة واستخدام حسابك.',
+    '',
+    'Your account has been approved.',
+    'You can now sign in and use your account.',
+  ].join('\n');
+
+  const html = `
+    <div style="direction:rtl;font-family:Arial,sans-serif;line-height:1.7;color:#1f2937;background:#f8fafc;padding:24px">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:32px">
+        <div style="font-size:20px;font-weight:700;margin-bottom:16px">تم تفعيل حسابك</div>
+        <p style="margin:0 0 12px">تم تفعيل حسابك بنجاح. يمكنك الآن تسجيل الدخول إلى المنصة واستخدام حسابك.</p>
+        <p style="margin:0;color:#4b5563">Your account has been approved. You can now sign in and use your account.</p>
+      </div>
+    </div>
+  `;
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: [email],
+      subject,
+      text,
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => '');
+    console.error('account_approved_email_failed', response.status, details);
+  }
+}
+
 // ===========================================================
 // Accept pending signup
 // ===========================================================
@@ -29,9 +75,16 @@ export async function acceptMember(memberId: string) {
     .eq('id', memberId)
     .eq('status', 'pending_approval'); // يمنع قبول طلب مش pending أصلاً (race condition)
 
-  if (error) throw new Error('accept_failed');
+  if (error) throw new Error(`accept_failed: ${error.message} (${error.code})`);
 
-  // TODO: إرسال إيميل "تم تفعيل حسابك" (Resend، متسق مع باقي القوالب الحالية)
+  const adminClient = createAdminClient();
+  const { data: authUser } = await adminClient.auth.admin.getUserById(memberId);
+  const email = authUser?.user?.email ?? null;
+
+  if (email) {
+    await sendAccountApprovedEmail(email);
+  }
+
   revalidatePath('/adminControl');
 }
 

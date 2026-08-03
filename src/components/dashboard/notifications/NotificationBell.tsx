@@ -106,7 +106,8 @@ function NotificationBell() {
           );
         }
       )
-      .subscribe();
+      // .subscribe();
+      .subscribe((status) => console.log('REALTIME:', status));
 
     return () => { void supabase.removeChannel(channel); };
   }, [userId]);
