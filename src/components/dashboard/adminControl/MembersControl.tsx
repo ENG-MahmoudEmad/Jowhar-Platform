@@ -344,6 +344,7 @@ const MemberRow = memo(function MemberRow({
 
   return (
     <div
+      id={`member-${member.id}`}
       role={isLocked ? undefined : 'button'}
       tabIndex={isLocked ? undefined : 0}
       title={isLocked ? copy.locked : undefined}
@@ -658,6 +659,8 @@ function MembersControl({
         {/* ---- Pending Approvals ---- */}
         {pending.length > 0 && (
           <m.section
+            // id للإشعارات: طلب تسجيل جديد بيودّي لـ `/adminControl#pending-approvals`
+            id="pending-approvals"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={CARD_TRANSITION}

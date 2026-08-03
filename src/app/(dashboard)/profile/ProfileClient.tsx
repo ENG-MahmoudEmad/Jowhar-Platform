@@ -2,6 +2,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { useScrollToHash } from '@/hooks/useScrollToHash';
 import { createClient } from '@/lib/supabase/client';
 import ProfileHero from '@/components/dashboard/profile/ProfileHero';
 import PersonalInfo, { type PendingEmail } from '@/components/dashboard/profile/PersonalInfo';
@@ -60,6 +61,9 @@ export default function ProfileClient({
 }) {
   const [name, setName] = useState(initialName);
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
+
+  // إشعار قبول/رفض تغيير الإيميل بيودّي لـ `/profile#email-field`
+  useScrollToHash();
   const [uploading, setUploading] = useState(false);
   const [color, setColor] = useState(memberColor);
   const [titles, setTitles] = useState({ en: initialJobTitleEn, ar: initialJobTitleAr });

@@ -2,8 +2,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { X } from 'lucide-react';
 import { useCurrentUser } from '@/context/UserContext';
+import { useScrollToHash } from '@/hooks/useScrollToHash';
 import { canEditRoles, canManage, type Actor } from '@/lib/permissions/hierarchy';
 import MembersControl, {
   type PendingRequest,
@@ -61,6 +63,19 @@ export default function AdminControlClient({
   const { user: currentUser } = useCurrentUser();
 
   /*
+    إشعار "رد على ملاحظة" (جهة الأدمن) بيودّي لـ
+    `/adminControl?member=<id>#note-<id>`. بدون هالسطر، الأدمن بيوصل
+    الصفحة وقدامه قائمة الأعضاء بس — لازم نختار العضو تلقائيًا قبل
+    أي محاولة سكرول، وإلا كارد الملاحظات أصلاً مش موجود بالـ DOM.
+  */
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const memberParam = searchParams.get('member');
+    if (memberParam) setSelectedMemberId(memberParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /*
     تاسكات وملاحظات العضو المختار.
     بتُجلب عند الاختيار مش مع تحميل الصفحة — الصفحة فيها كل الأعضاء، فجلب
     بيانات الجميع مسبقًا هدر واضح لطلبات ما رح تُستعمل أغلبها.
@@ -100,6 +115,16 @@ export default function AdminControlClient({
 
     return () => { active = false; };
   }, [selectedMemberId]);
+
+  /*
+    بعد ما `?member=` (لو موجود) يختار العضو ويجيب تاسكاته/ملاحظاته،
+    بندوّر على الـ hash. بدون الانتظار لـ notes/tasks، محاولة السكرول
+    كانت رح تصير قبل ما العنصر ينرسم بالـ DOM أصلاً.
+
+    غير مرتبط بعضو (زي `#pending-approvals`) بيشتغل من أول تحميل، لأن
+    القسم موجود بالصفحة دايمًا بغض النظر عن أي عضو مختار.
+  */
+  useScrollToHash([tasks, notes]);
 
   const actor: Actor | null = currentUser
     ? {

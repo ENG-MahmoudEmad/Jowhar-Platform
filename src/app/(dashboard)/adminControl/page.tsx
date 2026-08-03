@@ -21,8 +21,16 @@ export default async function AdminControlPage() {
     .eq('status', 'pending_approval')
     .order('created_at', { ascending: true });
 
-  // الإيميل مش موجود بجدول profiles — لازم auth.users عبر service role
-  const pending = await Promise.all(
+  /*
+    ⚠️ فلترة إلزامية: حساب ما أكّد إيميله لسا ما لازم يظهر هون إطلاقًا،
+    وإلا الأدمن بيقدر يوافق على حساب صاحبه لسا ما أثبت إنه يملك هالإيميل.
+
+    نفس المنطق بالضبط اللي بيحكم متى يوصل الإشعار (مايجريشن 020) —
+    لازم القائمة والإشعار يتفقوا، وإلا الأدمن بيشوف طلب بلا إشعار أو
+    العكس. الإيميل وحالة التأكيد الاتنين بـ auth.users، فبنجيبهم مع
+    بعض بنفس الاستدعاء بدل استعلامين منفصلين.
+  */
+  const pendingWithEmail = await Promise.all(
     (pendingProfiles ?? []).map(async (p) => {
       const { data: authUser } = await adminClient.auth.admin.getUserById(p.id);
       return {
@@ -30,9 +38,14 @@ export default async function AdminControlPage() {
         name: `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim(),
         email: authUser?.user?.email ?? '—',
         requestedAt: p.created_at,
+        isEmailConfirmed: Boolean(authUser?.user?.email_confirmed_at),
       };
     })
   );
+
+  const pending = pendingWithEmail
+    .filter((p) => p.isEmailConfirmed)
+    .map(({ id, name, email, requestedAt }) => ({ id, name, email, requestedAt }));
 
   // ---- Members List (كل الأعضاء active بمن فيهم الأدمن) ----
   const { data: memberProfiles } = await supabase

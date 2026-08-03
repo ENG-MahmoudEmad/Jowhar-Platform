@@ -37,6 +37,7 @@ textarea::-moz-selection {
   --font-display: var(--font-montserrat), sans-serif;
   --font-sans:    var(--font-inter), ui-sans-serif, system-ui;
   --font-arabic:  var(--font-cairo), sans-serif;
+  --font-arabic-quran: var(--font-amiri-quran), var(--font-cairo), sans-serif;
 
   --color-brand:       #458482;
   --color-brand-hover: #366b69;

@@ -2,6 +2,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { useScrollToHash } from '@/hooks/useScrollToHash';
 import MyTasksHero from '@/components/dashboard/my-tasks/MyTasksHero';
 import PersonalCalendar from '@/components/dashboard/my-tasks/PersonalCalendar';
 import MyNotes from '@/components/dashboard/my-tasks/MyNotes';
@@ -72,6 +73,17 @@ export default function MyTasksClient({
   const [tasks, setTasks] = useState(initialTasks);
   const [directorNotes, setDirectorNotes] = useState(() => withKeys(initialDirectorNotes));
   const [myNotes, setMyNotes] = useState(() => withKeys(initialMyNotes));
+
+  /*
+    إشعار تاسك جديدة بيودّي لـ `/my-tasks#task-<id>`. الـ hook بيدوّر
+    على id مطابق بالـ DOM ويسكرول له ويوهّجه.
+
+    ⚠️ حد معروف: PersonalCalendar بيعرض أسبوع واحد بس افتراضيًا. لو
+    التاسك المقصودة برّا الأسبوع المعروض حاليًا، الـ id ما بيكون
+    موجود بالـ DOM لحظة الوصول فما يصير سكرول — بس هذا safe no-op
+    مش خطأ، والعضو لسا بيقدر يلاقي التاسك يدويًا بالكاليندر.
+  */
+  useScrollToHash([tasks]);
 
   // =========================================================
   // Tasks

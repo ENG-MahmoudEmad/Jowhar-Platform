@@ -1,7 +1,7 @@
 // src/components/dashboard/my-tasks/DirectorNotes.tsx
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import { LazyMotion, domMax, m, AnimatePresence } from "framer-motion";
 import { X, Send, CheckCheck, ChevronDown, ChevronUp, Clock3 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
@@ -13,7 +13,7 @@ import type {
 
 /* ─── Types ─────────────────────────────────────────────────────────────────── */
 export type MemberComment = MemberCommentDTO;
-export type DirectorNote = MemberDirectorNoteDTO & { clientKey?: string };
+export type DirectorNote = MemberDirectorNoteDTO;
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
 function fmtDate(iso: string, lang: string) {
@@ -351,6 +351,31 @@ function DirectorNotes({
     setTimeout(() => { setSelectedId(null); setCommentText(""); }, 300);
   }, []);
 
+  /*
+    إشعار الرد/الملاحظة بيودّي لـ `/my-tasks#note-<id>`. الملاحظة مخبّية
+    وراء اللوحة (الكارد المطوي بيعرض آخر 3 بس)، فسكرول لصف معاينة مش
+    كافي — ممكن العنصر أصلاً مش ظاهر. الحل الصحيح: نفتح اللوحة على
+    الملاحظة المقصودة مباشرة، بنفس مسار `openNote` العادي.
+
+    `openedFromHashRef` بيمنع إعادة الفتح لو المستخدم سكّر اللوحة يدويًا
+    بعدها — بدون الحارس، أي إعادة رندر للأب (تحديث حالة تانية) كانت
+    رح تفتحها من جديد.
+  */
+  const openedFromHashRef = useRef(false);
+  useEffect(() => {
+    if (openedFromHashRef.current) return;
+    const hash = window.location.hash.replace('#', '');
+    if (!hash.startsWith('note-')) return;
+
+    const noteId = hash.slice('note-'.length);
+    const target = notes.find((n) => n.id === noteId);
+    if (!target) return; // إشعار لملاحظة انحذفت لاحقًا — safe no-op
+
+    openedFromHashRef.current = true;
+    openNote(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes]);
+
   const handleSendComment = useCallback(() => {
     if (!selectedNote || !commentText.trim()) return;
     onAddComment(selectedNote.id, commentText.trim());
@@ -423,7 +448,7 @@ function DirectorNotes({
               </div>
             ) : (
               preview.map(note => (
-                <PreviewCard key={note.clientKey ?? note.id} note={note}
+                <PreviewCard key={note.id} note={note}
                   active={false} isDark={isDark} lang={lang}
                   onSelect={openNote}
                 />
@@ -606,7 +631,7 @@ function DirectorNotes({
                   <div className="flex flex-col gap-2">
                     <AnimatePresence>
                       {notes.map(note => (
-                        <PreviewCard key={note.clientKey ?? note.id} note={note}
+                        <PreviewCard key={note.id} note={note}
                           active={selectedNote.id===note.id} isDark={isDark} lang={lang}
                           onSelect={openNote}
                         />

@@ -3,6 +3,7 @@
 
 import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useScrollToHash } from '@/hooks/useScrollToHash';
 import { createClient } from '@/lib/supabase/client';
 import ProfileHero from '@/components/dashboard/profile/ProfileHero';
 import PersonalInfo, { type PendingEmail } from '@/components/dashboard/profile/PersonalInfo';
@@ -52,6 +53,9 @@ export default function MemberProfileClient({
 
   const [name, setName] = useState(initialName);
   const [color, setColor] = useState(initialColor);
+
+  // إشعار طلب تغيير إيميل بيودّي لـ `/profile/<id>#email-change-request`
+  useScrollToHash();
   const [avatar, setAvatar] = useState(avatarUrl);
   const [uploading, setUploading] = useState(false);
   const [titles, setTitles] = useState({ en: jobTitleEn, ar: jobTitleAr });

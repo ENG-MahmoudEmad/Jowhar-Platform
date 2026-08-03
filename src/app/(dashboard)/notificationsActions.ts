@@ -2,11 +2,11 @@
 // قراءة الإشعارات وتعليمها — التوليد كله بـ triggers، فما في `create` هون.
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import type { AppNotification, NotificationType } from '@/lib/notifications';
 
 const PANEL_LIMIT = 20;
+const PAGE_SIZE = 25;
 const FALLBACK_COLOR = '#0d9488';
 
 type Row = {
@@ -90,6 +90,42 @@ export async function getNotification(id: string): Promise<AppNotification | nul
   return data ? toNotification(data as unknown as Row) : null;
 }
 
+/**
+ * صفحة كاملة من الإشعارات — لصفحة `/notifications`.
+ * `cursor` = createdAt آخر عنصر بالصفحة السابقة (keyset pagination بدل
+ * offset)، عشان صفحة جديدة توصل أثناء التصفح ما تزحزح النتائج.
+ */
+export async function listMyNotificationsPage(options: {
+  onlyUnread?: boolean;
+  cursor?: string | null;
+  limit?: number;
+} = {}): Promise<{ items: AppNotification[]; nextCursor: string | null }> {
+  const { supabase, userId } = await requireUser();
+  const limit = options.limit ?? PAGE_SIZE;
+
+  let query = supabase
+    .from('notifications')
+    .select(SELECT_COLUMNS)
+    .eq('recipient_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit + 1); // صف زيادة عشان نعرف إذا في صفحة تانية
+
+  if (options.onlyUnread) query = query.eq('is_read', false);
+  if (options.cursor) query = query.lt('created_at', options.cursor);
+
+  const { data, error } = await query;
+  if (error) throw new Error('notifications_fetch_failed');
+
+  const rows = data ?? [];
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+
+  return {
+    items: page.map((r) => toNotification(r as unknown as Row)),
+    nextCursor: hasMore ? page[page.length - 1].created_at : null,
+  };
+}
+
 export async function markNotificationRead(notificationId: string) {
   const { supabase, userId } = await requireUser();
 
@@ -113,4 +149,16 @@ export async function markAllNotificationsRead() {
     .eq('is_read', false);
 
   if (error) throw new Error('mark_all_failed');
+}
+
+export async function deleteNotification(notificationId: string) {
+  const { supabase, userId } = await requireUser();
+
+  const { error } = await supabase
+    .from('notifications')
+    .delete()
+    .eq('id', notificationId)
+    .eq('recipient_id', userId);
+
+  if (error) throw new Error('delete_failed');
 }

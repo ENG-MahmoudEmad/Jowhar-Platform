@@ -209,6 +209,11 @@ export default function PersonalInfo({
         <div style={{ height: '1px', background: divider }} />
 
         {/* ── Email ── */}
+        {/*
+          id للإشعارات: تمت الموافقة/الرفض على تغيير الإيميل بتودّي
+          لـ `/profile#email-field` — hook التوهيج العام بيدوّر عليه.
+        */}
+        <div id="email-field">
         <FieldRow
           label={tx.emailLabel}
           icon={<Mail className="w-3.5 h-3.5" />}
@@ -242,6 +247,7 @@ export default function PersonalInfo({
           onSave={saveEmail}
           onCancel={() => cancelEdit('email')}
         />
+        </div>
 
         {/* الإيميل الجديد المطلوب — معلومة مهمة كانت مخفية تمامًا */}
         {pendingEmail && (

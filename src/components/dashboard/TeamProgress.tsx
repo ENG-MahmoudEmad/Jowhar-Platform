@@ -6,50 +6,36 @@ import { ChevronRight, Users, X } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
 
-type TeamMember = {
-  id: number;
-  // Links this member record to their registered user account.
-  // Populated automatically once the member signs up / is approved
-  // (comes from the `users` table via Supabase once wired to the backend).
-  userId: number | null;
+// ─────────────────────────────────────────────────────────────────────────────
+// Data shape — matches what the server (page.tsx) hands down after mapping
+// the raw `get_team_progress()` RPC row. This component knows nothing about
+// Supabase, column names, or how the percentage was computed.
+// ─────────────────────────────────────────────────────────────────────────────
+export type TeamMemberData = {
+  id: string; // profiles.id (uuid) — also the auth user id, no separate userId anymore
   name: string;
   initials: string;
   role: string;
   roleAr: string;
-  progress: number;
   color: string;
-  tasks: number;
+  progress: number; // 0-100, computed server-side
+  tasksCount: number; // active (open) tasks, computed server-side
 };
 
 type Lang = 'en' | 'ar';
 type TeamProgressStyle = React.CSSProperties & Record<`--team-${string}`, string>;
 type MemberRowStyle = React.CSSProperties & Record<'--member-color', string>;
 
-// TODO: replace with the authenticated user's id from Auth/User context once available
-// (this should match a member's `userId`, i.e. currentUser.id from Supabase auth)
-const CURRENT_USER_ID = 1;
-
-// Full team roster (used for the "all members" popup). Dashboard/Calendar
-// only ever display the current user + 4 members alphabetically.
-// `userId` links each member to their account in the `users` table — set to
-// `null` for members who haven't completed signup yet (pending/invited),
-// and populated automatically once they sign up / get approved.
-const TEAM_MEMBERS: TeamMember[] = [
-  { id: 1, userId: 1, name: 'Ahmed', initials: 'AH', role: 'Lead Animator', roleAr: 'محرك رئيسي', progress: 85, color: '#458482', tasks: 12 },
-  { id: 2, userId: 2, name: 'Sarah', initials: 'SA', role: '3D Modeler', roleAr: 'مصممة ثلاثية', progress: 65, color: '#f59e0b', tasks: 8 },
-  { id: 3, userId: 3, name: 'Omar', initials: 'OM', role: 'VFX Artist', roleAr: 'فنان مؤثرات', progress: 40, color: '#ef4444', tasks: 4 },
-  { id: 4, userId: 4, name: 'Lina', initials: 'LI', role: 'Concept Artist', roleAr: 'فنانة مفاهيم', progress: 92, color: '#458482', tasks: 15 },
-  { id: 5, userId: 5, name: 'Yusuf', initials: 'YU', role: 'Sound Designer', roleAr: 'مصمم صوت', progress: 58, color: '#8b5cf6', tasks: 6 },
-  { id: 6, userId: 6, name: 'Nour', initials: 'NO', role: 'Storyboard Artist', roleAr: 'فنانة ستوري بورد', progress: 73, color: '#ec4899', tasks: 9 },
-  { id: 7, userId: 7, name: 'Khaled', initials: 'KH', role: 'Rigger', roleAr: 'مصمم تجهيزات', progress: 51, color: '#3b82f6', tasks: 5 },
-  { id: 8, userId: 8, name: 'Mariam', initials: 'MA', role: 'Editor', roleAr: 'مونتيرة', progress: 88, color: '#10b981', tasks: 11 },
-  { id: 9, userId: 9, name: 'Hamza', initials: 'HA', role: 'Writer', roleAr: 'كاتب', progress: 34, color: '#f97316', tasks: 3 },
-  { id: 10, userId: 10, name: 'Dana', initials: 'DA', role: 'Compositor', roleAr: 'مركبة مشاهد', progress: 79, color: '#06b6d4', tasks: 10 },
-];
+interface TeamProgressProps {
+  members: TeamMemberData[];
+  currentUserId: string;
+}
 
 const DASHBOARD_MEMBER_LIMIT = 5; // current user + 4 others
 
 // Progress bar color thresholds: 0–40% red, 40–70% yellow, 70%+ teal.
+// ⚠️ Keep in sync with the server-side thresholds if this ever moves there —
+// right now the RPC only returns the raw percentage, coloring stays client-side.
 const PROGRESS_COLOR_LOW = '#ef4444';
 const PROGRESS_COLOR_MID = '#f59e0b';
 const PROGRESS_COLOR_HIGH = '#458482';
@@ -65,13 +51,13 @@ function getProgressColor(progress: number): string {
  * alphabetically by name. Optionally truncates to `limit` entries.
  */
 function sortMembersForDisplay(
-  members: TeamMember[],
-  currentUserId: number,
+  members: TeamMemberData[],
+  currentUserId: string,
   limit?: number
-): TeamMember[] {
-  const current = members.filter((m) => m.userId === currentUserId);
+): TeamMemberData[] {
+  const current = members.filter((m) => m.id === currentUserId);
   const others = members
-    .filter((m) => m.userId !== currentUserId)
+    .filter((m) => m.id !== currentUserId)
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const ordered = [...current, ...others];
@@ -97,6 +83,7 @@ const TEXT = {
     activeTasks: (count: number) => `${count} Active Tasks`,
     allMembersTitle: 'All Team Members',
     close: 'Close',
+    empty: 'No team members to show yet',
   },
   ar: {
     title: 'أداء الفريق',
@@ -106,6 +93,7 @@ const TEXT = {
     activeTasks: (count: number) => `${count} مهمة نشطة`,
     allMembersTitle: 'كل أعضاء الفريق',
     close: 'إغلاق',
+    empty: 'لا يوجد أعضاء لعرضهم بعد',
   },
 } satisfies Record<Lang, {
   title: string;
@@ -115,6 +103,7 @@ const TEXT = {
   activeTasks: (count: number) => string;
   allMembersTitle: string;
   close: string;
+  empty: string;
 }>;
 
 function getPalette(isDark: boolean): TeamProgressStyle {
@@ -147,7 +136,7 @@ const TeamMemberRow = memo(function TeamMemberRow({
   activeTasksLabel,
   isCurrentUser,
 }: {
-  member: TeamMember;
+  member: TeamMemberData;
   index: number;
   isLast: boolean;
   isRTL: boolean;
@@ -228,7 +217,7 @@ const TeamMemberRow = memo(function TeamMemberRow({
   );
 });
 
-function TeamProgress() {
+function TeamProgress({ members, currentUserId }: TeamProgressProps) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
   const isDark = theme === 'dark';
@@ -237,13 +226,13 @@ function TeamProgress() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const dashboardMembers = useMemo(
-    () => sortMembersForDisplay(TEAM_MEMBERS, CURRENT_USER_ID, DASHBOARD_MEMBER_LIMIT),
-    []
+    () => sortMembersForDisplay(members, currentUserId, DASHBOARD_MEMBER_LIMIT),
+    [members, currentUserId]
   );
 
   const allMembersSorted = useMemo(
-    () => sortMembersForDisplay(TEAM_MEMBERS, CURRENT_USER_ID),
-    []
+    () => sortMembersForDisplay(members, currentUserId),
+    [members, currentUserId]
   );
 
   const openModal = useCallback(() => setIsModalOpen(true), []);
@@ -303,18 +292,27 @@ function TeamProgress() {
         </div>
 
         <div className="bg-[var(--team-bg)]">
-          {dashboardMembers.map((member, index) => (
-            <TeamMemberRow
-              key={member.id}
-              member={member}
-              index={index}
-              isLast={index === dashboardMembers.length - 1}
-              isRTL={isRTL}
-              lang={lang}
-              activeTasksLabel={copy.activeTasks(member.tasks)}
-              isCurrentUser={member.userId === CURRENT_USER_ID}
-            />
-          ))}
+          {dashboardMembers.length === 0 ? (
+            <p
+              className="p-6 text-center text-xs font-medium text-[var(--team-text-muted)]"
+              style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+            >
+              {copy.empty}
+            </p>
+          ) : (
+            dashboardMembers.map((member, index) => (
+              <TeamMemberRow
+                key={member.id}
+                member={member}
+                index={index}
+                isLast={index === dashboardMembers.length - 1}
+                isRTL={isRTL}
+                lang={lang}
+                activeTasksLabel={copy.activeTasks(member.tasksCount)}
+                isCurrentUser={member.id === currentUserId}
+              />
+            ))
+          )}
         </div>
 
         <div className="flex justify-center p-4 bg-[var(--team-footer-bg)] border-t border-[var(--team-divider)]">
@@ -380,18 +378,27 @@ function TeamProgress() {
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-[var(--team-bg)]">
-              {allMembersSorted.map((member, index) => (
-                <TeamMemberRow
-                  key={member.id}
-                  member={member}
-                  index={index}
-                  isLast={index === allMembersSorted.length - 1}
-                  isRTL={isRTL}
-                  lang={lang}
-                  activeTasksLabel={copy.activeTasks(member.tasks)}
-                  isCurrentUser={member.userId === CURRENT_USER_ID}
-                />
-              ))}
+              {allMembersSorted.length === 0 ? (
+                <p
+                  className="p-6 text-center text-xs font-medium text-[var(--team-text-muted)]"
+                  style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                >
+                  {copy.empty}
+                </p>
+              ) : (
+                allMembersSorted.map((member, index) => (
+                  <TeamMemberRow
+                    key={member.id}
+                    member={member}
+                    index={index}
+                    isLast={index === allMembersSorted.length - 1}
+                    isRTL={isRTL}
+                    lang={lang}
+                    activeTasksLabel={copy.activeTasks(member.tasksCount)}
+                    isCurrentUser={member.id === currentUserId}
+                  />
+                ))
+              )}
             </div>
           </m.div>
         </m.div>

@@ -1,12 +1,11 @@
 // src/components/dashboard/adminControl/DirectorNotes.tsx
 "use client";
 
-import React, { memo, useMemo, useState, useCallback, useEffect } from 'react';
+import React, { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
 import { NotebookPen, Send, Trash2, ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, CheckCheck } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
-import SkeletonRows from './SkeletonRows';
 import type { DirectorNoteDTO, NoteReplyDTO, NotePriority } from '@/app/(dashboard)/adminControl/notesActions';
 
 type Lang = 'en' | 'ar';
@@ -410,6 +409,28 @@ function DirectorNotes({
     [notes]
   );
 
+  /*
+    إشعار رد على ملاحظة (جهة الأدمن) بيودّي لـ
+    `/adminControl?member=<id>#note-<id>`. AdminControlClient بيختار
+    العضو من الـ query param، وهون بس بنفتح الملاحظة نفسها لما توصل.
+    الحارس بمنع إعادة الفتح لو الأدمن سكّرها يدويًا بعدين.
+  */
+  const openedFromHashRef = useRef(false);
+  useEffect(() => {
+    if (openedFromHashRef.current) return;
+    if (notes.length === 0) return;
+
+    const hash = window.location.hash.replace('#', '');
+    if (!hash.startsWith('note-')) return;
+
+    const noteId = hash.slice('note-'.length);
+    if (!notes.some((n) => n.id === noteId)) return;
+
+    openedFromHashRef.current = true;
+    setOpenNoteId(noteId);
+    onMarkSeen(noteId);
+  }, [notes, onMarkSeen]);
+
   const openIndex = useMemo(
     () => (openNoteId ? sortedNotes.findIndex((n) => n.id === openNoteId) : -1),
     [sortedNotes, openNoteId]
@@ -712,11 +733,16 @@ function DirectorNotes({
               className="bg-[var(--dn-bg)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--dn-scrollbar-thumb)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--dn-scrollbar-thumb)]"
               style={{ height: LIST_HEIGHT_PX }}
             >
-
               {loading ? (
-                <SkeletonRows />
+                <div className="flex h-full items-center justify-center">
+                  <p
+                    className="text-xs font-medium text-[var(--dn-text-muted)]"
+                    style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                  >
+                    {copy.loading}
+                  </p>
+                </div>
               ) : sortedNotes.length === 0 ? (
-
                 <div className="flex h-full items-center justify-center">
                   <p className="text-xs font-medium text-[var(--dn-text-muted)]">{copy.empty}</p>
                 </div>

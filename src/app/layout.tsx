@@ -1,6 +1,8 @@
+//src\app\layout.tsx
+
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { Inter, Montserrat, Cairo } from "next/font/google";
+import { Inter, Montserrat, Cairo, Amiri_Quran } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
 
@@ -20,6 +22,12 @@ const cairo = Cairo({
   subsets: ["arabic", "latin"],
   display: "swap",
   weight: ["400", "600", "700", "900"],
+});
+const amiriQuran = Amiri_Quran({
+  variable: "--font-amiri-quran",
+  subsets: ["arabic"],
+  display: "swap",
+  weight: "400", // الخط ده أصلاً بوزن واحد بس (Regular)
 });
 
 export const metadata: Metadata = {
@@ -47,7 +55,7 @@ export default async function RootLayout({
     <html
       lang={initialLang}
       dir={initialLang === "ar" ? "rtl" : "ltr"}
-      className={`${inter.variable} ${montserrat.variable} ${cairo.variable} h-full antialiased ${initialTheme}`}
+      className={`${inter.variable} ${montserrat.variable} ${cairo.variable} ${amiriQuran.variable} h-full antialiased ${initialTheme}`}
       suppressHydrationWarning
     >
       {/*

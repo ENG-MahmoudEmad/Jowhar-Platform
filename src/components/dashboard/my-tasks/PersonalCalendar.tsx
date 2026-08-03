@@ -230,7 +230,9 @@ const GanttTaskRow = memo(function GanttTaskRow({
   const handleHoverEnd = useCallback(() => setHovered(false), []);
 
   return (
-    <div className="flex items-center" style={rowStyle}>
+    // id ثابت — الإشعارات بتودّي لـ `/my-tasks#task-<id>`، وhook التوهيج
+    // بيدوّر عليه بـ getElementById.
+    <div id={`task-${task.id}`} className="flex items-center" style={rowStyle}>
       {/* Task bar area — full width */}
       <div className="flex-1 relative overflow-hidden" style={BAR_AREA_STYLE}>
 
