@@ -3,12 +3,13 @@
 "use client";
 
 import React, { memo, useCallback, useMemo } from 'react';
-import { Bell, Plus, Calendar as CalendarIcon, Sparkles, Menu } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Sparkles, Menu } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useCurrentUser } from '@/context/UserContext';
+import NotificationBell from '@/components/dashboard/notifications/NotificationBell';
 
 interface NavbarProps {
   onMenuClick?: () => void;
@@ -116,24 +117,6 @@ function Navbar({ onMenuClick }: NavbarProps) {
     [],
   );
 
-  const bellButtonStyle = useMemo<React.CSSProperties>(
-    () => ({
-      background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)',
-      border: '1px solid var(--card-border)',
-      color: TEXT_MUTED,
-    }),
-    [isDark],
-  );
-
-  const bellDotStyle = useMemo<React.CSSProperties>(
-    () => ({
-      background: '#458482',
-      borderColor: isDark ? '#0d1117' : '#F9F9F3',
-      boxShadow: '0 0 6px rgba(69,132,130,0.7)',
-    }),
-    [isDark],
-  );
-
   const handleHamburgerEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.style.color = TEXT_MAIN;
   }, []);
@@ -215,19 +198,11 @@ function Navbar({ onMenuClick }: NavbarProps) {
           <Plus size={17} />
         </motion.button>
 
-        {/* Bell */}
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className="relative p-2.5 rounded-xl cursor-pointer shrink-0"
-          style={bellButtonStyle}
-        >
-          <Bell size={17} />
-          <span
-            className="absolute top-2 right-2 w-2 h-2 rounded-full border-2"
-            style={bellDotStyle}
-          />
-        </motion.button>
+        {/*
+          الجرس واللوحة انفصلوا لكومبوننت خاص: الـ Navbar فيه منطق كافي،
+          وصف الإشعار رح يتكرر بصفحة /notifications لاحقًا.
+        */}
+        <NotificationBell />
       </div>
     </header>
   );
