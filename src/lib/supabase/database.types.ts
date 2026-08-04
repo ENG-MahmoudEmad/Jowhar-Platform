@@ -751,6 +751,20 @@ export type Database = {
           tasks_completed: number
         }[]
       }
+      get_leaderboard_history: {
+        Args: { p_period?: string }
+        Returns: {
+          avatar_url: string
+          color: string
+          current_streak: number
+          initials: string
+          member_id: string
+          name: string
+          times_first: number
+          times_second: number
+          times_third: number
+        }[]
+      }
       get_my_deadlines: {
         Args: never
         Returns: {

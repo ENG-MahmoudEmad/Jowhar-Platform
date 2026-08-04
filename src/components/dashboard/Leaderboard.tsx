@@ -1,11 +1,12 @@
 "use client"
 
 import React, { memo, useCallback, useMemo, useRef, useState } from 'react'
-import { LazyMotion, domAnimation, m, useMotionValue, useSpring, useTransform } from 'framer-motion'
-import { Trophy } from 'lucide-react'
+import { LazyMotion, domAnimation, m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
+import { Trophy, X, Flame } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import Avatar from '@/components/ui/Avatar'
+import { getLeaderboardHistory, type LeaderboardHistoryRow } from '@/app/(dashboard)/dashboard/actions'
 import type { MotionStyle } from "framer-motion";
 
 type Period = 'weekly' | 'monthly'
@@ -487,6 +488,32 @@ function Leaderboard({ weeklyEntries, monthlyEntries }: LeaderboardProps) {
 
   const [period, setPeriod] = useState<Period>('weekly')
 
+  // ── Hall of Fame — بتتحمّل بس لما تفتح، مش مع تحميل الصفحة ──
+  const [hallOpen, setHallOpen] = useState(false)
+  const [hallPeriod, setHallPeriod] = useState<Period>('weekly')
+  const [hallData, setHallData] = useState<Partial<Record<Period, LeaderboardHistoryRow[]>>>({})
+  const [hallLoading, setHallLoading] = useState(false)
+
+  const loadHallOfFame = useCallback((p: Period) => {
+    setHallLoading(true)
+    getLeaderboardHistory(p)
+      .then((rows) => setHallData(prev => ({ ...prev, [p]: rows })))
+      .catch(() => setHallData(prev => ({ ...prev, [p]: [] })))
+      .finally(() => setHallLoading(false))
+  }, [])
+
+  const openHallOfFame = useCallback(() => {
+    setHallOpen(true)
+    if (!hallData[hallPeriod]) loadHallOfFame(hallPeriod)
+  }, [hallData, hallPeriod, loadHallOfFame])
+
+  const closeHallOfFame = useCallback(() => setHallOpen(false), [])
+
+  const switchHallPeriod = useCallback((p: Period) => {
+    setHallPeriod(p)
+    if (!hallData[p]) loadHallOfFame(p)
+  }, [hallData, loadHallOfFame])
+
   const leaders = useMemo(
     () => (period === 'weekly' ? weeklyEntries : monthlyEntries),
     [period, weeklyEntries, monthlyEntries],
@@ -625,24 +652,45 @@ function Leaderboard({ weeklyEntries, monthlyEntries }: LeaderboardProps) {
               </div>
             </div>
 
-            {/* Weekly / Monthly toggle */}
-            <div className="flex shrink-0 items-center gap-1 rounded-xl p-1" style={toggleWrapStyle}>
-              {periods.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={period === key}
-                  onClick={() => setPeriod(key)}
-                  className="cursor-pointer rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors duration-200"
-                  style={{
-                    background: period === key ? '#458482' : 'transparent',
-                    color: period === key ? '#ffffff' : TEXT_MUTED,
-                    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                  }}
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={openHallOfFame}
+                title={lang === 'ar' ? 'قاعة الشهرة' : 'Hall of Fame'}
+                className="flex items-center gap-1.5 rounded-xl px-3 py-2 cursor-pointer transition-colors"
+                style={{
+                  background: toggleBg,
+                  color: '#f6a800',
+                }}
+              >
+                <Trophy size={14} aria-hidden="true" />
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline"
+                  style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
                 >
-                  {label}
-                </button>
-              ))}
+                  {lang === 'ar' ? 'قاعة الشهرة' : 'Hall of Fame'}
+                </span>
+              </button>
+
+              {/* Weekly / Monthly toggle */}
+              <div className="flex shrink-0 items-center gap-1 rounded-xl p-1" style={toggleWrapStyle}>
+                {periods.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={period === key}
+                    onClick={() => setPeriod(key)}
+                    className="cursor-pointer rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors duration-200"
+                    style={{
+                      background: period === key ? '#458482' : 'transparent',
+                      color: period === key ? '#ffffff' : TEXT_MUTED,
+                      fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -680,6 +728,141 @@ function Leaderboard({ weeklyEntries, monthlyEntries }: LeaderboardProps) {
           </m.div>
         </div>
       </m.div>
+
+      <AnimatePresence>
+        {hallOpen && (
+          <m.div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={closeHallOfFame}
+          >
+            <m.div
+              dir={isRTL ? 'rtl' : 'ltr'}
+              role="dialog"
+              aria-modal="true"
+              className="flex flex-col rounded-2xl overflow-hidden w-full"
+              style={{
+                maxWidth: 460,
+                maxHeight: '82vh',
+                background: bg,
+                border: `1px solid ${border}`,
+                boxShadow: isDark
+                  ? '0 0 0 1px rgba(255,255,255,0.04), 0 32px 80px rgba(0,0,0,0.7)'
+                  : '0 0 0 1px rgba(0,0,0,0.05), 0 32px 80px rgba(0,0,0,0.18)',
+              }}
+              initial={{ scale: 0.95, y: 16, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 16, opacity: 0 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 340, mass: 0.75 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between gap-3 px-6 py-5 shrink-0" style={headerStyle}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2 rounded-xl shrink-0" style={{ background: 'rgba(246,168,0,0.12)' }}>
+                    <Trophy size={17} style={{ color: '#f6a800' }} aria-hidden="true" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold tracking-widest" style={titleStyle}>
+                      {lang === 'ar' ? 'قاعة الشهرة' : 'Hall of Fame'}
+                    </h2>
+                    <p className="text-[10px] font-medium mt-0.5" style={SUBTITLE_STYLE}>
+                      {lang === 'ar' ? 'كل الأوقات — مين الأكتر تصدّرًا' : 'All-time — who topped the board most'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}
+                  onClick={closeHallOfFame}
+                  className="shrink-0 cursor-pointer rounded-xl p-2 transition-colors"
+                  style={{ color: TEXT_MUTED }}
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              {/* Weekly / Monthly toggle */}
+              <div className="flex justify-center gap-1 rounded-xl p-1 mx-6 mt-4" style={toggleWrapStyle}>
+                {periods.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={hallPeriod === key}
+                    onClick={() => switchHallPeriod(key)}
+                    className="flex-1 cursor-pointer rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors duration-200"
+                    style={{
+                      background: hallPeriod === key ? '#458482' : 'transparent',
+                      color: hallPeriod === key ? '#ffffff' : TEXT_MUTED,
+                      fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* List */}
+              <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4" style={{ overscrollBehavior: 'contain' }}>
+                {hallLoading ? (
+                  <p className="text-center text-[11px] font-medium py-10" style={{ color: TEXT_MUTED, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                    {lang === 'ar' ? 'جارٍ الحساب...' : 'Calculating...'}
+                  </p>
+                ) : !hallData[hallPeriod] || hallData[hallPeriod]!.length === 0 ? (
+                  <p className="text-center text-[11px] font-medium py-10" style={{ color: TEXT_MUTED, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                    {lang === 'ar' ? 'ما في تاريخ كافي بعد — لسا ما خلصت فترة كاملة' : 'Not enough history yet — no completed period so far'}
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {hallData[hallPeriod]!.map((row, idx) => (
+                      <div
+                        key={row.member_id}
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+                        style={{ background: idx === 0 ? 'rgba(246,168,0,0.08)' : 'transparent', border: `1px solid ${idx === 0 ? 'rgba(246,168,0,0.2)' : divider}` }}
+                      >
+                        <span className="w-4 shrink-0 text-center text-[10px] font-black" style={{ color: TEXT_MUTED }}>
+                          {idx + 1}
+                        </span>
+                        <Avatar
+                          avatarUrl={row.avatar_url}
+                          initials={row.initials}
+                          name={row.name}
+                          size={32}
+                          color={row.color}
+                          className="text-white font-bold shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[12px] font-bold truncate" style={{ color: TEXT_MAIN, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                            {row.name}
+                          </p>
+                          <div className="flex items-center gap-2.5 mt-0.5">
+                            <span className="text-[10px] font-semibold" style={{ color: '#f6a800' }}>🥇 {row.times_first}</span>
+                            <span className="text-[10px] font-semibold" style={{ color: '#94a3b8' }}>🥈 {row.times_second}</span>
+                            <span className="text-[10px] font-semibold" style={{ color: '#cd7f32' }}>🥉 {row.times_third}</span>
+                          </div>
+                        </div>
+                        {row.current_streak > 1 && (
+                          <div
+                            className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1"
+                            style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}
+                          >
+                            <Flame size={11} aria-hidden="true" />
+                            <span className="text-[10px] font-black">{row.current_streak}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </m.div>
+          </m.div>
+        )}
+      </AnimatePresence>
     </LazyMotion>
   )
 }
