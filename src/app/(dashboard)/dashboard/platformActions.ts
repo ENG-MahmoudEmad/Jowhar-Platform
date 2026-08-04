@@ -3,7 +3,6 @@
 // محمية بصلاحية platforms.manage (أو Chief/Developer ضمنيًا).
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { requireAdminActor, hasCapability } from '@/app/(dashboard)/adminControl/guards';
 
 const CAPABILITY = 'platforms.manage';
@@ -35,7 +34,6 @@ export async function addMemberToPlatform(
   if (error?.code === '23505') throw new Error('member_already_in_platform');
   if (error) throw new Error('add_member_failed');
 
-  revalidatePath('/dashboard');
 }
 
 // ===========================================================
@@ -52,7 +50,6 @@ export async function removeMemberFromPlatform(platformId: string, memberId: str
 
   if (error) throw new Error('remove_member_failed');
 
-  revalidatePath('/dashboard');
 }
 
 // ===========================================================
@@ -73,7 +70,6 @@ export async function moveMemberToCategory(
 
   if (error) throw new Error('move_member_failed');
 
-  revalidatePath('/dashboard');
 }
 
 // ===========================================================
@@ -108,7 +104,6 @@ export async function addPlatformCategory(
 
   if (error || !data) throw new Error('add_category_failed');
 
-  revalidatePath('/dashboard');
 
   return { id: data.id, labelEn: data.label_en, labelAr: data.label_ar };
 }
@@ -133,7 +128,6 @@ export async function renamePlatformCategory(
 
   if (error) throw new Error('rename_category_failed');
 
-  revalidatePath('/dashboard');
 }
 
 // ===========================================================
@@ -149,5 +143,4 @@ export async function deletePlatformCategory(categoryId: string) {
 
   if (error) throw new Error('delete_category_failed');
 
-  revalidatePath('/dashboard');
 }

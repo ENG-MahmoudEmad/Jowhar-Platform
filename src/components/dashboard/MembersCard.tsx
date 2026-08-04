@@ -1,7 +1,7 @@
 "use client"
 
 import React, {
-  memo, useCallback, useMemo, useState,
+  memo, useCallback, useMemo, useState, useRef, useLayoutEffect,
 } from 'react'
 import { useRouter } from 'next/navigation'
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
@@ -90,6 +90,11 @@ let tempIdCounter = 0
 function makeTempId() {
   tempIdCounter += 1
   return `temp-${Date.now()}-${tempIdCounter}`
+}
+
+/** تصنيف لسا بانتظار الـ id الحقيقي من السيرفر — التفاعل معه معطّل مؤقتًا. */
+function isTempId(id: string) {
+  return id.startsWith('temp-')
 }
 
 const PlatformChip = memo(function PlatformChip({
@@ -199,6 +204,20 @@ const AddMemberDropdown = memo(function AddMemberDropdown({
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const [search, setSearch] = useState('')
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const [openUpward, setOpenUpward] = useState(false)
+
+  // بيحدد اتجاه الفتح مرة وحدة وقت ما يظهر — لو مافي مساحة كافية تحت
+  // (جوا حدود الشاشة المرئية، بما فيها المودال المتمرکز)، بيفتح لفوق
+  // بدل ما يطلع برّا الحدود ويسبب سكرول غير مرغوب.
+  useLayoutEffect(() => {
+    const el = wrapperRef.current?.parentElement
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const ESTIMATED_DROPDOWN_HEIGHT = 236 // شريط البحث + أقصى ارتفاع للقائمة + الحواف
+    const spaceBelow = window.innerHeight - rect.bottom
+    setOpenUpward(spaceBelow < ESTIMATED_DROPDOWN_HEIGHT)
+  }, [])
 
   const available = useMemo(
     () => roster.filter(
@@ -210,15 +229,17 @@ const AddMemberDropdown = memo(function AddMemberDropdown({
 
   return (
     <m.div
-      initial={{ opacity: 0, y: -4, scale: 0.97 }}
+      ref={wrapperRef}
+      initial={{ opacity: 0, y: openUpward ? 4 : -4, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -4, scale: 0.97 }}
+      exit={{ opacity: 0, y: openUpward ? 4 : -4, scale: 0.97 }}
       transition={{ duration: 0.15 }}
       className="absolute z-30 rounded-xl overflow-hidden"
       style={{
-        top: '100%',
+        ...(openUpward
+          ? { bottom: '100%', marginBottom: 6 }
+          : { top: '100%', marginTop: 6 }),
         insetInlineStart: 0,
-        marginTop: 6,
         width: 210,
         background: isDark ? '#161b22' : '#ffffff',
         border: `1px solid ${isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)'}`,
@@ -302,7 +323,7 @@ const MemberRow = memo(function MemberRow({
     ? `1px solid ${platformColor}30`
     : `1px solid transparent`
 
-  const otherCategories = categories.filter(c => c.id !== categoryId)
+  const otherCategories = categories.filter(c => c.id !== categoryId && !isTempId(c.id))
 
   return (
     <div
@@ -513,9 +534,10 @@ const PlatformPanel = memo(function PlatformPanel({
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-3" style={{ overscrollBehavior: 'contain' }}>
+      <div className="flex-1 overflow-y-auto py-3" style={{ overscrollBehavior: 'contain', minHeight: 400 }}>
         {platform.categories.map((category, catIndex) => {
           const isSupervisorCategory = catIndex === 0
+          const isPending = isTempId(category.id)
 
           return (
             <div key={category.id} className="mb-3">
@@ -578,11 +600,19 @@ const PlatformPanel = memo(function PlatformPanel({
                         fontFamily: lang === 'ar' ? 'var(--font-cairo), sans-serif' : 'var(--font-montserrat), sans-serif',
                         letterSpacing: lang === 'ar' ? '0.01em' : '0.04em',
                         textTransform: lang === 'ar' ? 'none' : 'uppercase',
+                        opacity: isPending ? 0.5 : 1,
                       }}
                     >
                       {lang === 'ar' ? category.labelAr : category.labelEn}
                     </span>
-                    {isAdmin && (
+                    {isPending ? (
+                      <span
+                        className="text-[9px] font-medium italic"
+                        style={{ color: 'var(--foreground-muted)', opacity: 0.6, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                      >
+                        {lang === 'ar' ? 'جارٍ الحفظ...' : 'Saving...'}
+                      </span>
+                    ) : isAdmin && (
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -646,25 +676,26 @@ const PlatformPanel = memo(function PlatformPanel({
                 <div className="px-3 mt-1 relative">
                   <button
                     type="button"
+                    disabled={isPending}
                     onClick={() => setAddingInCategory(v => v === category.id ? null : category.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold w-full justify-center"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold w-full justify-center disabled:cursor-not-allowed disabled:opacity-40"
                     style={{
                       background: `${platform.color}10`,
                       border: `1px dashed ${platform.color}40`,
                       color: platform.color,
-                      cursor: 'pointer',
+                      cursor: isPending ? 'not-allowed' : 'pointer',
                       transition: 'background 0.12s',
                       fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
                     }}
-                    onMouseEnter={e => (e.currentTarget.style.background = `${platform.color}20`)}
-                    onMouseLeave={e => (e.currentTarget.style.background = `${platform.color}10`)}
+                    onMouseEnter={e => { if (!isPending) e.currentTarget.style.background = `${platform.color}20` }}
+                    onMouseLeave={e => { if (!isPending) e.currentTarget.style.background = `${platform.color}10` }}
                   >
                     <Plus size={11} />
                     {lang === 'ar' ? 'إضافة عضو' : 'Add Member'}
                   </button>
 
                   <AnimatePresence>
-                    {addingInCategory === category.id && (
+                    {addingInCategory === category.id && !isPending && (
                       <AddMemberDropdown
                         roster={roster}
                         usedIds={allUsedIds}
@@ -1038,6 +1069,7 @@ function MembersCard({ platforms: initialPlatforms, roster, isAdmin }: MembersCa
               className="flex flex-col rounded-2xl overflow-hidden w-full"
               style={{
                 maxWidth: 480,
+                minHeight: '60vh',
                 maxHeight: '82vh',
                 background: bg,
                 border: `1px solid ${border}`,
@@ -1123,7 +1155,7 @@ function MembersCard({ platforms: initialPlatforms, roster, isAdmin }: MembersCa
                     </div>
 
                     <div className="overflow-y-auto flex-1 px-4 py-3 flex flex-col gap-2"
-                      style={{ overscrollBehavior: 'contain' }}>
+                      style={{ overscrollBehavior: 'contain', minHeight: 400 }}>
                       {platforms.length === 0 ? (
                         <p className="text-center text-[12px] py-8" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
                           {tx.empty}

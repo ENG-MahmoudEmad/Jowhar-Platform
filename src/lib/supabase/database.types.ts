@@ -177,6 +177,53 @@ export type Database = {
           },
         ]
       }
+      news_posts: {
+        Row: {
+          author_id: string
+          body: string
+          created_at: string
+          expires_at: string | null
+          id: number
+          image_url: string | null
+          publish_at: string | null
+          title_ar: string
+          title_en: string
+          type: string
+        }
+        Insert: {
+          author_id: string
+          body: string
+          created_at?: string
+          expires_at?: string | null
+          id?: never
+          image_url?: string | null
+          publish_at?: string | null
+          title_ar: string
+          title_en: string
+          type: string
+        }
+        Update: {
+          author_id?: string
+          body?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: never
+          image_url?: string | null
+          publish_at?: string | null
+          title_ar?: string
+          title_en?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "news_posts_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       note_replies: {
         Row: {
           author_id: string | null
@@ -413,6 +460,39 @@ export type Database = {
           thumbnail_url?: string | null
         }
         Relationships: []
+      }
+      post_likes: {
+        Row: {
+          created_at: string
+          post_id: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          post_id: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          post_id?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_likes_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "news_posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_likes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -682,6 +762,28 @@ export type Database = {
           window_seconds: number
         }[]
       }
+      get_news_feed: {
+        Args: never
+        Returns: {
+          author_avatar_url: string
+          author_color: string
+          author_id: string
+          author_initials: string
+          author_name: string
+          body: string
+          created_at: string
+          expires_at: string
+          id: number
+          image_url: string
+          is_upcoming: boolean
+          liked_by_me: boolean
+          likes_count: number
+          publish_at: string
+          title_ar: string
+          title_en: string
+          type: string
+        }[]
+      }
       get_studio_pulse_stats: {
         Args: never
         Returns: {
@@ -757,6 +859,13 @@ export type Database = {
         Returns: number
       }
       stamp_password_change: { Args: { p_user_id: string }; Returns: undefined }
+      toggle_post_like: {
+        Args: { p_post_id: number }
+        Returns: {
+          liked: boolean
+          likes_count: number
+        }[]
+      }
     }
     Enums: {
       access_role: "member" | "admin"

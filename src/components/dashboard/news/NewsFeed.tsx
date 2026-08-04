@@ -3,8 +3,9 @@
 import React, { useState, useMemo, useCallback, memo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Plus, Newspaper } from 'lucide-react'
-import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
+import { formatRelativeTime } from '@/lib/relativeTime'
+import { togglePostLike } from '@/app/(dashboard)/news/newsActions'
 import NewsFilters  from './NewsFilters'
 import NewsCard     from './NewsCard'
 import NewsModal    from './NewsModal'
@@ -14,12 +15,16 @@ import NewsComposer from './NewsComposer'
 export type NewsType = 'all' | 'announcement' | 'update' | 'alert'
 
 export interface RichSegment {
-  text:   string;
-  bold?:  boolean;
-  color?: string;
-  bullet?:boolean;
+  text:     string;
+  bold?:    boolean;
+  italic?:  boolean;
+  color?:   string;
+  bullet?:  boolean;
+  /** فاصل سطر — مش نص فعلي، بس علامة "خلّص هالسطر ابدأ سطر جديد". */
+  newline?: boolean;
 }
 
+// شكل العرض الداخلي — يلي NewsCard/NewsModal بتستهلكه
 export interface NewsPost {
   id:          number
   type:        Exclude<NewsType, 'all'>
@@ -31,99 +36,55 @@ export interface NewsPost {
   authorAr:    string
   avatar:      string
   avatarColor: string
+  avatarUrl:   string | null
   timestamp:   string
-  /** Total likes from everyone, as returned by the server. */
   likes:       number
-  /**
-   * Whether the CURRENT user has liked this post.
-   * Comes from the server (an EXISTS check against `post_likes` for this user);
-   * defaults to false in mock data. See the BACKEND NOTE below.
-   */
   likedByMe?:  boolean
+  /** خبر مجدول للمستقبل — ظاهر للأدمن بس، ببادج "قادم". */
+  isUpcoming:  boolean
+  publishAt:   string | null
 }
 
-/**
- * Per-post like state held by the feed.
- *
- * `liked` and `count` live in ONE piece of state on purpose. They were previously
- * two (`likedIds` + `likesMap`), which forced `setLikesMap` to be called from
- * inside the `setLikedIds` updater — a side effect inside an updater function.
- * React StrictMode invokes updaters twice in development to surface exactly this
- * kind of bug, which made the counter move by 2 while the toggle moved by 1.
- * Keeping them together makes the updater pure and the arithmetic correct.
- */
+// شكل البيانات الراجعة من get_news_feed() بعد التحويل بـ page.tsx —
+// مصدر واحد قبل ما يتحوّل لشكل NewsPost أعلاه (بحساب timestamp حسب اللغة الحالية)
+export interface NewsPostData {
+  id: number
+  type: Exclude<NewsType, 'all'>
+  titleEn: string
+  titleAr: string
+  body: string
+  imageUrl: string | null
+  authorId: string
+  authorName: string
+  authorInitials: string
+  authorColor: string
+  authorAvatarUrl: string | null
+  createdAt: string
+  publishAt: string | null
+  expiresAt: string | null
+  isUpcoming: boolean
+  likesCount: number
+  likedByMe: boolean
+}
+
+export interface CurrentUserSummary {
+  id: string
+  name: string
+  initials: string
+  color: string
+  avatarUrl: string | null
+}
+
+interface NewsFeedProps {
+  initialPosts: NewsPostData[]
+  /** true لو المستخدم Chief/Developer أو حامل صلاحية news.publish. */
+  isAdmin: boolean
+  currentUser: CurrentUserSummary
+}
+
 interface LikeState {
   liked: boolean
   count: number
-}
-
-/* ─── Mock Data ─── */
-const d = (offset: number) => {
-  const dt = new Date()
-  dt.setDate(dt.getDate() + offset)
-  const diff = Math.abs(offset)
-  if (diff === 0) return 'Just now'
-  if (diff < 1)   return `${Math.round(diff * 24)}h ago`
-  return `${diff}d ago`
-}
-
-const INITIAL_POSTS: NewsPost[] = [
-  {
-    id: 1, type: 'announcement',
-    title: 'New Project Management System Launch',
-    titleAr: 'إطلاق نظام إدارة المشاريع الجديد',
-    body: 'We are excited to announce the full launch of Jowhar Platform v2. This major update brings enhanced task management, real-time collaboration tools, and a completely revamped interface designed for animation studios. All teams will be migrated automatically over the next 48 hours.',
-    image: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=800&q=80',
-    author: 'Studio Admin', authorAr: 'إدارة الاستوديو',
-    avatar: 'SA', avatarColor: '#458482', timestamp: '2h ago', likes: 24, likedByMe: false,
-  },
-  {
-    id: 2, type: 'alert',
-    title: 'Scheduled Maintenance — May 25',
-    titleAr: 'صيانة مجدولة — 25 مايو',
-    body: 'The platform will undergo scheduled maintenance on May 25th from 2:00 AM to 5:00 AM (GST). During this window, all services will be temporarily unavailable. Please save your work and contact support if you have urgent needs.',
-    author: 'System', authorAr: 'النظام',
-    avatar: 'SY', avatarColor: '#64748b', timestamp: '5h ago', likes: 8, likedByMe: false,
-  },
-  {
-    id: 3, type: 'update',
-    title: 'Render Farm — Capacity Doubled',
-    titleAr: 'مزرعة الرندر — مضاعفة السعة',
-    body: 'Render farm capacity has been doubled, reducing average render times by 60%. The new nodes are online and available immediately through the Tracker dashboard. No action required from your side.',
-    image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80',
-    author: 'Tech Team', authorAr: 'الفريق التقني',
-    avatar: 'TT', avatarColor: '#a855f7', timestamp: '1d ago', likes: 41, likedByMe: true,
-  },
-  {
-    id: 4, type: 'announcement',
-    title: 'Q2 Creative Review — Save the Date',
-    titleAr: 'مراجعة الربع الثاني — احجز الموعد',
-    body: 'The Q2 Creative Review is scheduled for June 3rd at 10:00 AM in the main conference room. All department heads are required to present their team\'s progress. Presentations must be submitted by May 30th.',
-    author: 'Studio Admin', authorAr: 'إدارة الاستوديو',
-    avatar: 'SA', avatarColor: '#458482', timestamp: '2d ago', likes: 17, likedByMe: false,
-  },
-  {
-    id: 5, type: 'update',
-    title: 'New Asset Library Available',
-    titleAr: 'مكتبة الأصول الجديدة متاحة',
-    body: 'A new shared asset library is now available containing over 500 rigged character templates, background plates, and VFX elements. Access it from your project workspace under the Resources tab.',
-    author: 'Content Team', authorAr: 'فريق المحتوى',
-    avatar: 'CT', avatarColor: '#3b82f6', timestamp: '3d ago', likes: 33, likedByMe: false,
-  },
-  {
-    id: 6, type: 'alert',
-    title: 'Storage Quota Warning',
-    titleAr: 'تحذير حصة التخزين',
-    body: 'Several project workspaces are approaching their storage limit (90%+). Please review and archive completed project files as soon as possible. Contact IT support if you need a temporary quota increase.',
-    author: 'IT Support', authorAr: 'الدعم التقني',
-    avatar: 'IT', avatarColor: '#ef4444', timestamp: '4d ago', likes: 5, likedByMe: false,
-  },
-]
-
-function buildInitialLikes(posts: NewsPost[]): Record<number, LikeState> {
-  return Object.fromEntries(
-    posts.map(p => [p.id, { liked: p.likedByMe ?? false, count: p.likes }]),
-  )
 }
 
 const EMPTY_LIKE_STATE: LikeState = { liked: false, count: 0 }
@@ -134,13 +95,34 @@ const FADE_TRANSITION = { duration: 0.18 }
 const CARD_ENTRY_TRANSITION = { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
 const EMPTY_ICON_STYLE: React.CSSProperties = { color: 'var(--foreground-muted)', opacity: 0.35 }
 
+function toDisplayPost(data: NewsPostData, lang: 'en' | 'ar'): NewsPost {
+  return {
+    id: data.id,
+    type: data.type,
+    title: data.titleEn,
+    titleAr: data.titleAr,
+    body: data.body,
+    image: data.imageUrl ?? undefined,
+    // ما في اسم مترجم منفصل بالداتابيز (شخص واحد بس) — نفس الاسم بالاتجاهين.
+    author: data.authorName,
+    authorAr: data.authorName,
+    avatar: data.authorInitials,
+    avatarColor: data.authorColor,
+    avatarUrl: data.authorAvatarUrl,
+    timestamp: formatRelativeTime(data.createdAt, lang),
+    likes: data.likesCount,
+    likedByMe: data.likedByMe,
+    isUpcoming: data.isUpcoming,
+    publishAt: data.publishAt,
+  }
+}
+
 const NewsPostItem = memo(function NewsPostItem({
   post, liked, likes, onLike, onClick,
 }: {
   post:    NewsPost
   liked:   boolean
   likes:   number
-  /** Takes the post id, so the parent can pass one stable callback for every card. */
   onLike:  (id: number) => void
   onClick: (post: NewsPost) => void
 }) {
@@ -165,31 +147,33 @@ const NewsPostItem = memo(function NewsPostItem({
   )
 })
 
-function NewsFeed() {
+function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
   const { lang, isRTL } = useLang()
 
-  const [posts,    setPosts]    = useState<NewsPost[]>(INITIAL_POSTS)
+  const [postsData, setPostsData] = useState<NewsPostData[]>(initialPosts)
   const [search,   setSearch]   = useState('')
   const [type,     setType]     = useState<NewsType>('all')
   const [modal,    setModal]    = useState<NewsPost | null>(null)
   const [composer, setComposer] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const [likes, setLikes] = useState<Record<number, LikeState>>(
-    () => buildInitialLikes(INITIAL_POSTS),
+    () => Object.fromEntries(initialPosts.map(p => [p.id, { liked: p.likedByMe, count: p.likesCount }])),
   )
 
+  const posts = useMemo(() => postsData.map(p => toDisplayPost(p, lang)), [postsData, lang])
+
   /**
-   * One like per user, enforced by toggling a boolean rather than incrementing a
-   * free counter — the same person can never like twice.
-   *
-   * The updater is pure (no nested setState, no API call inside), which is what
-   * makes it safe under StrictMode's double invocation.
+   * Optimistic toggle + استدعاء فعلي لـ toggle_post_like() بالسيرفر.
+   * لو فشل، رجوع للحالة القديمة (نفس نمط باقي المشروع).
    */
   const toggleLike = useCallback((id: number) => {
-    setLikes(prev => {
-      const current = prev[id] ?? EMPTY_LIKE_STATE
+    const prevState = likes[id] ?? EMPTY_LIKE_STATE
+
+    setLikes(prevAll => {
+      const current = prevAll[id] ?? EMPTY_LIKE_STATE
       return {
-        ...prev,
+        ...prevAll,
         [id]: {
           liked: !current.liked,
           count: current.count + (current.liked ? -1 : 1),
@@ -197,12 +181,19 @@ function NewsFeed() {
       }
     })
 
-    // TODO(backend): fire the toggle request here and roll back on failure.
-    // Keep it OUTSIDE the updater above — see the note on LikeState.
-  }, [])
+    togglePostLike(id)
+      .then((result) => {
+        // نطابق مع الرقم الحقيقي من السيرفر (في حال تعارض توقيت)
+        setLikes(prevAll => ({ ...prevAll, [id]: { liked: result.liked, count: result.likesCount } }))
+      })
+      .catch(() => {
+        setActionError(lang === 'ar' ? 'تعذّر تسجيل الإعجاب.' : 'Could not register the like.')
+        setLikes(prevAll => ({ ...prevAll, [id]: prevState }))
+      })
+  }, [likes, lang])
 
   const getLikeState = useCallback(
-    (post: NewsPost): LikeState => likes[post.id] ?? { liked: post.likedByMe ?? false, count: post.likes },
+    (post: NewsPost): LikeState => likes[post.id] ?? EMPTY_LIKE_STATE,
     [likes],
   )
 
@@ -213,8 +204,12 @@ function NewsFeed() {
     return matchType && matchSearch
   }), [posts, search, type])
 
-  const handlePost = useCallback((newPost: NewsPost) => {
-    setPosts(prev => [newPost, ...prev])
+  /**
+   * الكومبوزر بيكون خلّص الرفع للـ Storage والنشر الفعلي (createNewsPost)
+   * قبل ما ينادي هالدالة — هون بس منضيف النتيجة لأول القائمة محليًا.
+   */
+  const handlePost = useCallback((newPost: NewsPostData) => {
+    setPostsData(prev => [newPost, ...prev])
     setLikes(prev => ({ ...prev, [newPost.id]: { liked: false, count: 0 } }))
   }, [])
 
@@ -222,9 +217,6 @@ function NewsFeed() {
   const handleCloseComposer = useCallback(() => setComposer(false), [])
   const handleCloseModal = useCallback(() => setModal(null), [])
 
-  /* Reads `modal` directly instead of reaching into a setState updater — the old
-     version called toggleLike from inside setModal's updater, which double-fired
-     under StrictMode. */
   const handleModalLike = useCallback(() => {
     if (modal) toggleLike(modal.id)
   }, [modal, toggleLike])
@@ -243,19 +235,27 @@ function NewsFeed() {
 
   return (
     <div dir={isRTL ? 'rtl' : 'ltr'}>
+      {actionError && (
+        <div className="mb-4 px-4 py-2 rounded-xl text-[11px] font-medium" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
+          {actionError}
+        </div>
+      )}
+
       {/* Filters + add button */}
       <div className="flex items-stretch gap-3 mb-6">
         <div className="flex-1">
           <NewsFilters search={search} type={type} onSearch={setSearch} onType={setType} />
         </div>
-        <button
-          onClick={handleOpenComposer}
-          className="flex items-center gap-2 px-4 rounded-2xl text-[11px] font-bold cursor-pointer shrink-0"
-          style={addBtnTextStyle}
-        >
-          <Plus className="w-4 h-4" />
-          {lang === 'ar' ? 'إضافة' : 'Add Post'}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={handleOpenComposer}
+            className="flex items-center gap-2 px-4 rounded-2xl text-[11px] font-bold cursor-pointer shrink-0"
+            style={addBtnTextStyle}
+          >
+            <Plus className="w-4 h-4" />
+            {lang === 'ar' ? 'إضافة' : 'Add Post'}
+          </button>
+        )}
       </div>
 
       {/* Cards — masonry columns, key resets animation on filter change */}
@@ -306,45 +306,16 @@ function NewsFeed() {
         onLike={handleModalLike}
       />
 
-      <NewsComposer
-        open={composer}
-        onClose={handleCloseComposer}
-        onPost={handlePost}
-      />
+      {isAdmin && (
+        <NewsComposer
+          open={composer}
+          onClose={handleCloseComposer}
+          onPost={handlePost}
+          currentUser={currentUser}
+        />
+      )}
     </div>
   )
 }
 
 export default memo(NewsFeed)
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   BACKEND NOTE — per-user likes
-   ═══════════════════════════════════════════════════════════════════════════
-   Likes are a toggle per (post, user), not a free counter. The frontend already
-   enforces this, but the database is what actually guarantees it:
-
-     create table post_likes (
-       post_id    bigint not null references news_posts(id) on delete cascade,
-       user_id    uuid   not null references users(id)      on delete cascade,
-       created_at timestamptz not null default now(),
-       primary key (post_id, user_id)
-     );
-
-   The composite primary key is the real safeguard — even a duplicated request or
-   a double click that slips past the UI cannot insert a second row.
-
-   The feed query should return, per post:
-     likes      → count of rows in post_likes for that post
-     likedByMe  → exists(select 1 from post_likes where post_id = ... and user_id = auth.uid())
-
-   Both fields already exist on NewsPost, and `buildInitialLikes` seeds state from
-   them, so wiring this up requires no component changes.
-
-   Toggling: prefer a single RPC that inserts or deletes and returns the new count,
-   rather than a read-then-write from the client. Keep the optimistic update where
-   it is (instant feedback), fire the request in `toggleLike` AFTER the setState
-   call, and roll back on failure.
-
-   RLS: a user may insert or delete only rows where user_id = auth.uid(); everyone
-   may read. Otherwise one member could like on another's behalf.
-   ═══════════════════════════════════════════════════════════════════════════ */

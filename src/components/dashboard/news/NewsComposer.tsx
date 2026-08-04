@@ -2,16 +2,22 @@
 
 import React, { useState, useRef, useCallback, useMemo, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, ImageIcon, Send, Megaphone, RefreshCw, AlertTriangle } from 'lucide-react'
+import { X, ImageIcon, Send, Megaphone, RefreshCw, AlertTriangle, Bold, Italic, List, Smile, Calendar } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
-import type { NewsPost, NewsType } from './NewsFeed'
+import { createClient } from '@/lib/supabase/client'
+import { createNewsPost } from '@/app/(dashboard)/news/newsActions'
+import type { NewsType, NewsPostData, CurrentUserSummary } from './NewsFeed'
+
+const EMOJI_PRESET = ['😀', '🎉', '✅', '⚠️', '📢', '🔥', '💡', '👍', '❤️', '🚀', '📌', '🙏', '👏', '💯', '🎯', '📅']
 
 const TYPE_OPTIONS: { key: Exclude<NewsType, 'all'>; icon: React.ElementType; en: string; ar: string; color: string }[] = [
   { key: 'announcement', icon: Megaphone,     en: 'Announcement', ar: 'إعلان',  color: '#3b82f6' },
   { key: 'update',       icon: RefreshCw,     en: 'Update',       ar: 'تحديث', color: '#a855f7' },
   { key: 'alert',        icon: AlertTriangle, en: 'Alert',        ar: 'تنبيه', color: '#ef4444' },
 ]
+
+const MAX_IMAGE_MB = 5
 
 const BACKDROP_STYLE: React.CSSProperties = { background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }
 const BACKDROP_TRANSITION = { duration: 0.2 }
@@ -25,7 +31,8 @@ const stopPropagation = (e: React.MouseEvent) => e.stopPropagation()
 interface NewsComposerProps {
   open:    boolean
   onClose: () => void
-  onPost:  (post: NewsPost) => void
+  onPost:  (post: NewsPostData) => void
+  currentUser: CurrentUserSummary
 }
 
 const TypeOptionButton = memo(function TypeOptionButton({
@@ -61,7 +68,7 @@ const TypeOptionButton = memo(function TypeOptionButton({
   )
 })
 
-function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
+function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
@@ -70,11 +77,17 @@ function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
   const [titleEn,    setTitleEn]    = useState('')
   const [titleAr,    setTitleAr]    = useState('')
   const [body,       setBody]       = useState('')
-  const [image,      setImage]      = useState<string | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null) // local preview only (blob URL or pasted URL)
+  const [imageFile,  setImageFile]  = useState<File | null>(null)
   const [imageUrl,   setImageUrl]   = useState('')
+  const [publishAt,  setPublishAt]  = useState('') // datetime-local string, فاضي = ينشر فورًا
+  const [expiresAt,  setExpiresAt]  = useState('') // datetime-local string, فاضي = ما بينتهي
+  const [showEmoji,  setShowEmoji]  = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   const fileRef = useRef<HTMLInputElement>(null)
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
 
   const colors = useMemo(() => ({
     bg:       isDark ? 'var(--card)'         : '#ffffff',
@@ -89,50 +102,165 @@ function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
   const handleFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => { setImage(ev.target?.result as string); setImageUrl('') }
-    reader.readAsDataURL(file)
-  }, [])
+    setUploadError(null)
+
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      setUploadError(lang === 'ar' ? `الصورة أكبر من ${MAX_IMAGE_MB} ميغا` : `Image is larger than ${MAX_IMAGE_MB}MB`)
+      return
+    }
+
+    setImageFile(file)
+    setImageUrl('')
+    // معاينة فورية محليًا بس (blob URL) — الرفع الحقيقي لـ Storage بيصير وقت النشر.
+    setImagePreview(URL.createObjectURL(file))
+  }, [lang])
 
   const handleUrlBlur = useCallback(() => {
     setImageUrl(current => {
-      if (current.startsWith('http')) setImage(current)
+      if (current.startsWith('http')) {
+        setImageFile(null)
+        setImagePreview(current)
+      }
       return current
     })
   }, [])
 
   const reset = useCallback(() => {
     setType('announcement'); setTitleEn(''); setTitleAr('')
-    setBody(''); setImage(null); setImageUrl(''); setSubmitting(false)
+    setBody(''); setImageFile(null); setImagePreview(null); setImageUrl('')
+    setPublishAt(''); setExpiresAt(''); setShowEmoji(false)
+    setSubmitting(false); setUploadError(null)
   }, [])
+
+  /**
+   * أزرار التنسيق بتحيط النص المحدد برموز (**bold**، *italic*) بدل محرر
+   * معقّد — نفس أسلوب GitHub/Slack. الرموز بتتحوّل لتنسيق حقيقي وقت
+   * العرض عبر parseNewsMarkdown (شوف NewsCard/NewsModal).
+   */
+  const wrapSelection = useCallback((marker: string) => {
+    const el = bodyRef.current
+    if (!el) return
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    const selected = body.slice(start, end)
+    const newText = body.slice(0, start) + marker + selected + marker + body.slice(end)
+    setBody(newText)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + marker.length, start + marker.length + selected.length)
+    })
+  }, [body])
+
+  const handleBold = useCallback(() => wrapSelection('**'), [wrapSelection])
+  const handleItalic = useCallback(() => wrapSelection('*'), [wrapSelection])
+
+  const handleBullet = useCallback(() => {
+    const el = bodyRef.current
+    if (!el) return
+    const start = el.selectionStart
+    const lineStart = body.lastIndexOf('\n', start - 1) + 1
+    const newText = body.slice(0, lineStart) + '- ' + body.slice(lineStart)
+    setBody(newText)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + 2, start + 2)
+    })
+  }, [body])
+
+  const handleInsertEmoji = useCallback((emoji: string) => {
+    const el = bodyRef.current
+    const start = el?.selectionStart ?? body.length
+    const end = el?.selectionEnd ?? body.length
+    const newText = body.slice(0, start) + emoji + body.slice(end)
+    setBody(newText)
+    setShowEmoji(false)
+    requestAnimationFrame(() => {
+      el?.focus()
+      const pos = start + emoji.length
+      el?.setSelectionRange(pos, pos)
+    })
+  }, [body])
 
   const canSubmit = !!(titleEn.trim() && titleAr.trim() && body.trim())
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (!(titleEn.trim() && titleAr.trim() && body.trim())) return
+
+    const publishAtIso = publishAt ? new Date(publishAt).toISOString() : null
+    const expiresAtIso = expiresAt ? new Date(expiresAt).toISOString() : null
+
+    if (publishAtIso && expiresAtIso && new Date(expiresAtIso) <= new Date(publishAtIso)) {
+      setUploadError(lang === 'ar' ? 'تاريخ الانتهاء لازم يكون بعد تاريخ النشر' : 'Expiry date must be after the publish date')
+      return
+    }
+
     setSubmitting(true)
-    setTimeout(() => {
-      onPost({
-        id:          Date.now(),
+    setUploadError(null)
+
+    try {
+      let finalImageUrl: string | null = null
+
+      if (imageFile) {
+        // رفع حقيقي لـ Supabase Storage — مش base64 جوا الداتابيز.
+        const supabase = createClient()
+        const ext = imageFile.name.split('.').pop() ?? 'jpg'
+        const path = `${crypto.randomUUID()}.${ext}`
+
+        const { error: uploadErr } = await supabase.storage
+          .from('news-images')
+          .upload(path, imageFile, { cacheControl: '3600', upsert: false })
+
+        if (uploadErr) throw new Error('upload_failed')
+
+        const { data: publicUrlData } = supabase.storage
+          .from('news-images')
+          .getPublicUrl(path)
+
+        finalImageUrl = publicUrlData.publicUrl
+      } else if (imageUrl.startsWith('http')) {
+        finalImageUrl = imageUrl
+      }
+
+      const { id } = await createNewsPost({
         type,
-        title:       titleEn.trim(),
-        titleAr:     titleAr.trim(),
-        body:        body.trim(),
-        image:       image || undefined,
-        author:      'Studio Admin',
-        authorAr:    'إدارة الاستوديو',
-        avatar:      'SA',
-        avatarColor: '#458482',
-        timestamp:   'Just now',
-        likes:       0,
+        titleEn: titleEn.trim(),
+        titleAr: titleAr.trim(),
+        body: body.trim(),
+        imageUrl: finalImageUrl,
+        publishAt: publishAtIso,
+        expiresAt: expiresAtIso,
       })
+
+      onPost({
+        id,
+        type,
+        titleEn: titleEn.trim(),
+        titleAr: titleAr.trim(),
+        body: body.trim(),
+        imageUrl: finalImageUrl,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorInitials: currentUser.initials,
+        authorColor: currentUser.color,
+        authorAvatarUrl: currentUser.avatarUrl,
+        createdAt: new Date().toISOString(),
+        publishAt: publishAtIso,
+        expiresAt: expiresAtIso,
+        isUpcoming: !!publishAtIso && new Date(publishAtIso) > new Date(),
+        likesCount: 0,
+        likedByMe: false,
+      })
+
       reset()
       onClose()
-    }, 600)
-  }, [titleEn, titleAr, body, type, image, onPost, reset, onClose])
+    } catch {
+      setUploadError(lang === 'ar' ? 'تعذّر النشر — حاول من جديد.' : 'Could not publish — try again.')
+      setSubmitting(false)
+    }
+  }, [titleEn, titleAr, body, type, imageFile, imageUrl, publishAt, expiresAt, onPost, reset, onClose, currentUser, lang])
 
   const handleFileBtnClick = useCallback(() => fileRef.current?.click(), [])
-  const handleRemoveImage = useCallback(() => { setImage(null); setImageUrl('') }, [])
+  const handleRemoveImage = useCallback(() => { setImageFile(null); setImagePreview(null); setImageUrl('') }, [])
   const handleTitleEnChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setTitleEn(e.target.value), [])
   const handleTitleArChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setTitleAr(e.target.value), [])
   const handleBodyChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => setBody(e.target.value), [])
@@ -164,6 +292,10 @@ function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
     photo:     lang === 'ar' ? 'صورة الغلاف (اختياري)' : 'Cover image (optional)',
     upload:    lang === 'ar' ? 'رفع من الجهاز'     : 'Upload from device',
     orUrl:     lang === 'ar' ? 'أو الصق رابطًا'    : 'Or paste a URL',
+    publishAt:      lang === 'ar' ? 'جدولة النشر (اختياري)' : 'Schedule publish (optional)',
+    publishAtHint:  lang === 'ar' ? 'فاضي = ينشر فورًا' : 'Empty = publish immediately',
+    expiresAt:      lang === 'ar' ? 'تاريخ الانتهاء (اختياري)' : 'Expiry date (optional)',
+    expiresAtHint:  lang === 'ar' ? 'فاضي = ما بينتهي أبدًا' : 'Empty = never expires',
     publish:   lang === 'ar' ? 'نشر الإعلان'        : 'Publish',
     publishing:lang === 'ar' ? 'جارٍ النشر...'     : 'Publishing...',
     required:  lang === 'ar' ? 'جميع الحقول مطلوبة' : 'All fields are required',
@@ -177,6 +309,11 @@ function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
     color: textMuted, border: `1px solid ${colors.inputBdr}`,
     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
   }), [isDark, colors.inputBdr, lang])
+  const toolbarBtnStyle = useMemo(() => ({
+    background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    color: textMuted, border: `1px solid ${colors.inputBdr}`,
+    transition: 'background 0.12s, color 0.12s',
+  }), [isDark, colors.inputBdr])
   const titleEnInputStyle = useMemo(() => ({ ...inputStyle, direction: 'ltr' as const }), [inputStyle])
   const titleArInputStyle = useMemo(() => ({ ...inputStyle, direction: 'rtl' as const, fontFamily: 'var(--font-arabic)' }), [inputStyle])
   const bodyInputStyle = useMemo(() => ({ ...inputStyle, borderRadius: '12px', resize: 'none' as const, lineHeight: '1.7' }), [inputStyle])
@@ -234,6 +371,12 @@ function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
 
             <div className="p-6 space-y-5">
 
+              {uploadError && (
+                <div className="px-4 py-2 rounded-xl text-[11px] font-medium" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
+                  {uploadError}
+                </div>
+              )}
+
               {/* Type */}
               <div>
                 <label style={labelStyle}>{tx.postType}</label>
@@ -275,16 +418,94 @@ function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
                 </div>
               </div>
 
-              {/* Body — single field */}
+              {/* Body — single field, with a lightweight formatting toolbar */}
               <div>
-                <label style={labelStyle}>{tx.body}</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label style={{ ...labelStyle, marginBottom: 0 }}>{tx.body}</label>
+                  <div className="flex items-center gap-1 relative">
+                    <button
+                      type="button"
+                      onClick={handleBold}
+                      title={lang === 'ar' ? 'عريض' : 'Bold'}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer"
+                      style={toolbarBtnStyle}
+                    >
+                      <Bold className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleItalic}
+                      title={lang === 'ar' ? 'مائل' : 'Italic'}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer"
+                      style={toolbarBtnStyle}
+                    >
+                      <Italic className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBullet}
+                      title={lang === 'ar' ? 'نقطة' : 'Bullet'}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer"
+                      style={toolbarBtnStyle}
+                    >
+                      <List className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmoji(v => !v)}
+                      title={lang === 'ar' ? 'إيموجي' : 'Emoji'}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer"
+                      style={toolbarBtnStyle}
+                    >
+                      <Smile className="w-3.5 h-3.5" />
+                    </button>
+
+                    <AnimatePresence>
+                      {showEmoji && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                          transition={{ duration: 0.13 }}
+                          className="absolute z-20 grid grid-cols-8 gap-1 p-2 rounded-xl"
+                          style={{
+                            top: 'calc(100% + 6px)',
+                            insetInlineEnd: 0,
+                            width: 224,
+                            background: isDark ? '#161b22' : '#ffffff',
+                            border: `1px solid ${colors.inputBdr}`,
+                            boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
+                          }}
+                        >
+                          {EMOJI_PRESET.map(emoji => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => handleInsertEmoji(emoji)}
+                              className="w-6 h-6 flex items-center justify-center rounded-md text-[15px] cursor-pointer"
+                              style={{ transition: 'background 0.1s' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)')}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
                 <textarea
+                  ref={bodyRef}
                   rows={5}
                   value={body}
                   onChange={handleBodyChange}
                   placeholder={tx.bodyPh}
                   style={bodyInputStyle}
                 />
+                <p className="text-[9px] mt-1" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                  {lang === 'ar' ? 'حدّد نص واضغط عريض/مائل، أو ابدأ سطر بـ "- " لنقطة' : 'Select text then Bold/Italic, or start a line with "- " for a bullet'}
+                </p>
               </div>
 
               {/* Image */}
@@ -300,7 +521,7 @@ function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
                       <ImageIcon className="w-3.5 h-3.5" />
                       {tx.upload}
                     </button>
-                    {image && (
+                    {imagePreview && (
                       <button
                         onClick={handleRemoveImage}
                         className="px-3 py-2 rounded-xl cursor-pointer"
@@ -318,11 +539,49 @@ function NewsComposer({ open, onClose, onPost }: NewsComposerProps) {
                     onChange={handleImageUrlChange}
                     onBlur={handleUrlBlur}
                   />
-                  {image && (
+                  {imagePreview && (
                     <div style={imagePreviewStyle}>
-                      <img src={image} alt="preview" className="w-full h-full object-cover" />
+                      <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Scheduling — both optional */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label style={labelStyle}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Calendar className="w-3 h-3" />
+                      {tx.publishAt}
+                    </span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={publishAt}
+                    onChange={e => setPublishAt(e.target.value)}
+                    style={{ ...inputStyle, direction: 'ltr' as const, colorScheme: isDark ? 'dark' : 'light' }}
+                  />
+                  <p className="text-[9px] mt-1" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                    {tx.publishAtHint}
+                  </p>
+                </div>
+                <div>
+                  <label style={labelStyle}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Calendar className="w-3 h-3" />
+                      {tx.expiresAt}
+                    </span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={expiresAt}
+                    onChange={e => setExpiresAt(e.target.value)}
+                    style={{ ...inputStyle, direction: 'ltr' as const, colorScheme: isDark ? 'dark' : 'light' }}
+                  />
+                  <p className="text-[9px] mt-1" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+                    {tx.expiresAtHint}
+                  </p>
                 </div>
               </div>
 

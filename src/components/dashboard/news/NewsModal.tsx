@@ -1,10 +1,13 @@
 "use client"
 
-import React, { useEffect, useMemo, useCallback, memo } from 'react'
+import React, { useEffect, useMemo, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Clock, Heart } from 'lucide-react'
+import { X, Clock, Heart, CalendarClock } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
+import Avatar from '@/components/ui/Avatar'
+import RichText from './RichText'
+import { parseNewsMarkdown } from '@/lib/parseNewsMarkdown'
 import type { NewsPost } from './NewsFeed'
 
 const TYPE_META = {
@@ -48,6 +51,7 @@ function NewsModal({ post, liked, likes, onClose, onLike }: NewsModalProps) {
   const meta   = post ? TYPE_META[post.type] : null
   const title  = post ? (lang === 'ar' ? post.titleAr : post.title) : ''
   const author = post ? (lang === 'ar' ? post.authorAr : post.author) : ''
+  const bodySegments = useMemo(() => post ? parseNewsMarkdown(post.body) : [], [post])
 
   const modalStyle = useMemo(() => ({
     background: isDark ? 'var(--card)' : '#ffffff',
@@ -66,10 +70,6 @@ function NewsModal({ post, liked, likes, onClose, onLike }: NewsModalProps) {
   }), [isRTL, isDark])
 
   const badgeStyle = useMemo(() => meta ? { background: `${meta.color}18`, color: meta.color } : undefined, [meta])
-
-  const avatarStyle = useMemo(() => post ? {
-    background: post.avatarColor, boxShadow: `0 2px 8px ${post.avatarColor}40`,
-  } : undefined, [post])
 
   const likeBtnStyle = useMemo(() => ({
     background: liked ? 'rgba(239,68,68,0.12)' : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
@@ -106,7 +106,7 @@ function NewsModal({ post, liked, likes, onClose, onLike }: NewsModalProps) {
             transition={MODAL_TRANSITION}
             onClick={stopPropagation}
             dir={isRTL ? 'rtl' : 'ltr'}
-            className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl"
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden rounded-2xl"
             style={modalStyle}
           >
             {post.image && (
@@ -139,7 +139,16 @@ function NewsModal({ post, liked, likes, onClose, onLike }: NewsModalProps) {
                     {lang === 'ar' ? meta.ar : meta.en}
                   </div>
                 )}
-                <div className="flex items-center gap-1.5 text-[10px] font-semibold" style={{ color: 'var(--foreground-muted)' }}>
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold" style={{ color: 'var(--foreground-muted)', [isRTL ? 'marginLeft' : 'marginRight']: '44px' }}>
+                  {post.isUpcoming && (
+                    <span
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-md me-1"
+                      style={{ background: 'rgba(69,132,130,0.14)', color: '#458482' }}
+                    >
+                      <CalendarClock className="w-3 h-3" />
+                      {lang === 'ar' ? 'قادم' : 'Upcoming'}
+                    </span>
+                  )}
                   <Clock className="w-3 h-3" />
                   {post.timestamp}
                 </div>
@@ -152,33 +161,33 @@ function NewsModal({ post, liked, likes, onClose, onLike }: NewsModalProps) {
                   color: 'var(--foreground)',
                   fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)',
                   letterSpacing: lang === 'ar' ? 0 : '-0.01em',
+                  overflowWrap: 'break-word',
+                  wordBreak: 'break-word',
                 }}
               >
                 {title}
               </h2>
 
-              {/* Full body */}
-              <p
-                className="text-[13px] leading-relaxed"
-                style={{
-                  color: 'var(--foreground-muted)',
-                  fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                }}
-              >
-                {post.body}
-              </p>
+              {/* Full body — رسم فعلي للتنسيق (عريض/مائل/نقاط) بدل نص خام */}
+              <RichText
+                segments={bodySegments}
+                muted="var(--foreground-muted)"
+                fontFamily={lang === 'ar' ? 'var(--font-arabic)' : 'inherit'}
+              />
 
               <div style={DIVIDER_STYLE} />
 
               {/* Footer */}
               <div className="flex items-center justify-between" style={{ flexDirection: 'row' }}>
                 <div className="flex items-center gap-2" style={{ flexDirection: 'row' }}>
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[9px] font-black shrink-0"
-                    style={avatarStyle}
-                  >
-                    {post.avatar}
-                  </div>
+                  <Avatar
+                    avatarUrl={post.avatarUrl}
+                    initials={post.avatar}
+                    name={author}
+                    size={32}
+                    color={post.avatarColor}
+                    className="text-white font-black"
+                  />
                   <span className="text-[11px] font-semibold" style={{
                     color: 'var(--foreground)',
                     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',

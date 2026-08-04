@@ -1,6 +1,6 @@
 "use client";
 
-// Renders rich text segments (bold, color, bullet points)
+// Renders rich text segments (bold, italic, color, bullet points, line breaks)
 import React, { useMemo, memo } from "react";
 import type { RichSegment } from "./NewsFeed";
 
@@ -16,18 +16,24 @@ function buildLines(segments: RichSegment[]): Line[] {
   const lines: Line[] = [];
   let currentInline: RichSegment[] = [];
 
+  const flushInline = () => {
+    if (currentInline.length) {
+      lines.push({ type: "inline", segs: currentInline });
+      currentInline = [];
+    }
+  };
+
   segments.forEach((seg) => {
     if (seg.bullet) {
-      if (currentInline.length) {
-        lines.push({ type: "inline", segs: currentInline });
-        currentInline = [];
-      }
+      flushInline();
       lines.push({ type: "bullet", segs: [seg] });
+    } else if (seg.newline) {
+      flushInline();
     } else {
       currentInline.push(seg);
     }
   });
-  if (currentInline.length) lines.push({ type: "inline", segs: currentInline });
+  flushInline();
 
   return lines;
 }
@@ -40,14 +46,17 @@ const BulletLine = memo(function BulletLine({ seg, muted }: { seg: RichSegment; 
   const textStyle = useMemo(() => ({
     color: seg.color || muted,
     fontWeight: seg.bold ? 700 : 400,
-    fontSize: "11px",
-    lineHeight: "1.6",
-  }), [seg.color, seg.bold, muted])
+    fontStyle: seg.italic ? "italic" as const : "normal" as const,
+    fontSize: "13px",
+    lineHeight: "1.7",
+    overflowWrap: "break-word" as const,
+    wordBreak: "break-word" as const,
+  }), [seg.color, seg.bold, seg.italic, muted])
 
   return (
-    <div className="flex items-start gap-2 mt-1">
+    <div className="flex items-start gap-2 mt-1.5">
       <span
-        className="mt-[5px] shrink-0 w-1.5 h-1.5 rounded-full"
+        className="mt-[7px] shrink-0 w-1.5 h-1.5 rounded-full"
         style={dotStyle}
       />
       <span style={textStyle}>
@@ -59,10 +68,12 @@ const BulletLine = memo(function BulletLine({ seg, muted }: { seg: RichSegment; 
 
 const InlineLine = memo(function InlineLine({ segs, muted, marginTop }: { segs: RichSegment[]; muted: string; marginTop: string | number }) {
   const pStyle = useMemo(() => ({
-    fontSize: "11px",
+    fontSize: "13px",
     lineHeight: "1.7",
     color: muted,
     marginTop,
+    overflowWrap: "break-word" as const,
+    wordBreak: "break-word" as const,
   }), [muted, marginTop])
 
   return (
@@ -73,6 +84,7 @@ const InlineLine = memo(function InlineLine({ segs, muted, marginTop }: { segs: 
           style={{
             color: seg.color || (seg.bold ? "var(--foreground)" : muted),
             fontWeight: seg.bold ? 700 : 400,
+            fontStyle: seg.italic ? "italic" : "normal",
           }}
         >
           {seg.text}

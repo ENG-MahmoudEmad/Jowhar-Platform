@@ -1,10 +1,12 @@
 "use client"
 
 import React, { useMemo, useCallback, memo } from 'react'
-import { Heart, Clock, Megaphone, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Heart, Clock, Megaphone, RefreshCw, AlertTriangle, CalendarClock } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
+import Avatar from '@/components/ui/Avatar'
+import { stripNewsMarkdown } from '@/lib/parseNewsMarkdown'
 import type { NewsPost } from './NewsFeed'
 
 export type { NewsPost }
@@ -47,9 +49,10 @@ function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
   const author = lang === 'ar' ? post.authorAr : post.author
 
   const { preview, hasMore } = useMemo(() => {
-    const over = post.body.length > PREVIEW_CHARS
+    const plain = stripNewsMarkdown(post.body)
+    const over = plain.length > PREVIEW_CHARS
     return {
-      preview: over ? post.body.slice(0, PREVIEW_CHARS) + '…' : post.body,
+      preview: over ? plain.slice(0, PREVIEW_CHARS) + '…' : plain,
       hasMore: over,
     }
   }, [post.body])
@@ -84,11 +87,6 @@ function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
     transition:'transform 0.2s ease',
   }), [liked])
 
-  const avatarStyle = useMemo(() => ({
-    background: post.avatarColor,
-    boxShadow: `0 2px 8px ${post.avatarColor}40`,
-  }), [post.avatarColor])
-
   return (
     <motion.div
       onClick={handleClick}
@@ -118,6 +116,15 @@ function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
             {lang === 'ar' ? meta.ar : meta.en}
           </div>
           <div className="flex items-center gap-1 text-[9px] font-semibold" style={{ color: textMuted }}>
+            {post.isUpcoming && (
+              <span
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md me-1"
+                style={{ background: 'rgba(69,132,130,0.14)', color: '#458482' }}
+              >
+                <CalendarClock className="w-2.5 h-2.5" />
+                {lang === 'ar' ? 'قادم' : 'Upcoming'}
+              </span>
+            )}
             <Clock className="w-3 h-3" />
             {post.timestamp}
           </div>
@@ -126,7 +133,12 @@ function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
         {/* Title */}
         <h3
           className="text-sm font-bold mb-2 leading-snug"
-          style={{ color: 'var(--foreground)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)' }}
+          style={{
+            color: 'var(--foreground)',
+            fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)',
+            overflowWrap: 'break-word',
+            wordBreak: 'break-word',
+          }}
         >
           {title}
         </h3>
@@ -135,7 +147,12 @@ function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
         <div className="mb-3">
           <p
             className="text-[11px] leading-relaxed"
-            style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+            style={{
+              color: textMuted,
+              fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+              overflowWrap: 'break-word',
+              wordBreak: 'break-word',
+            }}
           >
             {preview}
           </p>
@@ -152,12 +169,14 @@ function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
         {/* Footer */}
         <div className="flex items-center justify-between" style={{ flexDirection: 'row' }}>
           <div className="flex items-center gap-2" style={{ flexDirection: 'row' }}>
-            <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[8px] font-black shrink-0"
-              style={avatarStyle}
-            >
-              {post.avatar}
-            </div>
+            <Avatar
+              avatarUrl={post.avatarUrl}
+              initials={post.avatar}
+              name={author}
+              size={24}
+              color={post.avatarColor}
+              className="text-white font-black"
+            />
             <span
               className="text-[10px] font-semibold"
               style={{ color: 'var(--foreground)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
