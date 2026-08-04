@@ -1,12 +1,13 @@
 "use client"
 
-import React, { memo, useCallback, useMemo, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LazyMotion, domAnimation, m, useMotionValue, useSpring, useTransform, AnimatePresence } from 'framer-motion'
 import { Trophy, X, Flame } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import Avatar from '@/components/ui/Avatar'
-import { getLeaderboardHistory, type LeaderboardHistoryRow } from '@/app/(dashboard)/dashboard/actions'
+import { createClient } from '@/lib/supabase/client'
+import { getLeaderboardHistory, getLeaderboardEntries, type LeaderboardHistoryRow } from '@/app/(dashboard)/dashboard/actions'
 import type { MotionStyle } from "framer-motion";
 
 type Period = 'weekly' | 'monthly'
@@ -480,13 +481,42 @@ const EmptyPodiumCard = memo(function EmptyPodiumCard({
   )
 })
 
-function Leaderboard({ weeklyEntries, monthlyEntries }: LeaderboardProps) {
+function Leaderboard({ weeklyEntries: initialWeeklyEntries, monthlyEntries: initialMonthlyEntries }: LeaderboardProps) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
   const periodCopy = PERIOD_TEXT[lang as 'en' | 'ar']
 
   const [period, setPeriod] = useState<Period>('weekly')
+
+  // ── Realtime — لحظة ما تاسك يتحوّل لـ done، منعيد جلب الترتيبين
+  // الاثنين (أسبوعي وشهري مع بعض) عشان الواجهة تتحدّث فورًا بدون
+  // ما المستخدم يحتاج يعمل refresh يدوي. البيانات الأولية جاية من
+  // السيرفر (props)، وبعدين الحالة المحلية هي مصدر الحقيقة.
+  const [weeklyEntries, setWeeklyEntries] = useState<LeaderEntry[]>(initialWeeklyEntries)
+  const [monthlyEntries, setMonthlyEntries] = useState<LeaderEntry[]>(initialMonthlyEntries)
+
+  useEffect(() => {
+    const supabase = createClient()
+
+    const refetchBoth = () => {
+      getLeaderboardEntries('weekly').then(setWeeklyEntries)
+      getLeaderboardEntries('monthly').then(setMonthlyEntries)
+    }
+
+    const channel = supabase
+      .channel('leaderboard-tasks')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'tasks', filter: 'status=eq.done' },
+        refetchBoth,
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   // ── Hall of Fame — بتتحمّل بس لما تفتح، مش مع تحميل الصفحة ──
   const [hallOpen, setHallOpen] = useState(false)
