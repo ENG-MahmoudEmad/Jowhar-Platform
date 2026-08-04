@@ -6,6 +6,7 @@ import { ChevronRight, Users, X } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
 import Avatar from '@/components/ui/Avatar';
+import { sortMembersForDisplay } from '@/lib/sortMembersForDisplay';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data shape — matches what the server (page.tsx) hands down after mapping
@@ -46,24 +47,6 @@ function getProgressColor(progress: number): string {
   if (progress < 40) return PROGRESS_COLOR_LOW;
   if (progress < 70) return PROGRESS_COLOR_MID;
   return PROGRESS_COLOR_HIGH;
-}
-
-/**
- * Sorts members so the current user is always first, followed by the rest
- * alphabetically by name. Optionally truncates to `limit` entries.
- */
-function sortMembersForDisplay(
-  members: TeamMemberData[],
-  currentUserId: string,
-  limit?: number
-): TeamMemberData[] {
-  const current = members.filter((m) => m.id === currentUserId);
-  const others = members
-    .filter((m) => m.id !== currentUserId)
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const ordered = [...current, ...others];
-  return typeof limit === 'number' ? ordered.slice(0, limit) : ordered;
 }
 
 const CARD_TRANSITION = {

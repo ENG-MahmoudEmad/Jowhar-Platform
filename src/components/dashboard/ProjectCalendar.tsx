@@ -2,34 +2,56 @@
 
 "use client";
 
-import React, { memo, useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, domAnimation, m } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
 import { useSwipeNavigate } from '@/hooks/useSwipeNavigate';
+import Avatar from '@/components/ui/Avatar';
+import { getMemberTaskShade } from '@/lib/colorShades';
+import { fetchCalendarTasksRange } from '@/app/(dashboard)/dashboard/actions';
 
 type View = 'weekly' | 'monthly';
 type Lang = 'en' | 'ar';
 type Direction = 1 | -1;
 
-type Member = {
-  id: number;
-  // Links this calendar row to the member's registered user account.
-  // (comes from the `users` table via Supabase once wired to the backend)
-  userId: number | null;
+// ─────────────────────────────────────────────────────────────────────────────
+// Data shape — matches what the server (page.tsx) hands down. `members` is
+// already the final 5 (current user + 4 alphabetical), already in order —
+// this component does not re-sort. Tasks have no `color`; the 7-shade color
+// is computed client-side from the member's color + the task's chronological
+// rank among that member's tasks (see colorShades.ts).
+// ─────────────────────────────────────────────────────────────────────────────
+export interface CalendarMemberData {
+  id: string;
   name: string;
-  nameAr: string;
-  avatar: string;
   color: string;
-};
+  avatarUrl: string | null;
+  initials: string;
+}
+
+export interface CalendarTaskData {
+  id: string;
+  memberId: string;
+  title: string;
+  start: string; // 'YYYY-MM-DD'
+  end: string;   // 'YYYY-MM-DD'
+}
+
+interface ProjectCalendarProps {
+  members: CalendarMemberData[];
+  initialTasks: CalendarTaskData[];
+  /** ISO 'YYYY-MM-DD' bounds of the range already fetched server-side. */
+  initialRangeStart: string;
+  initialRangeEnd: string;
+}
 
 type Task = {
-  id: number;
-  memberId: number;
+  id: string;
+  memberId: string;
   title: string;
-  titleAr: string;
   start: Date;
   end: Date;
   color: string;
@@ -50,49 +72,22 @@ type TaskCluster = {
 };
 
 type OverlapPopover = {
-  memberId: number;
+  memberId: string;
   tasks: PositionedTask[];
   x: number;
   y: number;
 };
 
 type CalendarStyle = React.CSSProperties & Partial<Record<`--calendar-${string}`, string>>;
-type MemberStyle = React.CSSProperties & Partial<Record<'--member-color', string>>;
 type TaskStyle = React.CSSProperties & Partial<Record<'--task-color', string>>;
-
-const MEMBERS: Member[] = [
-  { id: 1, userId: 1, name: 'Ahmed', nameAr: 'أحمد', avatar: 'AH', color: '#458482' },
-  { id: 2, userId: 2, name: 'Sarah', nameAr: 'سارة', avatar: 'SA', color: '#f59e0b' },
-  { id: 3, userId: 3, name: 'Tweeflue', nameAr: 'تويفلو', avatar: 'TW', color: '#a855f7' },
-  { id: 4, userId: 4, name: 'Omar', nameAr: 'عمر', avatar: 'OM', color: '#ef4444' },
-  { id: 5, userId: 5, name: 'Lina', nameAr: 'لينا', avatar: 'LI', color: '#3b82f6' },
-  { id: 6, userId: 6, name: 'Nour', nameAr: 'نور', avatar: 'NO', color: '#ec4899' },
-  { id: 7, userId: 7, name: 'Khaled', nameAr: 'خالد', avatar: 'KH', color: '#06b6d4' },
-];
-
-// TODO: replace with the authenticated user's id from Auth/User context once available
-// (should match a member's `userId`, i.e. currentUser.id from Supabase auth)
-const CURRENT_USER_ID = 1;
-const CALENDAR_MEMBER_LIMIT = 5; // current user + 4 others
-
-/**
- * Same ordering rule as Team Performance: current user always first,
- * the rest alphabetically by name, capped to `limit` entries.
- */
-function sortMembersForDisplay(members: Member[], currentUserId: number, limit?: number): Member[] {
-  const current = members.filter((m) => m.userId === currentUserId);
-  const others = members
-    .filter((m) => m.userId !== currentUserId)
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const ordered = [...current, ...others];
-  return typeof limit === 'number' ? ordered.slice(0, limit) : ordered;
-}
 
 const ROW_H = 56;
 const TRACK_H = 6;
 const BAR_H = 18;
 const MEMBER_COL = 'w-28 sm:w-36';
+// الكارت لازم يبقى بنفس الطول دايمًا (5 صفوف) حتى لو عدد الأعضاء الفعليين
+// أقل — عشان التناسق مع كارت الديدلاين جنبه (items-stretch بالصفحة).
+const DISPLAY_ROWS = 5;
 
 const CARD_TRANSITION = {
   delay: 0.12,
@@ -105,8 +100,6 @@ const TASK_TRANSITION = {
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
-// Directional slide feedback for period navigation (arrows / swipe).
-// Applied to the task-bar layer only, so the member name column stays put.
 const ROW_SLIDE_TRANSITION = {
   duration: 0.28,
   ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
@@ -150,27 +143,18 @@ function addDays(date: Date, offset: number): Date {
   return next;
 }
 
-const DEMO_BASE_DATE = startOfDay(new Date());
-
-function d(offset: number): Date {
-  return addDays(DEMO_BASE_DATE, offset);
+function addMonths(date: Date, offset: number): Date {
+  const next = startOfDay(date);
+  next.setMonth(next.getMonth() + offset);
+  return next;
 }
 
-const ALL_TASKS: Task[] = [
-  { id: 1, memberId: 1, title: 'Character Rigging', titleAr: 'تحريك الشخصية', start: d(-3), end: d(2), color: '#458482' },
-  { id: 2, memberId: 1, title: 'Walk Cycle', titleAr: 'دورة المشي', start: d(3), end: d(7), color: '#5ea8a4' },
-  { id: 3, memberId: 2, title: '3D Environment', titleAr: 'بيئة ثلاثية', start: d(-1), end: d(4), color: '#f59e0b' },
-  { id: 4, memberId: 2, title: 'Texture Mapping', titleAr: 'خرائط النسيج', start: d(5), end: d(10), color: '#f97316' },
-  { id: 5, memberId: 3, title: 'Particle Effects', titleAr: 'تأثيرات الجسيمات', start: d(-2), end: d(6), color: '#a855f7' },
-  { id: 6, memberId: 4, title: 'Motion Blur VFX', titleAr: 'تأثير التمويه', start: d(0), end: d(3), color: '#ef4444' },
-  { id: 7, memberId: 4, title: 'Color Grading', titleAr: 'تصحيح الألوان', start: d(4), end: d(8), color: '#f43f5e' },
-  { id: 8, memberId: 5, title: 'Concept Sketches', titleAr: 'رسومات أولية', start: d(-4), end: d(1), color: '#3b82f6' },
-  { id: 9, memberId: 5, title: 'Storyboard', titleAr: 'القصة المصورة', start: d(2), end: d(9), color: '#6366f1' },
-  // Deliberately overlapping tasks to exercise the "+N" overlap indicator
-  { id: 10, memberId: 1, title: 'Facial Blendshapes', titleAr: 'تعبيرات الوجه', start: d(-2), end: d(1), color: '#2f6b69' },
-  { id: 11, memberId: 1, title: 'Client Review Notes', titleAr: 'ملاحظات العميل', start: d(0), end: d(2), color: '#7cc2bf' },
-  { id: 12, memberId: 2, title: 'UV Unwrapping', titleAr: 'فتح الخرائط', start: d(1), end: d(3), color: '#fbbf24' },
-];
+function toISODate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 function getWeekDays(anchor: Date): Date[] {
   const start = startOfDay(anchor);
@@ -274,7 +258,7 @@ const CalendarRow = memo(function CalendarRow({
   navDirection,
   onOverlapClick,
 }: {
-  member: Member;
+  member: CalendarMemberData;
   clusters: TaskCluster[];
   isLast: boolean;
   isRTL: boolean;
@@ -283,18 +267,17 @@ const CalendarRow = memo(function CalendarRow({
   todayPct: number | null;
   animKey: string;
   navDirection: Direction;
-  onOverlapClick: (memberId: number, tasks: PositionedTask[], anchorEl: HTMLElement) => void;
+  onOverlapClick: (memberId: string, tasks: PositionedTask[], anchorEl: HTMLElement) => void;
 }) {
-  const memberStyle: MemberStyle = {
-    '--member-color': member.color,
+  const rowOuterStyle: React.CSSProperties = {
     borderBottom: isLast ? 'none' : '1px solid var(--calendar-divider)',
     height: ROW_H,
   };
 
-  const [hoveredTaskId, setHoveredTaskId] = useState<number | null>(null);
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
 
   return (
-    <div className="flex items-center" style={memberStyle}>
+    <div className="flex items-center" style={rowOuterStyle}>
       <div
         className={`flex h-full shrink-0 items-center gap-2 px-3 ${MEMBER_COL}`}
         style={{
@@ -302,9 +285,14 @@ const CalendarRow = memo(function CalendarRow({
           borderLeft: isRTL ? '1px solid var(--calendar-divider)' : 'none',
         }}
       >
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--member-color)] text-[9px] font-black text-white shadow-[0_2px_8px_color-mix(in_srgb,var(--member-color)_25%,transparent)]">
-          {member.avatar}
-        </div>
+        <Avatar
+          avatarUrl={member.avatarUrl}
+          initials={member.initials}
+          name={member.name}
+          size={28}
+          color={member.color}
+          className="text-[9px] font-black text-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
+        />
         <span className="truncate text-start text-[10px] font-bold text-[var(--calendar-text-main)]">
           {member.name}
         </span>
@@ -369,7 +357,7 @@ const CalendarRow = memo(function CalendarRow({
                         direction: isRTL ? 'rtl' : 'ltr',
                       }}
                     >
-                      {lang === 'ar' ? task.titleAr : task.title}
+                      {task.title}
                     </span>
 
                     {overlapCount > 0 && (
@@ -405,7 +393,7 @@ const CalendarRow = memo(function CalendarRow({
                           direction: isRTL ? 'rtl' : 'ltr',
                         }}
                       >
-                        {lang === 'ar' ? task.titleAr : task.title}
+                        {task.title}
                       </m.div>
                     )}
                   </AnimatePresence>
@@ -419,7 +407,37 @@ const CalendarRow = memo(function CalendarRow({
   );
 });
 
-function ProjectCalendar() {
+// صف فاضي (placeholder) يستخدم لما عدد الأعضاء الفعليين أقل من DISPLAY_ROWS —
+// يحافظ على طول الكارت ثابت بدل ما يقصر مع كل عضو ناقص.
+const EmptyCalendarRow = memo(function EmptyCalendarRow({ isLast, isRTL }: { isLast: boolean; isRTL: boolean }) {
+  const rowOuterStyle: React.CSSProperties = {
+    borderBottom: isLast ? 'none' : '1px solid var(--calendar-divider)',
+    height: ROW_H,
+  };
+
+  return (
+    <div className="flex items-center opacity-40" style={rowOuterStyle}>
+      <div
+        className={`flex h-full shrink-0 items-center gap-2 px-3 ${MEMBER_COL}`}
+        style={{
+          borderRight: isRTL ? 'none' : '1px solid var(--calendar-divider)',
+          borderLeft: isRTL ? '1px solid var(--calendar-divider)' : 'none',
+        }}
+      >
+        <div className="h-7 w-7 shrink-0 rounded-full border border-dashed border-[var(--calendar-divider)]" />
+      </div>
+      <div className="relative flex-1" style={{ height: ROW_H }}>
+        <div
+          className="absolute inset-x-2 top-1/2 rounded-full bg-[var(--calendar-track-bg)]"
+          style={{ height: TRACK_H, transform: 'translateY(-50%)' }}
+        />
+      </div>
+    </div>
+  );
+});
+
+
+function ProjectCalendar({ members, initialTasks, initialRangeStart, initialRangeEnd }: ProjectCalendarProps) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
   const router = useRouter();
@@ -432,6 +450,14 @@ function ProjectCalendar() {
   const [navDirection, setNavDirection] = useState<Direction>(1);
   const [overlapPopover, setOverlapPopover] = useState<OverlapPopover | null>(null);
 
+  // ── Task cache + the range currently covered by it ──────────────────────
+  const [tasksCache, setTasksCache] = useState<CalendarTaskData[]>(initialTasks);
+  const [loadedRange, setLoadedRange] = useState(() => ({
+    start: startOfDay(new Date(initialRangeStart)),
+    end: startOfDay(new Date(initialRangeEnd)),
+  }));
+  const isExpandingRef = useRef(false);
+
   const palette = useMemo(() => getPalette(isDark), [isDark]);
   const dayFormatter = useMemo(() => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }), [locale]);
   const monthFormatter = useMemo(() => new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }), [locale]);
@@ -439,31 +465,90 @@ function ProjectCalendar() {
 
   const days = useMemo(() => (view === 'monthly' ? getMonthDays(anchor) : getWeekDays(anchor)), [anchor, view]);
   const dayIndexByKey = useMemo(() => new Map(days.map((day, index) => [getDayKey(day), index])), [days]);
-  const tasks = ALL_TASKS;
 
-  const displayMembers = useMemo(
-    () => sortMembersForDisplay(MEMBERS, CURRENT_USER_ID, CALENDAR_MEMBER_LIMIT),
-    [],
-  );
+  // ── Expand the loaded range on demand ────────────────────────────────────
+  // Only fires when the visible period goes outside what's already cached —
+  // normal navigation near "today" never triggers a network request.
+  useEffect(() => {
+    const minVisible = getDayKey(days[0]);
+    const maxVisible = getDayKey(days[days.length - 1]);
+    const loadedStartKey = loadedRange.start.getTime();
+    const loadedEndKey = loadedRange.end.getTime();
+
+    if (minVisible >= loadedStartKey && maxVisible <= loadedEndKey) return;
+    if (isExpandingRef.current) return;
+
+    isExpandingRef.current = true;
+    const newStart = addMonths(anchor, -2);
+    const newEnd = addMonths(anchor, 2);
+    const memberIds = members.map((m) => m.id);
+
+    fetchCalendarTasksRange(memberIds, toISODate(newStart), toISODate(newEnd))
+      .then((rows) => {
+        setTasksCache((prev) => {
+          const byId = new Map(prev.map((t) => [t.id, t]));
+          rows.forEach((r) => {
+            byId.set(r.id, { id: r.id, memberId: r.member_id, title: r.title, start: r.start_date, end: r.end_date });
+          });
+          return Array.from(byId.values());
+        });
+        setLoadedRange((prev) => ({
+          start: newStart < prev.start ? newStart : prev.start,
+          end: newEnd > prev.end ? newEnd : prev.end,
+        }));
+      })
+      .finally(() => {
+        isExpandingRef.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, anchor]);
+
+  // ── Stable per-task shade, based on chronological rank among the member's
+  //    ENTIRE cached task list (not just the visible window) — so a task's
+  //    color never shifts as you navigate between periods. ──────────────────
+  const shadeByTaskId = useMemo(() => {
+    const map = new Map<string, string>();
+    const byMember = new Map<string, CalendarTaskData[]>();
+    tasksCache.forEach((t) => {
+      const list = byMember.get(t.memberId) ?? [];
+      list.push(t);
+      byMember.set(t.memberId, list);
+    });
+    const colorByMemberId = new Map(members.map((m) => [m.id, m.color]));
+    byMember.forEach((list, memberId) => {
+      const baseColor = colorByMemberId.get(memberId) ?? '#458482';
+      const sorted = [...list].sort((a, b) => a.start.localeCompare(b.start));
+      sorted.forEach((t, idx) => map.set(t.id, getMemberTaskShade(baseColor, idx)));
+    });
+    return map;
+  }, [tasksCache, members]);
 
   const clustersByMember = useMemo(() => {
-    const grouped = new Map<number, PositionedTask[]>();
-    displayMembers.forEach((member) => grouped.set(member.id, []));
+    const grouped = new Map<string, PositionedTask[]>();
+    members.forEach((member) => grouped.set(member.id, []));
 
-    tasks.forEach((task) => {
-      if (!grouped.has(task.memberId)) return;
+    tasksCache.forEach((raw) => {
+      if (!grouped.has(raw.memberId)) return;
+      const task: Task = {
+        id: raw.id,
+        memberId: raw.memberId,
+        title: raw.title,
+        start: new Date(raw.start),
+        end: new Date(raw.end),
+        color: shadeByTaskId.get(raw.id) ?? '#458482',
+      };
       const position = getTaskPosition(task, days, dayIndexByKey);
       if (!position) return;
-      grouped.get(task.memberId)?.push({ ...task, ...position });
+      grouped.get(raw.memberId)?.push({ ...task, ...position });
     });
 
-    const clustered = new Map<number, TaskCluster[]>();
+    const clustered = new Map<string, TaskCluster[]>();
     grouped.forEach((memberTasks, memberId) => {
       clustered.set(memberId, clusterOverlappingTasks(memberTasks));
     });
 
     return clustered;
-  }, [dayIndexByKey, days, displayMembers, tasks]);
+  }, [dayIndexByKey, days, members, tasksCache, shadeByTaskId]);
 
   const todayKey = useMemo(() => getDayKey(new Date()), []);
   const todayIdx = dayIndexByKey.get(todayKey) ?? -1;
@@ -497,10 +582,9 @@ function ProjectCalendar() {
   }, []);
 
   const handleOverlapClick = useCallback(
-    (memberId: number, clusterTasks: PositionedTask[], anchorEl: HTMLElement) => {
+    (memberId: string, clusterTasks: PositionedTask[], anchorEl: HTMLElement) => {
       const rect = anchorEl.getBoundingClientRect();
       setOverlapPopover((current) => {
-        // Toggle off when clicking the same badge again
         if (current && current.memberId === memberId && current.tasks[0]?.id === clusterTasks[0]?.id) {
           return null;
         }
@@ -530,8 +614,6 @@ function ProjectCalendar() {
   );
 
   // Swipe / drag / trackpad navigation (shared hook).
-  // respectNativeScroll: the monthly grid is wider than the card, so horizontal
-  // scrolling inside it must keep working; swiping takes over at the edges.
   const { ref: scrollAreaRef, swipeHandlers, swipeStyle } = useSwipeNavigate({
     onNavigate: navigate,
     respectNativeScroll: true,
@@ -639,12 +721,12 @@ function ProjectCalendar() {
             </div>
 
             <div>
-              {displayMembers.map((member, index) => (
+              {members.map((member, index) => (
                 <CalendarRow
                   key={member.id}
                   member={member}
                   clusters={clustersByMember.get(member.id) ?? []}
-                  isLast={index === displayMembers.length - 1}
+                  isLast={index === DISPLAY_ROWS - 1}
                   isRTL={isRTL}
                   lang={lang}
                   rowIndex={index}
@@ -652,6 +734,13 @@ function ProjectCalendar() {
                   animKey={`${view}-${anchor.getTime()}`}
                   navDirection={navDirection}
                   onOverlapClick={handleOverlapClick}
+                />
+              ))}
+              {Array.from({ length: Math.max(0, DISPLAY_ROWS - members.length) }).map((_, i) => (
+                <EmptyCalendarRow
+                  key={`empty-${i}`}
+                  isLast={members.length + i === DISPLAY_ROWS - 1}
+                  isRTL={isRTL}
                 />
               ))}
             </div>
@@ -683,7 +772,6 @@ function ProjectCalendar() {
       <AnimatePresence>
         {overlapPopover && (
           <>
-            {/* Click-away layer */}
             <div className="fixed inset-0 z-40" onClick={closeOverlapPopover} />
 
             <m.div
@@ -730,7 +818,7 @@ function ProjectCalendar() {
                         className="truncate text-[10px] font-bold text-[var(--calendar-text-main)]"
                         style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
                       >
-                        {lang === 'ar' ? task.titleAr : task.title}
+                        {task.title}
                       </p>
                       <p className="text-[9px] font-medium text-[var(--calendar-text-muted)]">
                         {dayFormatter.format(task.start)} — {dayFormatter.format(task.end)}

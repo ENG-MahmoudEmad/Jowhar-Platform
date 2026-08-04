@@ -4,11 +4,12 @@ import { createClient } from '@/lib/supabase/server';
 import { getPriorityColor } from '@/lib/priorityColors';
 
 import TeamProgress, { type TeamMemberData } from '@/components/dashboard/TeamProgress';
-import ProjectCalendar   from '@/components/dashboard/ProjectCalendar';
+import ProjectCalendar, { type CalendarMemberData, type CalendarTaskData } from '@/components/dashboard/ProjectCalendar';
 import DeadlineCountdown, { type DeadlineData } from '@/components/dashboard/DeadlineCountdown';
 import MembersCard       from '@/components/dashboard/MembersCard';
 import StudioPulse       from '@/components/dashboard/StudioPulse';
 import Leaderboard, { type LeaderEntry } from '@/components/dashboard/Leaderboard';
+import { sortMembersForDisplay } from '@/lib/sortMembersForDisplay';
 
 // شكل الصف الراجع من get_team_progress() بالظبط (migration 20260803120500)
 type TeamProgressRow = {
@@ -35,7 +36,8 @@ type DeadlineRow = {
 
 // شكل الصف الراجع من get_leaderboard() بالظبط (migration 20260803120500)
 type LeaderboardRow = {
-  rank: 1 | 2 | 3;
+  rank: number; // الـ RPC نفسها بترجع 1-3 بس بسبب LIMIT 3، بس TypeScript
+                // ما بيعرف هيك من عمود int عادي — بنأكّدها يدويًا تحت.
   id: string;
   name: string;
   initials: string;
@@ -45,19 +47,33 @@ type LeaderboardRow = {
   tasks_completed: number;
 };
 
+// شكل الصف الراجع من get_calendar_tasks() بالظبط (migration 20260803120600)
+type CalendarTaskRow = {
+  id: string;
+  member_id: string;
+  title: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+};
+
+function toISODate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  // TODO: شيل الـ (as unknown as ...) بعد ما تولّد database.types.ts من جديد
-  // ويشمل get_team_progress() — عندها رجّع .returns<TeamProgressRow[]>() القديمة.
   const { data: teamProgressRows } = await supabase.rpc('get_team_progress');
-  const typedTeamProgressRows = teamProgressRows as unknown as TeamProgressRow[] | null;
 
   // تحويل شكل صف الداتابيز لشكل الـ props اللي الكومبوننت بيفهمه —
   // TeamProgress ما بيعرف شي عن أسماء أعمدة Supabase.
-  const teamMembers: TeamMemberData[] = (typedTeamProgressRows ?? []).map((row) => ({
+  const teamMembers: TeamMemberData[] = (teamProgressRows ?? []).map((row) => ({
     id: row.id,
     name: row.name?.trim() || '—',
     initials: row.initials || '—',
@@ -69,11 +85,9 @@ export default async function DashboardPage() {
     tasksCount: row.active_tasks,
   }));
 
-  // TODO: شيل الـ (as unknown as ...) بعد ما تولّد database.types.ts من جديد
   const { data: deadlineRows } = await supabase.rpc('get_my_deadlines');
-  const typedDeadlineRows = deadlineRows as unknown as DeadlineRow[] | null;
 
-  const deadlines: DeadlineData[] = (typedDeadlineRows ?? []).map((row) => ({
+  const deadlines: DeadlineData[] = (deadlineRows ?? []).map((row) => ({
     id: row.id,
     title: row.title,
     color: getPriorityColor(row.priority),
@@ -81,16 +95,13 @@ export default async function DashboardPage() {
     windowMs: row.window_seconds * 1000,
   }));
 
-  // TODO: شيل الـ (as unknown as ...) بعد ما تولّد database.types.ts من جديد
   const [{ data: weeklyRows }, { data: monthlyRows }] = await Promise.all([
     supabase.rpc('get_leaderboard', { p_period: 'weekly' }),
     supabase.rpc('get_leaderboard', { p_period: 'monthly' }),
   ]);
-  const typedWeeklyRows = weeklyRows as unknown as LeaderboardRow[] | null;
-  const typedMonthlyRows = monthlyRows as unknown as LeaderboardRow[] | null;
 
   const mapLeaderboardRow = (row: LeaderboardRow): LeaderEntry => ({
-    rank: row.rank,
+    rank: row.rank as 1 | 2 | 3, // مضمونة runtime بسبب row_number() + limit 3 بالـ RPC
     id: row.id,
     name: row.name?.trim() || '—',
     initials: row.initials || '—',
@@ -100,8 +111,38 @@ export default async function DashboardPage() {
     tasksCompleted: row.tasks_completed,
   });
 
-  const weeklyEntries: LeaderEntry[] = (typedWeeklyRows ?? []).map(mapLeaderboardRow);
-  const monthlyEntries: LeaderEntry[] = (typedMonthlyRows ?? []).map(mapLeaderboardRow);
+  const weeklyEntries: LeaderEntry[] = (weeklyRows ?? []).map(mapLeaderboardRow);
+  const monthlyEntries: LeaderEntry[] = (monthlyRows ?? []).map(mapLeaderboardRow);
+
+  // ── Calendar ──────────────────────────────────────────────────────────
+  // نفس قاعدة الترتيب المستخدمة بـ Team Progress بالظبط (مستخرجة لملف
+  // مشترك) — المستخدم الحالي أول، والباقي أبجديًا، لحد 5.
+  const calendarMembers: CalendarMemberData[] = sortMembersForDisplay(
+    teamMembers.map((m) => ({ id: m.id, name: m.name, color: m.color, avatarUrl: m.avatarUrl, initials: m.initials })),
+    user.id,
+    5,
+  );
+
+  // نطاق واسع مرة وحدة (شهرين قبل وبعد اليوم) — التنقل العادي قريب من
+  // اليوم ما بيحتاج ولا طلب شبكة إضافي. لو المستخدم قلّب أبعد من هيك،
+  // fetchCalendarTasksRange (Server Action) بتجيب الباقي عند الحاجة بس.
+  const today = new Date();
+  const calendarRangeStart = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
+  const calendarRangeEnd = new Date(today.getFullYear(), today.getMonth() + 2, today.getDate());
+
+  const { data: calendarTaskRows } = await supabase.rpc('get_calendar_tasks', {
+    p_member_ids: calendarMembers.map((m) => m.id),
+    p_start: toISODate(calendarRangeStart),
+    p_end: toISODate(calendarRangeEnd),
+  });
+
+  const calendarTasks: CalendarTaskData[] = (calendarTaskRows ?? []).map((row) => ({
+    id: row.id,
+    memberId: row.member_id,
+    title: row.title,
+    start: row.start_date,
+    end: row.end_date,
+  }));
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -114,7 +155,12 @@ export default async function DashboardPage() {
       {/* Calendar + Deadline — 2/3 + 1/3 */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         <div className="lg:col-span-2 flex flex-col">
-          <ProjectCalendar />
+          <ProjectCalendar
+            members={calendarMembers}
+            initialTasks={calendarTasks}
+            initialRangeStart={toISODate(calendarRangeStart)}
+            initialRangeEnd={toISODate(calendarRangeEnd)}
+          />
         </div>
         <div className="lg:col-span-1 flex flex-col">
           <DeadlineCountdown deadlines={deadlines} />

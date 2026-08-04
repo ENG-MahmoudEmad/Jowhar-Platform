@@ -1,0 +1,813 @@
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
+  public: {
+    Tables: {
+      daily_verses: {
+        Row: {
+          arabic_text: string
+          ayah_number: number
+          created_at: string
+          id: number
+          surah_name_ar: string
+          surah_name_en: string
+          surah_number: number
+          theme: string | null
+        }
+        Insert: {
+          arabic_text: string
+          ayah_number: number
+          created_at?: string
+          id?: number
+          surah_name_ar: string
+          surah_name_en: string
+          surah_number: number
+          theme?: string | null
+        }
+        Update: {
+          arabic_text?: string
+          ayah_number?: number
+          created_at?: string
+          id?: number
+          surah_name_ar?: string
+          surah_name_en?: string
+          surah_number?: number
+          theme?: string | null
+        }
+        Relationships: []
+      }
+      director_notes: {
+        Row: {
+          author_id: string | null
+          created_at: string
+          director_last_seen_at: string | null
+          id: string
+          member_id: string
+          member_last_seen_at: string | null
+          member_read_at: string | null
+          priority: Database["public"]["Enums"]["task_priority"]
+          text: string
+          title: string
+        }
+        Insert: {
+          author_id?: string | null
+          created_at?: string
+          director_last_seen_at?: string | null
+          id?: string
+          member_id: string
+          member_last_seen_at?: string | null
+          member_read_at?: string | null
+          priority?: Database["public"]["Enums"]["task_priority"]
+          text: string
+          title: string
+        }
+        Update: {
+          author_id?: string | null
+          created_at?: string
+          director_last_seen_at?: string | null
+          id?: string
+          member_id?: string
+          member_last_seen_at?: string | null
+          member_read_at?: string | null
+          priority?: Database["public"]["Enums"]["task_priority"]
+          text?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "director_notes_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "director_notes_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_change_requests: {
+        Row: {
+          id: string
+          new_email: string
+          requested_at: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: Database["public"]["Enums"]["email_change_status"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          new_email: string
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: Database["public"]["Enums"]["email_change_status"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          new_email?: string
+          requested_at?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: Database["public"]["Enums"]["email_change_status"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_change_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      member_notes: {
+        Row: {
+          color: string
+          content: string
+          created_at: string
+          id: string
+          owner_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          content?: string
+          created_at?: string
+          id?: string
+          owner_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          content?: string
+          created_at?: string
+          id?: string
+          owner_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_notes_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      note_replies: {
+        Row: {
+          author_id: string | null
+          author_role: Database["public"]["Enums"]["note_author_role"]
+          created_at: string
+          id: string
+          note_id: string
+          text: string
+        }
+        Insert: {
+          author_id?: string | null
+          author_role: Database["public"]["Enums"]["note_author_role"]
+          created_at?: string
+          id?: string
+          note_id: string
+          text: string
+        }
+        Update: {
+          author_id?: string | null
+          author_role?: Database["public"]["Enums"]["note_author_role"]
+          created_at?: string
+          id?: string
+          note_id?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "note_replies_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "note_replies_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "director_notes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          href: string
+          id: string
+          is_read: boolean
+          read_at: string | null
+          recipient_id: string
+          resolution_key: string | null
+          resolved_at: string | null
+          subject: string
+          type: Database["public"]["Enums"]["notification_type"]
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          href: string
+          id?: string
+          is_read?: boolean
+          read_at?: string | null
+          recipient_id: string
+          resolution_key?: string | null
+          resolved_at?: string | null
+          subject?: string
+          type: Database["public"]["Enums"]["notification_type"]
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          href?: string
+          id?: string
+          is_read?: boolean
+          read_at?: string | null
+          recipient_id?: string
+          resolution_key?: string | null
+          resolved_at?: string | null
+          subject?: string
+          type?: Database["public"]["Enums"]["notification_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      permissions: {
+        Row: {
+          category: string
+          key: string
+          label_ar: string
+          label_en: string
+          sort_order: number
+        }
+        Insert: {
+          category: string
+          key: string
+          label_ar: string
+          label_en: string
+          sort_order?: number
+        }
+        Update: {
+          category?: string
+          key?: string
+          label_ar?: string
+          label_en?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          access_role: Database["public"]["Enums"]["access_role"]
+          approved_at: string | null
+          approved_by: string | null
+          avatar_url: string | null
+          color: string
+          created_at: string
+          deleted_at: string | null
+          first_name: string
+          id: string
+          is_chief: boolean
+          is_developer: boolean
+          is_suspended: boolean
+          job_title_ar: string | null
+          job_title_en: string | null
+          last_name: string
+          last_password_change_at: string | null
+          last_password_reset_request_at: string | null
+          last_verification_resend_at: string | null
+          lock_avatar: boolean
+          lock_name: boolean
+          rejected_at: string | null
+          rejected_by: string | null
+          status: Database["public"]["Enums"]["account_status"]
+          suspended_by: string | null
+          suspended_until: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_role?: Database["public"]["Enums"]["access_role"]
+          approved_at?: string | null
+          approved_by?: string | null
+          avatar_url?: string | null
+          color?: string
+          created_at?: string
+          deleted_at?: string | null
+          first_name: string
+          id: string
+          is_chief?: boolean
+          is_developer?: boolean
+          is_suspended?: boolean
+          job_title_ar?: string | null
+          job_title_en?: string | null
+          last_name: string
+          last_password_change_at?: string | null
+          last_password_reset_request_at?: string | null
+          last_verification_resend_at?: string | null
+          lock_avatar?: boolean
+          lock_name?: boolean
+          rejected_at?: string | null
+          rejected_by?: string | null
+          status?: Database["public"]["Enums"]["account_status"]
+          suspended_by?: string | null
+          suspended_until?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_role?: Database["public"]["Enums"]["access_role"]
+          approved_at?: string | null
+          approved_by?: string | null
+          avatar_url?: string | null
+          color?: string
+          created_at?: string
+          deleted_at?: string | null
+          first_name?: string
+          id?: string
+          is_chief?: boolean
+          is_developer?: boolean
+          is_suspended?: boolean
+          job_title_ar?: string | null
+          job_title_en?: string | null
+          last_name?: string
+          last_password_change_at?: string | null
+          last_password_reset_request_at?: string | null
+          last_verification_resend_at?: string | null
+          lock_avatar?: boolean
+          lock_name?: boolean
+          rejected_at?: string | null
+          rejected_by?: string | null
+          status?: Database["public"]["Enums"]["account_status"]
+          suspended_by?: string | null
+          suspended_until?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      signup_attempts: {
+        Row: {
+          email: string
+          id: string
+          ip_address: unknown
+          rejected_at: string
+        }
+        Insert: {
+          email: string
+          id?: string
+          ip_address?: unknown
+          rejected_at?: string
+        }
+        Update: {
+          email?: string
+          id?: string
+          ip_address?: unknown
+          rejected_at?: string
+        }
+        Relationships: []
+      }
+      tasks: {
+        Row: {
+          assigned_to: string
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          end_date: string
+          id: string
+          priority: Database["public"]["Enums"]["task_priority"]
+          start_date: string
+          status: Database["public"]["Enums"]["task_status"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          end_date: string
+          id?: string
+          priority?: Database["public"]["Enums"]["task_priority"]
+          start_date: string
+          status?: Database["public"]["Enums"]["task_status"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          end_date?: string
+          id?: string
+          priority?: Database["public"]["Enums"]["task_priority"]
+          start_date?: string
+          status?: Database["public"]["Enums"]["task_status"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tasks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_permissions: {
+        Row: {
+          granted_at: string
+          granted_by: string | null
+          permission_key: string
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          granted_by?: string | null
+          permission_key: string
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string | null
+          permission_key?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_permissions_permission_key_fkey"
+            columns: ["permission_key"]
+            isOneToOne: false
+            referencedRelation: "permissions"
+            referencedColumns: ["key"]
+          },
+          {
+            foreignKeyName: "user_permissions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      can_edit_identity: {
+        Args: { actor: string; target: string }
+        Returns: boolean
+      }
+      can_manage_member: {
+        Args: { actor: string; target: string }
+        Returns: boolean
+      }
+      can_open_member: {
+        Args: { actor: string; target: string }
+        Returns: boolean
+      }
+      complete_email_change: { Args: { p_user_id: string }; Returns: boolean }
+      get_calendar_tasks: {
+        Args: { p_end: string; p_member_ids: string[]; p_start: string }
+        Returns: {
+          end_date: string
+          id: string
+          member_id: string
+          start_date: string
+          status: string
+          title: string
+        }[]
+      }
+      get_daily_verse: {
+        Args: never
+        Returns: {
+          arabic_text: string
+          ayah_number: number
+          id: number
+          surah_name_ar: string
+          surah_name_en: string
+          surah_number: number
+        }[]
+      }
+      get_leaderboard: {
+        Args: { p_period?: string }
+        Returns: {
+          avatar_url: string
+          color: string
+          id: string
+          initials: string
+          name: string
+          rank: number
+          score: number
+          tasks_completed: number
+        }[]
+      }
+      get_my_deadlines: {
+        Args: never
+        Returns: {
+          deadline_at: string
+          id: string
+          priority: string
+          start_at: string
+          title: string
+          window_seconds: number
+        }[]
+      }
+      get_team_progress: {
+        Args: never
+        Returns: {
+          active_tasks: number
+          avatar_url: string
+          color: string
+          id: string
+          initials: string
+          job_title_ar: string
+          job_title_en: string
+          name: string
+          progress: number
+        }[]
+      }
+      has_admin_capability: { Args: { p_key: string }; Returns: boolean }
+      has_permission: {
+        Args: { perm_key: string; uid: string }
+        Returns: boolean
+      }
+      is_active_member: { Args: never; Returns: boolean }
+      is_active_user: { Args: { uid: string }; Returns: boolean }
+      is_admin: { Args: { uid: string }; Returns: boolean }
+      is_chief: { Args: { uid: string }; Returns: boolean }
+      is_developer: { Args: { uid?: string }; Returns: boolean }
+      is_effectively_suspended: { Args: { uid: string }; Returns: boolean }
+      mark_note_seen: { Args: { p_note_id: string }; Returns: undefined }
+      notify_permitted: {
+        Args: {
+          p_actor: string
+          p_entity_id: string
+          p_entity_type: string
+          p_exclude?: string
+          p_href: string
+          p_permission: string
+          p_resolution_key?: string
+          p_subject: string
+          p_type: Database["public"]["Enums"]["notification_type"]
+        }
+        Returns: undefined
+      }
+      notify_user: {
+        Args: {
+          p_actor: string
+          p_entity_id: string
+          p_entity_type: string
+          p_href: string
+          p_recipient: string
+          p_resolution_key?: string
+          p_subject: string
+          p_type: Database["public"]["Enums"]["notification_type"]
+        }
+        Returns: undefined
+      }
+      purge_deleted_profiles: { Args: never; Returns: number }
+      purge_old_notifications: { Args: never; Returns: number }
+      request_password_reset: { Args: { p_email: string }; Returns: boolean }
+      resolve_notification_group: {
+        Args: { p_key: string; p_resolver: string }
+        Returns: number
+      }
+      stamp_password_change: { Args: { p_user_id: string }; Returns: undefined }
+    }
+    Enums: {
+      access_role: "member" | "admin"
+      account_status: "pending_approval" | "active" | "rejected"
+      email_change_status:
+        | "pending_admin"
+        | "pending_email_verification"
+        | "completed"
+      note_author_role: "director" | "member"
+      notification_type:
+        | "task_assigned"
+        | "note_received"
+        | "note_reply"
+        | "signup_pending"
+        | "signup_resolved"
+        | "account_approved"
+        | "account_rejected"
+        | "email_change_pending"
+        | "email_change_approved"
+        | "email_change_rejected"
+        | "news_published"
+      task_priority: "low" | "medium" | "high"
+      task_status: "open" | "done"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      access_role: ["member", "admin"],
+      account_status: ["pending_approval", "active", "rejected"],
+      email_change_status: [
+        "pending_admin",
+        "pending_email_verification",
+        "completed",
+      ],
+      note_author_role: ["director", "member"],
+      notification_type: [
+        "task_assigned",
+        "note_received",
+        "note_reply",
+        "signup_pending",
+        "signup_resolved",
+        "account_approved",
+        "account_rejected",
+        "email_change_pending",
+        "email_change_approved",
+        "email_change_rejected",
+        "news_published",
+      ],
+      task_priority: ["low", "medium", "high"],
+      task_status: ["open", "done"],
+    },
+  },
+} as const
