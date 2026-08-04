@@ -26,13 +26,14 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: teamProgressRows } = await supabase
-    .rpc('get_team_progress')
-    .returns<TeamProgressRow[]>();
+  // TODO: شيل الـ (as unknown as ...) بعد ما تولّد database.types.ts من جديد
+  // ويشمل get_team_progress() — عندها رجّع .returns<TeamProgressRow[]>() القديمة.
+  const { data: teamProgressRows } = await supabase.rpc('get_team_progress');
+  const typedTeamProgressRows = teamProgressRows as unknown as TeamProgressRow[] | null;
 
   // تحويل شكل صف الداتابيز لشكل الـ props اللي الكومبوننت بيفهمه —
   // TeamProgress ما بيعرف شي عن أسماء أعمدة Supabase.
-  const teamMembers: TeamMemberData[] = (teamProgressRows ?? []).map((row) => ({
+  const teamMembers: TeamMemberData[] = (typedTeamProgressRows ?? []).map((row) => ({
     id: row.id,
     name: row.name?.trim() || '—',
     initials: row.initials || '—',
