@@ -6,10 +6,11 @@ import { getPriorityColor } from '@/lib/priorityColors';
 import TeamProgress, { type TeamMemberData } from '@/components/dashboard/TeamProgress';
 import ProjectCalendar, { type CalendarMemberData, type CalendarTaskData } from '@/components/dashboard/ProjectCalendar';
 import DeadlineCountdown, { type DeadlineData } from '@/components/dashboard/DeadlineCountdown';
-import MembersCard       from '@/components/dashboard/MembersCard';
+import MembersCard, { type PlatformData, type RosterMemberData } from '@/components/dashboard/MembersCard';
 import StudioPulse, { type DailyVerseData, type StudioPulseStatsData } from '@/components/dashboard/StudioPulse';
 import Leaderboard, { type LeaderEntry } from '@/components/dashboard/Leaderboard';
 import { sortMembersForDisplay } from '@/lib/sortMembersForDisplay';
+import { hasCapability } from '@/app/(dashboard)/adminControl/guards';
 
 // شكل الصف الراجع من get_team_progress() بالظبط (migration 20260803120500)
 type TeamProgressRow = {
@@ -78,6 +79,46 @@ type StudioPulseStatsRow = {
   most_active_member_color: string | null;
   most_active_member_avatar_url: string | null;
   most_active_member_tasks_completed: number | null;
+};
+
+// شكل الاستعلام المتداخل platforms → categories → members (migration 20260803121000)
+type PlatformMemberRow = {
+  id: string;
+  member: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    color: string;
+    avatar_url: string | null;
+    job_title_en: string | null;
+    job_title_ar: string | null;
+  } | null;
+};
+
+type PlatformCategoryRow = {
+  id: string;
+  label_en: string;
+  label_ar: string;
+  sort_order: number;
+  platform_team_members: PlatformMemberRow[];
+};
+
+type PlatformRow = {
+  id: string;
+  name_en: string;
+  name_ar: string;
+  color: string;
+  thumbnail_url: string | null;
+  platform_team_categories: PlatformCategoryRow[];
+};
+
+// روستر الأعضاء الفعّالين — لقائمة "إضافة عضو"
+type RosterRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  color: string;
+  avatar_url: string | null;
 };
 
 function toISODate(date: Date): string {
@@ -168,10 +209,13 @@ export default async function DashboardPage() {
   }));
 
   // ── Studio Pulse ─────────────────────────────────────────────────────
-  const [{ data: verseRows }, { data: pulseStatsRows }] = await Promise.all([
+  const [{ data: verseRows, error: verseError }, { data: pulseStatsRows, error: statsError }] = await Promise.all([
     supabase.rpc('get_daily_verse'),
     supabase.rpc('get_studio_pulse_stats'),
   ]);
+
+  if (verseError) console.error('get_daily_verse failed:', verseError.message);
+  if (statsError) console.error('get_studio_pulse_stats failed:', statsError.message);
 
   const verseRow: DailyVerseRow | undefined = verseRows?.[0];
   const verse: DailyVerseData = {
@@ -197,6 +241,91 @@ export default async function DashboardPage() {
         }
       : null,
   };
+
+  // ── Members Card (Platforms) ────────────────────────────────────────────
+  const { data: viewerProfile } = await supabase
+    .from('profiles')
+    .select('is_chief, is_developer, access_role')
+    .eq('id', user.id)
+    .single();
+
+  const canManagePlatforms = viewerProfile
+    ? await hasCapability(
+        supabase,
+        {
+          id: user.id,
+          isDeveloper: viewerProfile.is_developer,
+          isChief: viewerProfile.is_chief,
+          accessRole: viewerProfile.access_role,
+        },
+        'platforms.manage'
+      )
+    : false;
+
+  const { data: platformRows } = await supabase
+    .from('platforms')
+    .select(`
+      id, name_en, name_ar, color, thumbnail_url,
+      platform_team_categories (
+        id, label_en, label_ar, sort_order,
+        platform_team_members (
+          id,
+          member:profiles!platform_team_members_member_id_fkey (
+            id, first_name, last_name, color, avatar_url, job_title_en, job_title_ar
+          )
+        )
+      )
+    `)
+    .order('name_en')
+    .order('sort_order', { referencedTable: 'platform_team_categories' });
+
+  const memberBio = (jobTitle: string | null) => jobTitle ?? '';
+
+  const platforms: PlatformData[] = (platformRows ?? []).map((row: PlatformRow) => ({
+    id: row.id,
+    nameEn: row.name_en,
+    nameAr: row.name_ar,
+    color: row.color || '#458482',
+    thumbnail: row.thumbnail_url,
+    categories: (row.platform_team_categories ?? [])
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((cat) => ({
+        id: cat.id,
+        labelEn: cat.label_en,
+        labelAr: cat.label_ar,
+        members: (cat.platform_team_members ?? [])
+          .filter((pm) => pm.member !== null)
+          .map((pm) => {
+            const m = pm.member!;
+            const name = `${m.first_name ?? ''} ${m.last_name ?? ''}`.trim() || '—';
+            const initials = `${m.first_name?.[0] ?? ''}${m.last_name?.[0] ?? ''}`.toUpperCase() || '—';
+            return {
+              id: m.id,
+              name,
+              initials,
+              color: m.color || '#0d9488',
+              avatarUrl: m.avatar_url,
+              bio: memberBio(m.job_title_en),
+              bioAr: memberBio(m.job_title_ar),
+            };
+          }),
+      })),
+  }));
+
+  const { data: rosterRows } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, color, avatar_url')
+    .eq('status', 'active')
+    .is('deleted_at', null);
+
+  const roster: RosterMemberData[] = (rosterRows ?? []).map((row: RosterRow) => ({
+    id: row.id,
+    name: `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || '—',
+    initials: `${row.first_name?.[0] ?? ''}${row.last_name?.[0] ?? ''}`.toUpperCase() || '—',
+    color: row.color || '#0d9488',
+    avatarUrl: row.avatar_url,
+  }));
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -224,7 +353,7 @@ export default async function DashboardPage() {
       {/* Members + Studio Pulse — 1/3 + 2/3 */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         <div className="lg:col-span-1 flex flex-col">
-          <MembersCard />
+          <MembersCard platforms={platforms} roster={roster} isAdmin={canManagePlatforms} />
         </div>
         <div className="lg:col-span-2 flex flex-col h-full">
           <StudioPulse verse={verse} stats={studioPulseStats} />

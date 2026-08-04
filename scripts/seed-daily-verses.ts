@@ -8,7 +8,38 @@
 //
 // شغّله مرة وحدة بس بعد ما تطبّق مايجريشن 021 (الجدول لازم يكون موجود قبل).
 
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
+
+// tsx ما بيقرأ .env.local تلقائيًا زي Next.js — بنقرأه يدوي هون بدون
+// أي حزمة إضافية (dotenv ممكن مش مثبتة أصلاً).
+function loadEnvLocal() {
+  const envPath = resolve(process.cwd(), '.env.local');
+  if (!existsSync(envPath)) return;
+
+  const content = readFileSync(envPath, 'utf-8');
+  content.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) return;
+    const key = trimmed.slice(0, eqIdx).trim();
+    let value = trimmed.slice(eqIdx + 1).trim();
+    // بيشيل علامات التنصيص المحيطة لو موجودة ("value" أو 'value')
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!process.env[key]) process.env[key] = value;
+  });
+}
+
+loadEnvLocal();
+
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.error('❌ ناقص NEXT_PUBLIC_SUPABASE_URL أو SUPABASE_SERVICE_ROLE_KEY بملف .env.local');
+  process.exit(1);
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

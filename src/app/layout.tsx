@@ -2,7 +2,7 @@
 
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { Inter, Montserrat, Cairo, Amiri_Quran } from "next/font/google";
+import { Inter, Montserrat, Cairo, Amiri } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
 
@@ -23,11 +23,11 @@ const cairo = Cairo({
   display: "swap",
   weight: ["400", "600", "700", "900"],
 });
-const amiriQuran = Amiri_Quran({
+const amiriQuran = Amiri({
   variable: "--font-amiri-quran",
   subsets: ["arabic"],
   display: "swap",
-  weight: "400", // الخط ده أصلاً بوزن واحد بس (Regular)
+  weight: "400", // وزن Regular فعلي — أخف بكثير من Amiri Quran (بيجي بوزن واحد بس وتقيل عمدًا)
 });
 
 export const metadata: Metadata = {

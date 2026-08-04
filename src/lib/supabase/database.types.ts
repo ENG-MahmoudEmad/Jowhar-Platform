@@ -306,6 +306,114 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_team_categories: {
+        Row: {
+          created_at: string
+          id: string
+          label_ar: string
+          label_en: string
+          platform_id: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label_ar: string
+          label_en: string
+          platform_id: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label_ar?: string
+          label_en?: string
+          platform_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_team_categories_platform_id_fkey"
+            columns: ["platform_id"]
+            isOneToOne: false
+            referencedRelation: "platforms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_team_members: {
+        Row: {
+          category_id: string
+          created_at: string
+          id: string
+          member_id: string
+          platform_id: string
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          id?: string
+          member_id: string
+          platform_id: string
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          id?: string
+          member_id?: string
+          platform_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_team_members_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "platform_team_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_team_members_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_team_members_platform_id_fkey"
+            columns: ["platform_id"]
+            isOneToOne: false
+            referencedRelation: "platforms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platforms: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          name_ar: string
+          name_en: string
+          thumbnail_url: string | null
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          name_ar: string
+          name_en: string
+          thumbnail_url?: string | null
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          name_ar?: string
+          name_en?: string
+          thumbnail_url?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           access_role: Database["public"]["Enums"]["access_role"]
