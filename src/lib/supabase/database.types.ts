@@ -188,7 +188,7 @@ export type Database = {
         }
         Insert: {
           author_id?: string | null
-          author_role: Database["public"]["Enums"]["note_author_role"]
+          author_role?: Database["public"]["Enums"]["note_author_role"]
           created_at?: string
           id?: string
           note_id: string
