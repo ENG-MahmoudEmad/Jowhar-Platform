@@ -162,12 +162,16 @@ export async function toggleProfileLock(
 ) {
   const { supabase } = await requireManagedTarget(memberId, CAPABILITY);
 
-  const column = lock === 'name' ? 'lock_name' : 'lock_avatar';
-
-  const { error } = await supabase
-    .from('profiles')
-    .update({ [column]: value })
-    .eq('id', memberId);
+  /*
+    مفتاح ديناميكي زي { [column]: value } كان بيولّد نوع { [x: string]: boolean }
+    من ناحية TypeScript، حتى لو `column` فعليًا محصور باثنتين بس — TypeScript
+    ما بيدمج computed key من union بكائن أدق من index signature عامة (وهذا
+    مرفوض الآن بالنوع الصارم RejectExcessProperties اللي Supabase بيولّده).
+    الفرعين الصريحين هون بيحلّوها بدون ما يغيّروا أي سلوك وقت التشغيل.
+  */
+  const { error } = lock === 'name'
+    ? await supabase.from('profiles').update({ lock_name: value }).eq('id', memberId)
+    : await supabase.from('profiles').update({ lock_avatar: value }).eq('id', memberId);
 
   if (error) throw new Error('lock_update_failed');
 
