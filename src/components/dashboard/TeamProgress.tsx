@@ -5,6 +5,7 @@ import { LazyMotion, domAnimation, m } from 'framer-motion';
 import { ChevronRight, Users, X } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import Avatar from '@/components/ui/Avatar';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data shape — matches what the server (page.tsx) hands down after mapping
@@ -18,6 +19,7 @@ export type TeamMemberData = {
   role: string;
   roleAr: string;
   color: string;
+  avatarUrl: string | null;
   progress: number; // 0-100, computed server-side
   tasksCount: number; // active (open) tasks, computed server-side
 };
@@ -157,9 +159,14 @@ const TeamMemberRow = memo(function TeamMemberRow({
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-[#458482] transition-colors bg-[var(--team-avatar-bg)] border border-[var(--team-avatar-border)]">
-              {member.initials}
-            </div>
+            <Avatar
+              avatarUrl={member.avatarUrl}
+              initials={member.initials}
+              name={member.name}
+              size={36}
+              shape="square"
+              className="text-xs font-bold text-[#458482] transition-colors bg-[var(--team-avatar-bg)] border border-[var(--team-avatar-border)]"
+            />
 
             <div className="min-w-0 text-start">
               <h4 className="truncate text-sm font-bold text-[var(--team-text-main)] flex items-center gap-1.5">

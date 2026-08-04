@@ -2,7 +2,8 @@
 
 "use client";
 
-import React, { memo, useCallback, useId, useMemo, useState } from 'react';
+import React, { memo, useCallback, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   LayoutDashboard,ShieldCheck, CheckSquare, Archive,
   Newspaper, LogOut, UserCircle, ChevronRight,
@@ -91,6 +92,48 @@ const avatarStatusDotStyle: React.CSSProperties = {
   boxShadow: '0 0 5px rgba(52,211,153,0.5)',
 };
 
+// ── Portal-rendered tooltip for the collapsed rail ──────────────────────────
+// Rendered into document.body via a portal and positioned with `fixed`
+// coordinates computed from the trigger's own bounding box. This keeps it
+// completely outside the sidebar's box model, so it can never contribute to
+// any ancestor's scrollWidth — which is what caused the mystery horizontal
+// scroll before (an `absolute` tooltip sitting outside the 72px rail, inside
+// an `overflow: visible` aside, was silently widening the page's scrollable
+// area even while invisible).
+interface RailTooltipProps {
+  label: string;
+  anchorRect: DOMRect;
+  isRTL: boolean;
+  isDark: boolean;
+}
+
+const RailTooltip = memo(function RailTooltip({ label, anchorRect, isRTL, isDark }: RailTooltipProps) {
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    top: anchorRect.top + anchorRect.height / 2,
+    transform: 'translateY(-50%)',
+    [isRTL ? 'right' : 'left']: isRTL
+      ? window.innerWidth - anchorRect.left + 8
+      : anchorRect.right + 8,
+    background: isDark ? '#161b22' : '#fff',
+    color: TEXT_MAIN,
+    border: `1px solid ${SIDEBAR_BORDER}`,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+    zIndex: 200,
+  } as React.CSSProperties;
+
+  return createPortal(
+    <div
+      role="tooltip"
+      className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest whitespace-nowrap pointer-events-none"
+      style={style}
+    >
+      {label}
+    </div>,
+    document.body,
+  );
+});
+
 // ── Sidebar nav item — معزول بـ memo عشان ما يعيد render إلا لو props تبعه تغيرت ──
 interface NavItemProps {
   item: MenuItem;
@@ -108,6 +151,15 @@ const SidebarNavItem = memo(function SidebarNavItem({
 }: NavItemProps) {
   const label = lang === 'ar' ? item.nameAr : item.nameEn;
   const Icon = item.icon;
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null);
+
+  const showTooltip = useCallback(() => {
+    if (isOpen) return; // tooltip only makes sense on the collapsed rail
+    if (rowRef.current) setTooltipRect(rowRef.current.getBoundingClientRect());
+  }, [isOpen]);
+
+  const hideTooltip = useCallback(() => setTooltipRect(null), []);
 
   const rowStyle = useMemo<React.CSSProperties>(
     () => ({ color: isActive ? TEXT_MAIN : TEXT_IDLE, flexDirection: 'row' }),
@@ -161,20 +213,8 @@ const SidebarNavItem = memo(function SidebarNavItem({
     [isOpen],
   );
 
-  const tooltipStyle = useMemo<React.CSSProperties>(
-    () => ({
-      [isRTL ? 'right' : 'left']: 'calc(100% + 8px)',
-      background: isDark ? '#161b22' : '#fff',
-      color: TEXT_MAIN,
-      border: `1px solid ${SIDEBAR_BORDER}`,
-      boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-      transition: 'opacity 0.1s',
-    }),
-    [isRTL, isDark],
-  );
-
   return (
-    <div>
+    <div ref={rowRef} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
       <Link
         href={item.path}
         aria-current={isActive ? 'page' : undefined}
@@ -219,19 +259,14 @@ const SidebarNavItem = memo(function SidebarNavItem({
             />
           </div>
         </div>
-
-        {/* Tooltip when collapsed */}
-        {!isOpen && (
-          <div
-            className="absolute top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg
-              text-[10px] font-bold uppercase tracking-widest whitespace-nowrap
-              opacity-0 group-hover/item:opacity-100 pointer-events-none z-[200]"
-            style={tooltipStyle}
-          >
-            {label}
-          </div>
-        )}
       </Link>
+
+      {/* Tooltip when collapsed — portal + fixed positioning, see RailTooltip
+          docstring above for why this replaced the old absolute-positioned
+          version (it was silently causing horizontal page scroll). */}
+      {tooltipRect && (
+        <RailTooltip label={label} anchorRect={tooltipRect} isRTL={isRTL} isDark={isDark} />
+      )}
     </div>
   );
 });
@@ -411,8 +446,13 @@ function Sidebar({
   const userRowStyle = useMemo<React.CSSProperties>(
     () => ({
       flexDirection: 'row',
-      justifyContent: isOpen ? 'flex-start' : 'center',
+      // ملاحظة: justifyContent ما بتقدر تتحرك بسلاسة بالـ CSS (قيمة غير قابلة
+      // للتحريك)، فكانت بتقفز فجأة بدل ما تنزلق مع باقي الأنيميشن. تركها ثابتة
+      // على flex-start حل المشكلة: لما الـ gap يوصل صفر ومساحة النص صفر، ما
+      // في فرق بصري بين flex-start و center أصلاً.
+      justifyContent: 'flex-start',
       gap: isOpen ? '0.75rem' : '0',
+      transition: 'gap 0.18s ease',
     }),
     [isOpen],
   );
@@ -529,7 +569,7 @@ function Sidebar({
       </div>
 
       {/* Nav */}
-      <nav className="relative flex-1 py-3 px-2 space-y-0.5 overflow-y-auto overflow-x-visible">
+      <nav className="relative flex-1 py-3 px-2 space-y-0.5 overflow-y-auto overflow-x-hidden">
         {visibleItems.map((it) => (
           <SidebarNavItem
             key={it.path}

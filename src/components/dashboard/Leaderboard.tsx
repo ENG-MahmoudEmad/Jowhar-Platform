@@ -1,126 +1,35 @@
 "use client"
 
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { LazyMotion, domAnimation, m, useMotionValue, useSpring, useTransform } from 'framer-motion'
+import { Trophy } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
+import Avatar from '@/components/ui/Avatar'
 import type { MotionStyle } from "framer-motion";
 
 type Period = 'weekly' | 'monthly'
 
-interface LeaderEntry {
+// ─────────────────────────────────────────────────────────────────────────────
+// Data shape — matches what the server (page.tsx) hands down after mapping
+// the raw `get_leaderboard()` RPC rows. Only ranks that actually have a
+// completed task appear here — the array can have 0, 1, 2, or 3 entries.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface LeaderEntry {
   rank: 1 | 2 | 3
+  id: string
   name: string
   initials: string
   memberColor: string
+  avatarUrl: string | null
   score: number
   tasksCompleted: number
 }
 
-/* ───────────────────────────────────────────────────────────────────────────────
-   MOCK DATA — two separate podiums so the Weekly/Monthly toggle is visible.
-   Replace both with a single server-computed query (see BACKEND NOTE below).
-   ─────────────────────────────────────────────────────────────────────────────── */
-const WEEKLY_LEADERS: LeaderEntry[] = [
-  { rank: 1, name: 'Medoma', initials: 'MD', memberColor: '#cd7f32', score: 42, tasksCompleted: 9 },
-  { rank: 2, name: 'KB',     initials: 'KB', memberColor: '#f59e0b', score: 35, tasksCompleted: 7 },
-  { rank: 3, name: 'MODYER', initials: 'MO', memberColor: '#94a3b8', score: 28, tasksCompleted: 5 },
-]
-
-const MONTHLY_LEADERS: LeaderEntry[] = [
-  { rank: 1, name: 'KB',     initials: 'KB', memberColor: '#f59e0b', score: 98, tasksCompleted: 24 },
-  { rank: 2, name: 'MODYER', initials: 'MO', memberColor: '#94a3b8', score: 87, tasksCompleted: 19 },
-  { rank: 3, name: 'Medoma', initials: 'MD', memberColor: '#cd7f32', score: 76, tasksCompleted: 15 },
-]
-
-const LEADERS_BY_PERIOD: Record<Period, LeaderEntry[]> = {
-  weekly:  WEEKLY_LEADERS,
-  monthly: MONTHLY_LEADERS,
+interface LeaderboardProps {
+  weeklyEntries: LeaderEntry[]
+  monthlyEntries: LeaderEntry[]
 }
-
-/* ═══════════════════════════════════════════════════════════════════════════════
-   BACKEND NOTE — auto-refresh for the weekly leaderboard
-   ═══════════════════════════════════════════════════════════════════════════════
-
-   WHAT EXISTS NOW (and why it does nothing useful yet)
-   ---------------------------------------------------
-   The interval below is a deliberate PLACEHOLDER. The leaderboard is currently
-   fed by the hardcoded arrays above, so re-running the "refresh" produces byte
-   identical output — it only bumps `refreshTick` and forces a wasted re-render.
-   It exists so the refresh seam is visible in the code and easy to find later,
-   NOT because it delivers value today.
-
-   WHY A LEADERBOARD NEEDS REFRESHING AT ALL
-   -----------------------------------------
-   People leave the dashboard open for hours (second monitor, background tab).
-   Meanwhile teammates keep completing tasks, so the ranking on screen silently
-   goes stale. The weekly board drifts fastest because its window is short: a
-   couple of completed tasks can reorder the whole podium.
-
-   THE PLAN — DO NOT SHIP THE 30-MINUTE POLL
-   -----------------------------------------
-   Fixed-interval polling is the worst of the three options: it fires on a timer
-   whether or not anyone is looking, and still leaves up to 30 minutes of stale
-   data. Prefer, in this order:
-
-   1. Supabase Realtime (primary).
-      Subscribe to changes on the tasks table and invalidate the leaderboard
-      query when a row transitions to `done`. This is the right fit here because
-      the leaderboard is competitive — seeing the ranking shift the moment a
-      teammate finishes something is part of the point, and a 30-minute lag
-      destroys that.
-
-        const channel = supabase
-          .channel('leaderboard')
-          .on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'tasks', filter: 'status=eq.done' },
-            () => queryClient.invalidateQueries({ queryKey: ['leaderboard', period] }),
-          )
-          .subscribe()
-
-        return () => { supabase.removeChannel(channel) }
-
-   2. refetchOnWindowFocus (safety net).
-      React Query enables this by default. It covers the case where the realtime
-      socket dropped while the tab was backgrounded, and costs nothing when the
-      user is away — the request only fires when they actually come back.
-
-   3. refetchInterval (last resort only).
-      If realtime is ever unavailable, set it on the query itself rather than
-      hand-rolling a timer, and pair it with `refetchIntervalInBackground: false`
-      so it pauses for hidden tabs:
-
-        useQuery({
-          queryKey: ['leaderboard', period],
-          queryFn:  () => fetchLeaderboard(period),
-          refetchInterval: period === 'weekly' ? 30 * 60 * 1000 : false,
-          refetchIntervalInBackground: false,
-        })
-
-   WHERE THE RANKING MUST BE COMPUTED
-   ----------------------------------
-   Server side, never in this component. Scoring rules are shared with other
-   surfaces (Team Performance percentages, My Tasks counters) and must not be
-   duplicated or allowed to diverge. Expose it as a Postgres view or RPC that
-   takes the period and returns the top three rows already ranked, so the client
-   stays a pure renderer.
-
-   Period boundaries also belong on the server, in the studio's timezone rather
-   than the visitor's:
-     - weekly  → the current work week, boundary consistent with the Dashboard
-                 calendar's week start so the two views never disagree
-     - monthly → the current calendar month, matching the My Tasks DONE counter
-
-   WHAT TO DELETE WHEN WIRING THIS UP
-   ----------------------------------
-     - `REFRESH_INTERVAL_MS`
-     - the `refreshTick` state and its `useEffect` below
-     - `WEEKLY_LEADERS`, `MONTHLY_LEADERS`, and `LEADERS_BY_PERIOD`
-   Keep the `period` state and the toggle UI — those stay exactly as they are and
-   simply become part of the query key.
-   ═══════════════════════════════════════════════════════════════════════════════ */
-const REFRESH_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes — temporary, see note above
 
 const PODIUM_ORDER: (1 | 2 | 3)[] = [2, 1, 3]
 
@@ -133,14 +42,16 @@ const PERIOD_TEXT = {
     monthly: 'Monthly',
     subtitleWeekly: 'Top performers this week',
     subtitleMonthly: 'Top performers this month',
+    empty: 'Waiting for competition',
   },
   ar: {
     weekly: 'أسبوعي',
     monthly: 'شهري',
     subtitleWeekly: 'أفضل أداء هذا الأسبوع',
     subtitleMonthly: 'أفضل أداء هذا الشهر',
+    empty: 'بانتظار المنافسة',
   },
-} satisfies Record<'en' | 'ar', Record<'weekly' | 'monthly' | 'subtitleWeekly' | 'subtitleMonthly', string>>
+} satisfies Record<'en' | 'ar', Record<'weekly' | 'monthly' | 'subtitleWeekly' | 'subtitleMonthly' | 'empty', string>>
 
 const MEDAL = {
   1: {
@@ -391,13 +302,6 @@ const HeroCard = memo(function HeroCard({ entry, ...t }: { entry: LeaderEntry } 
     zIndex: 0,
   }), [t.isDark])
 
-  const avatarStyle = useMemo<React.CSSProperties>(() => ({
-    width: 68, height: 68, fontSize: 20,
-    background: entry.memberColor,
-    border: `3px solid ${cfg.stops[1].color}`,
-    boxShadow: `0 0 0 2px ${t.avatarRing}, 0 4px 24px ${cfg.glowColor}`,
-  }), [entry.memberColor, t.avatarRing])
-
   const nameStyle = useMemo<React.CSSProperties>(() => ({
     fontSize: 16, color: TEXT_MAIN, fontFamily: t.lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
   }), [t.lang])
@@ -434,9 +338,18 @@ const HeroCard = memo(function HeroCard({ entry, ...t }: { entry: LeaderEntry } 
       >
         <TrophySVG size={cfg.trophySize} />
       </m.div>
-      <div className="rounded-full flex items-center justify-center font-extrabold text-white mb-2.5 relative z-10" style={avatarStyle}>
-        {entry.initials}
-      </div>
+      <Avatar
+        avatarUrl={entry.avatarUrl}
+        initials={entry.initials}
+        name={entry.name}
+        size={68}
+        color={entry.memberColor}
+        className="mb-2.5 relative z-10 text-white font-extrabold"
+        style={{
+          border: `3px solid ${cfg.stops[1].color}`,
+          boxShadow: `0 0 0 2px ${t.avatarRing}, 0 4px 24px ${cfg.glowColor}`,
+        }}
+      />
       <p className="relative z-10 font-extrabold tracking-wide" style={nameStyle}>{entry.name}</p>
       <p className="relative z-10 font-bold tracking-widest mb-3" style={rankLabelStyle}>
         {t.lang === 'ar' ? cfg.label.ar : cfg.label.en}
@@ -466,13 +379,6 @@ const SideCard = memo(function SideCard({ entry, ...t }: { entry: LeaderEntry } 
     border: `1px solid ${t.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
     padding: '20px 16px',
   }), [t.isDark])
-
-  const avatarStyle = useMemo<React.CSSProperties>(() => ({
-    width: 56, height: 56, fontSize: 16,
-    background: entry.memberColor,
-    border: `3px solid ${cfg.stops[1].color}`,
-    boxShadow: `0 0 0 2px ${t.avatarRing}`,
-  }), [entry.memberColor, entry.rank, t.avatarRing])
 
   const nameStyle = useMemo<React.CSSProperties>(() => ({
     fontSize: 14, color: TEXT_MAIN, fontFamily: t.lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
@@ -506,9 +412,18 @@ const SideCard = memo(function SideCard({ entry, ...t }: { entry: LeaderEntry } 
         transition={{ delay: t.index * 0.12 + 0.2, duration: 0.5, ease: [0.34, 1.56, 0.64, 1] }}>
         <MedalSVG rank={entry.rank as 2 | 3} size={cfg.trophySize} />
       </m.div>
-      <div className="rounded-full flex items-center justify-center font-extrabold text-white mb-2.5" style={avatarStyle}>
-        {entry.initials}
-      </div>
+      <Avatar
+        avatarUrl={entry.avatarUrl}
+        initials={entry.initials}
+        name={entry.name}
+        size={56}
+        color={entry.memberColor}
+        className="mb-2.5 text-white font-extrabold"
+        style={{
+          border: `3px solid ${cfg.stops[1].color}`,
+          boxShadow: `0 0 0 2px ${t.avatarRing}`,
+        }}
+      />
       <p className="font-extrabold tracking-wide" style={nameStyle}>{entry.name}</p>
       <p className="font-bold tracking-widest mb-3" style={rankLabelStyle}>
         {t.lang === 'ar' ? cfg.label.ar : cfg.label.en}
@@ -529,7 +444,42 @@ const SideCard = memo(function SideCard({ entry, ...t }: { entry: LeaderEntry } 
   )
 })
 
-function Leaderboard() {
+// Empty placeholder for a podium slot that has no qualifying member yet
+// (e.g. only 1 person has completed a task this period, so ranks 2 & 3 are empty).
+const EmptyPodiumCard = memo(function EmptyPodiumCard({
+  isHero,
+  ...t
+}: { isHero?: boolean } & CardThemeProps) {
+  const emptyCopy = PERIOD_TEXT[t.lang as 'en' | 'ar'].empty
+
+  const cardStyle = useMemo<React.CSSProperties>(() => ({
+    flex: isHero ? '1.4' : '1',
+    background: t.isDark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)',
+    border: `1px dashed ${t.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+    padding: isHero ? '28px 20px 20px' : '20px 16px',
+    minHeight: isHero ? 220 : 180,
+  }), [isHero, t.isDark])
+
+  return (
+    <m.div
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: t.index * 0.12, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col items-center justify-center gap-2 rounded-2xl text-center"
+      style={cardStyle}
+    >
+      <Trophy size={isHero ? 32 : 24} style={{ color: TEXT_MUTED, opacity: 0.35 }} aria-hidden="true" />
+      <p
+        className="text-[11px] font-semibold"
+        style={{ color: TEXT_MUTED, opacity: 0.7, fontFamily: t.lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+      >
+        {emptyCopy}
+      </p>
+    </m.div>
+  )
+})
+
+function Leaderboard({ weeklyEntries, monthlyEntries }: LeaderboardProps) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
@@ -537,32 +487,16 @@ function Leaderboard() {
 
   const [period, setPeriod] = useState<Period>('weekly')
 
-  /* TEMPORARY: see the BACKEND NOTE at the top of this file.
-     `refreshTick` is only here to make the refresh seam explicit — with mock data
-     it re-renders identical output. Delete this state and effect once the
-     leaderboard is served by a real query. */
-  const [refreshTick, setRefreshTick] = useState(0)
+  const leaders = useMemo(
+    () => (period === 'weekly' ? weeklyEntries : monthlyEntries),
+    [period, weeklyEntries, monthlyEntries],
+  )
 
-  useEffect(() => {
-    if (period !== 'weekly') return
-    const intervalId = window.setInterval(() => {
-      setRefreshTick(tick => tick + 1)
-    }, REFRESH_INTERVAL_MS)
-    return () => window.clearInterval(intervalId)
-  }, [period])
-
-  const leaders = useMemo(() => {
-    // `refreshTick` is referenced so the refresh path is wired end to end; it has
-    // no effect while the data is hardcoded.
-    void refreshTick
-    return LEADERS_BY_PERIOD[period]
-  }, [period, refreshTick])
-
-  const leadersByRank = useMemo<Record<1 | 2 | 3, LeaderEntry>>(() => ({
-    1: leaders[0],
-    2: leaders[1],
-    3: leaders[2],
-  }), [leaders])
+  const leadersByRank = useMemo<Partial<Record<1 | 2 | 3, LeaderEntry>>>(() => {
+    const map: Partial<Record<1 | 2 | 3, LeaderEntry>> = {}
+    leaders.forEach((entry) => { map[entry.rank] = entry })
+    return map
+  }, [leaders])
 
   const bg         = isDark ? 'var(--card)'           : '#ffffff'
   const border     = isDark ? 'var(--card-border)'    : 'rgba(0,0,0,0.07)'
@@ -717,16 +651,28 @@ function Leaderboard() {
 
   {/* المركز الأول — فوق على الجوال، وسط على الديسكتوب */}
   <div className="sm:col-start-2 sm:row-start-1 order-first">
-    <HeroCard key={`${period}-1`} entry={leadersByRank[1]} {...cardTheme} index={0} />
+    {leadersByRank[1] ? (
+      <HeroCard key={`${period}-1`} entry={leadersByRank[1]} {...cardTheme} index={0} />
+    ) : (
+      <EmptyPodiumCard key={`${period}-1-empty`} isHero {...cardTheme} index={0} />
+    )}
   </div>
 
   {/* الثاني والثالث جنب بعض على الجوال، كل واحد في عموده على الديسكتوب */}
   <div className="flex gap-4 sm:contents">
     <div className="flex-1 sm:flex-none sm:col-start-1 sm:row-start-1">
-      <SideCard key={`${period}-2`} entry={leadersByRank[2]} {...cardTheme} index={1} />
+      {leadersByRank[2] ? (
+        <SideCard key={`${period}-2`} entry={leadersByRank[2]} {...cardTheme} index={1} />
+      ) : (
+        <EmptyPodiumCard key={`${period}-2-empty`} {...cardTheme} index={1} />
+      )}
     </div>
     <div className="flex-1 sm:flex-none sm:col-start-3 sm:row-start-1">
-      <SideCard key={`${period}-3`} entry={leadersByRank[3]} {...cardTheme} index={2} />
+      {leadersByRank[3] ? (
+        <SideCard key={`${period}-3`} entry={leadersByRank[3]} {...cardTheme} index={2} />
+      ) : (
+        <EmptyPodiumCard key={`${period}-3-empty`} {...cardTheme} index={2} />
+      )}
     </div>
   </div>
 

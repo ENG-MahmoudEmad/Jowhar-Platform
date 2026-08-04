@@ -10,17 +10,17 @@ import { useSwipeNavigate } from '@/hooks/useSwipeNavigate';
 type Lang = 'en' | 'ar';
 type Urgency = 'safe' | 'warning' | 'danger';
 
-type DeadlineConfig = {
-  id: number;
+// ─────────────────────────────────────────────────────────────────────────────
+// Data shape — matches what the server (page.tsx) hands down after mapping
+// the raw `get_my_deadlines()` RPC row + the shared priority color lookup.
+// This component knows nothing about Supabase or task tables.
+// ─────────────────────────────────────────────────────────────────────────────
+export type DeadlineData = {
+  id: string;
   title: string;
-  titleAr: string;
-  offsetMs: number;
+  color: string; // resolved from priority via lib/priorityColors
+  deadlineAt: number; // epoch ms
   windowMs: number;
-  baseColor: string;
-};
-
-type Deadline = DeadlineConfig & {
-  deadlineAt: number;
 };
 
 type CountdownStyle = React.CSSProperties & Partial<Record<`--deadline-${string}`, string>>;
@@ -29,19 +29,15 @@ type DotStyle = React.CSSProperties & Partial<Record<'--dot-color', string>>;
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
 const SECOND_MS = 1_000;
+const DAY_MS = 86_400_000;
 const DOTS_VISIBLE = 4;
 const RING_RADIUS = 68;
 const RING_STROKE = 7;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-const DEADLINES: DeadlineConfig[] = [
-  { id: 1, title: 'Character Rigging', titleAr: 'تحريك الشخصية', offsetMs: 32 * HOUR_MS, windowMs: 40 * HOUR_MS, baseColor: '#458482' },
-  { id: 2, title: 'Storyboard Final', titleAr: 'القصة المصورة', offsetMs: 51 * HOUR_MS, windowMs: 60 * HOUR_MS, baseColor: '#3b82f6' },
-  { id: 3, title: 'VFX Compositing', titleAr: 'تركيب المؤثرات', offsetMs: 3.5 * HOUR_MS, windowMs: 10 * HOUR_MS, baseColor: '#a855f7' },
-  { id: 4, title: 'Sound Design', titleAr: 'تصميم الصوت', offsetMs: 0.5 * HOUR_MS, windowMs: 5 * HOUR_MS, baseColor: '#6366f1' },
-  { id: 5, title: 'Color Grading', titleAr: 'تصحيح الألوان', offsetMs: 12 * HOUR_MS, windowMs: 20 * HOUR_MS, baseColor: '#14b8a6' },
-  { id: 6, title: 'Motion Graphics', titleAr: 'رسوم متحركة', offsetMs: 8 * HOUR_MS, windowMs: 24 * HOUR_MS, baseColor: '#8b5cf6' },
-];
+interface DeadlineCountdownProps {
+  deadlines: DeadlineData[];
+}
 
 const CARD_TRANSITION = {
   delay: 0.18,
@@ -55,24 +51,28 @@ const TEXT = {
     expired: "Time's up!",
     critical: 'Critical',
     soon: 'Soon',
+    days: 'd',
     hours: 'h',
     minutes: 'm',
     seconds: 's',
     previous: 'Previous deadline',
     next: 'Next deadline',
+    empty: 'No open deadlines right now',
   },
   ar: {
     for: 'الموعد النهائي لـ',
     expired: 'انتهى!',
     critical: 'عاجل',
     soon: 'قريبا',
+    days: 'ي',
     hours: 'س',
     minutes: 'د',
     seconds: 'ث',
     previous: 'الموعد السابق',
     next: 'الموعد التالي',
+    empty: 'ما في مواعيد نهائية مفتوحة حاليًا',
   },
-} satisfies Record<Lang, Record<'for' | 'expired' | 'critical' | 'soon' | 'hours' | 'minutes' | 'seconds' | 'previous' | 'next', string>>;
+} satisfies Record<Lang, Record<'for' | 'expired' | 'critical' | 'soon' | 'days' | 'hours' | 'minutes' | 'seconds' | 'previous' | 'next' | 'empty', string>>;
 
 function subscribeToClientReady(callback: () => void) {
   callback();
@@ -92,7 +92,7 @@ function clamp01(value: number) {
 }
 
 function getUrgency(remaining: number, windowMs: number): Urgency {
-  const elapsedPct = 1 - remaining / windowMs;
+  const elapsedPct = windowMs > 0 ? 1 - remaining / windowMs : 1;
   if (elapsedPct >= 0.85) return 'danger';
   if (elapsedPct >= 0.5) return 'warning';
   return 'safe';
@@ -129,12 +129,14 @@ function getPalette(isDark: boolean): CountdownStyle {
 }
 
 function formatRemaining(remaining: number) {
-  const hours = Math.floor(remaining / HOUR_MS);
+  const days = Math.floor(remaining / DAY_MS);
+  const hours = Math.floor((remaining % DAY_MS) / HOUR_MS);
   const minutes = Math.floor((remaining % HOUR_MS) / MINUTE_MS);
   const seconds = Math.floor((remaining % MINUTE_MS) / SECOND_MS);
   const pad = (value: number) => String(value).padStart(2, '0');
 
   return {
+    days,
     hours: pad(hours),
     minutes: pad(minutes),
     seconds: pad(seconds),
@@ -180,13 +182,12 @@ const Ring = memo(function Ring({
   );
 });
 
-function DeadlineCountdown() {
+function DeadlineCountdown({ deadlines }: DeadlineCountdownProps) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
   const isDark = theme === 'dark';
   const copy = TEXT[lang];
   const isClientReady = useClientReady();
-  const [baseTime] = useState(() => Date.now());
   const [activeIdx, setActiveIdx] = useState(0);
   const [dotOffset, setDotOffset] = useState(0);
   const [hovered, setHovered] = useState(false);
@@ -199,14 +200,10 @@ function DeadlineCountdown() {
   }, [isClientReady]);
 
   const palette = useMemo(() => getPalette(isDark), [isDark]);
-  const deadlines = useMemo<Deadline[]>(
-    () => DEADLINES.map((deadline) => ({ ...deadline, deadlineAt: baseTime + deadline.offsetMs })),
-    [baseTime],
-  );
-
   const total = deadlines.length;
 
   const goTo = useCallback((idx: number) => {
+    if (total === 0) return;
     const next = ((idx % total) + total) % total;
     setActiveIdx(next);
     setDotOffset((current) => {
@@ -217,6 +214,7 @@ function DeadlineCountdown() {
   }, [total]);
 
   const step = useCallback((direction: 1 | -1) => {
+    if (total === 0) return;
     setActiveIdx((current) => {
       const next = ((current + direction) % total + total) % total;
       setDotOffset((offset) => {
@@ -234,7 +232,7 @@ function DeadlineCountdown() {
     onNavigate: step,
   });
 
-  if (!isClientReady || baseTime === 0) {
+  if (!isClientReady) {
     return (
       <LazyMotion features={domAnimation}>
         <m.section
@@ -262,13 +260,35 @@ function DeadlineCountdown() {
     );
   }
 
+  if (total === 0) {
+    return (
+      <LazyMotion features={domAnimation}>
+        <m.section
+          initial={{ opacity: 0, y: 22, scale: 0.985 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={CARD_TRANSITION}
+          dir={isRTL ? 'rtl' : 'ltr'}
+          className="flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-2xl px-5 py-10 text-center"
+          style={palette}
+        >
+          <p
+            className="text-xs font-medium text-[var(--deadline-text-muted)]"
+            style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+          >
+            {copy.empty}
+          </p>
+        </m.section>
+      </LazyMotion>
+    );
+  }
+
   const activeDeadline = deadlines[activeIdx];
-  const currentNow = now || baseTime;
+  const currentNow = now || Date.now();
   const remaining = Math.max(0, activeDeadline.deadlineAt - currentNow);
-  const progress = 1 - remaining / activeDeadline.windowMs;
+  const progress = activeDeadline.windowMs > 0 ? 1 - remaining / activeDeadline.windowMs : 1;
   const urgency = getUrgency(remaining, activeDeadline.windowMs);
-  const color = urgencyColor(urgency, activeDeadline.baseColor);
-  const glow = urgencyGlow(urgency, activeDeadline.baseColor);
+  const color = urgencyColor(urgency, activeDeadline.color);
+  const glow = urgencyGlow(urgency, activeDeadline.color);
   const time = formatRemaining(remaining);
   const visibleDots = deadlines.slice(dotOffset, dotOffset + DOTS_VISIBLE);
   const hasMore = total > DOTS_VISIBLE;
@@ -306,7 +326,7 @@ function DeadlineCountdown() {
         {...swipeHandlers}
       >
         <AnimatePresence>
-          {hovered && (
+          {hovered && total > 1 && (
             <>
               {navButtons.map(({ key, label, onClick, side, Icon }) => (
                 <m.button
@@ -346,7 +366,7 @@ function DeadlineCountdown() {
               className="mt-0.5 truncate text-start text-sm font-bold"
               style={{ color, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
             >
-              {lang === 'ar' ? activeDeadline.titleAr : activeDeadline.title}
+              {activeDeadline.title}
             </m.h3>
           </AnimatePresence>
         </div>
@@ -367,21 +387,32 @@ function DeadlineCountdown() {
                 style={{ boxShadow: `0 0 32px ${glow}, inset 0 1px 0 rgba(255,255,255,0.04)` }}
               >
                 {remaining > 0 ? (
-                  <>
-                    <span className="font-mono text-[22px] font-black leading-none tabular-nums" style={{ color }}>
-                      {time.hours}:{time.minutes}
-                    </span>
-                    <span className="mt-0.5 font-mono text-sm font-bold tabular-nums" style={{ color, opacity: 0.75 }}>
-                      {time.seconds}
-                    </span>
-                    <div className="mt-1 flex items-center gap-2">
-                      {[copy.hours, copy.minutes, copy.seconds].map((label) => (
-                        <span key={label} className="text-[8px] font-black uppercase text-[var(--deadline-text-muted)]">
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  </>
+                  time.days > 0 ? (
+                    <>
+                      <span className="font-mono text-[19px] font-black leading-none tabular-nums" style={{ color }}>
+                        {time.days}{copy.days} {time.hours}{copy.hours}
+                      </span>
+                      <span className="mt-1 font-mono text-xs font-bold tabular-nums" style={{ color, opacity: 0.75 }}>
+                        {time.minutes}{copy.minutes} {time.seconds}{copy.seconds}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-mono text-[22px] font-black leading-none tabular-nums" style={{ color }}>
+                        {time.hours}:{time.minutes}
+                      </span>
+                      <span className="mt-0.5 font-mono text-sm font-bold tabular-nums" style={{ color, opacity: 0.75 }}>
+                        {time.seconds}
+                      </span>
+                      <div className="mt-1 flex items-center gap-2">
+                        {[copy.hours, copy.minutes, copy.seconds].map((label) => (
+                          <span key={label} className="text-[8px] font-black uppercase text-[var(--deadline-text-muted)]">
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )
                 ) : (
                   <span className="px-3 text-center text-[10px] font-black uppercase tracking-wide text-[#ef4444]">
                     {copy.expired}
@@ -434,7 +465,7 @@ function DeadlineCountdown() {
               {visibleDots.map((item) => {
                 const itemRemaining = Math.max(0, item.deadlineAt - currentNow);
                 const itemUrgency = getUrgency(itemRemaining, item.windowMs);
-                const itemColor = urgencyColor(itemUrgency, item.baseColor);
+                const itemColor = urgencyColor(itemUrgency, item.color);
                 const isActive = item.id === activeDeadline.id;
                 const globalIndex = deadlines.findIndex((deadline) => deadline.id === item.id);
                 const dotStyle: DotStyle = {
@@ -449,7 +480,7 @@ function DeadlineCountdown() {
                   <m.button
                     key={item.id}
                     type="button"
-                    aria-label={`${lang === 'ar' ? item.titleAr : item.title} (${globalIndex + 1} / ${total})`}
+                    aria-label={`${item.title} (${globalIndex + 1} / ${total})`}
                     aria-current={isActive ? 'true' : undefined}
                     layout
                     initial={{ opacity: 0, scale: 0.5 }}
