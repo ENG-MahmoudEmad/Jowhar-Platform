@@ -73,11 +73,18 @@ export default async function MemberProfilePage({
     .in('status', ['pending_admin', 'pending_email_verification'])
     .maybeSingle();
 
+  /*
+    الفلتر فوق (.in) بيضمن وقت التشغيل إنه status هيكون وحدة من اثنتين بس،
+    بس TypeScript ما بيقدر يضيّق نوع العمود بناءً على .in() — عمود status
+    بالداتابيز عنده 3 حالات ممكنة ('completed' هي الثالثة)، فبيفترض أي
+    وحدة فيهم ممكنة. التأكيد اليدوي هون آمن 100% لأنه الاستعلام نفسه
+    بيستبعد 'completed' فعليًا.
+  */
   const pendingEmail: PendingEmailChange | null = request
     ? {
         newEmail: request.new_email,
         requestedAt: request.requested_at,
-        stage: request.status,
+        stage: request.status as 'pending_admin' | 'pending_email_verification',
       }
     : null;
 
