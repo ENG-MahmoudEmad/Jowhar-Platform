@@ -30,7 +30,7 @@ export default async function ProfilePage() {
     .maybeSingle();
 
   const pendingEmail: PendingEmail | null = request
-    ? { newEmail: request.new_email, stage: request.status }
+? { newEmail: request.new_email, stage: request.status as 'pending_admin' | 'pending_email_verification' }
     : null;
 
   /*
