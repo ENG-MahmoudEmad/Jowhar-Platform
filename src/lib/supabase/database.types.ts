@@ -574,6 +574,20 @@ export type Database = {
           window_seconds: number
         }[]
       }
+      get_studio_pulse_stats: {
+        Args: never
+        Returns: {
+          completion_rate_month_pct: number
+          completion_rate_overall_pct: number
+          most_active_member_avatar_url: string
+          most_active_member_color: string
+          most_active_member_id: string
+          most_active_member_initials: string
+          most_active_member_name: string
+          most_active_member_tasks_completed: number
+          tasks_completed_this_month: number
+        }[]
+      }
       get_team_progress: {
         Args: never
         Returns: {

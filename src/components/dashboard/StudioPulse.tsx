@@ -2,79 +2,47 @@
 
 import React, { memo, useMemo } from 'react';
 import { LazyMotion, domAnimation, m } from 'framer-motion';
-import { Sparkles, CheckCircle2, Flame, Gauge } from 'lucide-react';
+import { Sparkles, CheckCircle2, Gauge, TrendingUp } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import Avatar from '@/components/ui/Avatar';
 
 type Lang = 'en' | 'ar';
 type PulseStyle = React.CSSProperties & Partial<Record<`--pulse-${string}`, string>>;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Types
+// Data shape — matches what the server (page.tsx) hands down after mapping
+// get_daily_verse() and get_studio_pulse_stats(). This component knows
+// nothing about Supabase or column names.
 // ─────────────────────────────────────────────────────────────────────────────
-
-type DailyVerse = {
-  id: number;
-  surahNumber: number;
-  ayahNumber: number;
+export interface DailyVerseData {
   surahNameAr: string;
   surahNameEn: string;
+  ayahNumber: number;
   arabicText: string;
-};
+}
 
-type MostActiveMember = {
-  id: number;
-  userId: number | null;
+export interface MostActiveMemberData {
+  id: string;
   name: string;
   initials: string;
   color: string;
+  avatarUrl: string | null;
   tasksCompleted: number;
-};
+}
 
-type StudioPulseStats = {
-  // Current studio month (Asia/Riyadh), matches My Tasks DONE counter & Leaderboard monthly window.
+export interface StudioPulseStatsData {
   tasksCompletedThisMonth: number;
-  mostActiveMember: MostActiveMember;
-  completionRatePct: number; // completed / total assigned this month, 0-100
-};
+  completionRateMonthPct: number;
+  completionRateOverallPct: number;
+  /** null لو مافي ولا تاسك اتعمل هالشهر لحد هلق */
+  mostActiveMember: MostActiveMemberData | null;
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TODO (backend wiring):
-// Replace both mocks below with a single RPC, e.g. `get_studio_pulse()`,
-// that returns { verse, stats } together so the client stays a pure renderer.
-//
-//   verse  → deterministic pick from `daily_verses`:
-//            index = extract(doy from (now() at time zone 'Asia/Riyadh')) % count(*)
-//            Same verse for the whole team on a given day.
-//
-//   stats  → studio-wide aggregation over the current calendar month in
-//            Asia/Riyadh, sourced from `tasks` (status = 'done'), matching
-//            the same month boundary used by My Tasks' DONE counter and the
-//            Leaderboard's monthly period (see lesson: server-side, never
-//            recomputed differently in two places).
-// ─────────────────────────────────────────────────────────────────────────────
-
-const MOCK_VERSE: DailyVerse = {
-  id: 1,
-  surahNumber: 94,
-  ayahNumber: 6,
-  surahNameAr: 'الشرح',
-  surahNameEn: 'Ash-Sharh',
-  arabicText: 'إِنَّ مَعَ ٱلْعُسْرِ يُسْرًا',
-};
-
-const MOCK_STATS: StudioPulseStats = {
-  tasksCompletedThisMonth: 47,
-  mostActiveMember: {
-    id: 1,
-    userId: 1,
-    name: 'Ahmed',
-    initials: 'AH',
-    color: '#458482',
-    tasksCompleted: 12,
-  },
-  completionRatePct: 78,
-};
+interface StudioPulseProps {
+  verse: DailyVerseData;
+  stats: StudioPulseStatsData;
+}
 
 // Same thresholds as TeamProgress.getProgressColor — keep these in sync
 // (ideally both should import one shared util once it exists, per lesson #9).
@@ -99,30 +67,36 @@ const TEXT = {
     title: 'Studio Pulse',
     subtitle: 'A verse for the day, and the month in numbers',
     verseRef: (surah: string, ayah: number) => `${surah} · ${ayah}`,
-    completed: 'Completed this month',
+    completedThisMonth: 'Completed this month',
     mostActive: 'Most active this month',
+    noActiveYet: 'No one yet',
     tasksSuffix: (n: number) => `${n} tasks`,
-    completionRate: 'Completion rate',
+    rateMonth: 'Month rate',
+    rateOverall: 'Overall rate',
     renews: 'Renews daily',
   },
   ar: {
     title: 'نبض الاستوديو',
     subtitle: 'آية اليوم، وشهرك بالأرقام',
     verseRef: (surah: string, ayah: number) => `سورة ${surah} · ${ayah}`,
-    completed: 'أُنجزت هالشهر',
+    completedThisMonth: 'أُنجزت هالشهر',
     mostActive: 'الأنشط هالشهر',
+    noActiveYet: 'لسا محدش',
     tasksSuffix: (n: number) => `${n} مهمة`,
-    completionRate: 'نسبة الإنجاز',
+    rateMonth: 'نسبة هالشهر',
+    rateOverall: 'نسبة إجمالية',
     renews: 'تتجدد يوميًا',
   },
 } satisfies Record<Lang, {
   title: string;
   subtitle: string;
   verseRef: (surah: string, ayah: number) => string;
-  completed: string;
+  completedThisMonth: string;
   mostActive: string;
+  noActiveYet: string;
   tasksSuffix: (n: number) => string;
-  completionRate: string;
+  rateMonth: string;
+  rateOverall: string;
   renews: string;
 }>;
 
@@ -149,13 +123,15 @@ function getPalette(isDark: boolean): PulseStyle {
 const StatBlock = memo(function StatBlock({
   icon: Icon,
   iconColor,
+  avatar,
   value,
   valueColor,
   label,
   lang,
 }: {
-  icon: React.ElementType;
-  iconColor: string;
+  icon?: React.ElementType;
+  iconColor?: string;
+  avatar?: { avatarUrl: string | null; initials: string; color: string; name: string };
   value: React.ReactNode;
   valueColor?: string;
   label: string;
@@ -163,15 +139,26 @@ const StatBlock = memo(function StatBlock({
 }) {
   return (
     <div
-      className="flex flex-1 flex-col items-center justify-center gap-1.5 rounded-xl py-3 px-2 text-center"
+      className="flex flex-1 min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl py-3 px-2 text-center"
       style={{
         background: 'var(--pulse-stat-bg)',
         border: '1px solid var(--pulse-stat-border)',
       }}
     >
-      <Icon size={14} style={{ color: iconColor }} aria-hidden="true" />
+      {avatar ? (
+        <Avatar
+          avatarUrl={avatar.avatarUrl}
+          initials={avatar.initials}
+          name={avatar.name}
+          size={22}
+          color={avatar.color}
+          className="text-[8px] font-black text-white"
+        />
+      ) : Icon ? (
+        <Icon size={14} style={{ color: iconColor }} aria-hidden="true" />
+      ) : null}
       <span
-        className="font-mono text-base font-black leading-none tabular-nums"
+        className="font-mono text-base font-black leading-none tabular-nums truncate max-w-full"
         style={{ color: valueColor ?? 'var(--pulse-text-main)' }}
       >
         {value}
@@ -189,18 +176,15 @@ const StatBlock = memo(function StatBlock({
   );
 });
 
-function StudioPulse() {
+function StudioPulse({ verse, stats }: StudioPulseProps) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
   const isDark = theme === 'dark';
   const copy = TEXT[lang];
   const palette = useMemo(() => getPalette(isDark), [isDark]);
 
-  // TODO: replace with server data (see backend note above)
-  const verse = MOCK_VERSE;
-  const stats = MOCK_STATS;
-
-  const rateColor = useMemo(() => getRateColor(stats.completionRatePct), [stats.completionRatePct]);
+  const monthRateColor = useMemo(() => getRateColor(stats.completionRateMonthPct), [stats.completionRateMonthPct]);
+  const overallRateColor = useMemo(() => getRateColor(stats.completionRateOverallPct), [stats.completionRateOverallPct]);
   const surahLabel = lang === 'ar' ? verse.surahNameAr : verse.surahNameEn;
 
   return (
@@ -239,7 +223,7 @@ function StudioPulse() {
           style={{ background: 'var(--pulse-verse-bg)' }}
         >
           <m.p
-            key={verse.id}
+            key={verse.arabicText}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
@@ -260,29 +244,49 @@ function StudioPulse() {
           </span>
         </div>
 
-        {/* Monthly stats */}
+        {/* Monthly stats — 4 separate blocks */}
         <div className="flex shrink-0 gap-2 border-t border-[var(--pulse-divider)] p-3">
           <StatBlock
             icon={CheckCircle2}
             iconColor="#458482"
             value={stats.tasksCompletedThisMonth}
-            label={copy.completed}
+            label={copy.completedThisMonth}
             lang={lang}
           />
-          <StatBlock
-            icon={Flame}
-            iconColor={stats.mostActiveMember.color}
-            value={stats.mostActiveMember.initials}
-            valueColor={stats.mostActiveMember.color}
-            label={`${copy.mostActive} · ${copy.tasksSuffix(stats.mostActiveMember.tasksCompleted)}`}
-            lang={lang}
-          />
+          {stats.mostActiveMember ? (
+            <StatBlock
+              avatar={{
+                avatarUrl: stats.mostActiveMember.avatarUrl,
+                initials: stats.mostActiveMember.initials,
+                color: stats.mostActiveMember.color,
+                name: stats.mostActiveMember.name,
+              }}
+              value={stats.mostActiveMember.initials}
+              valueColor={stats.mostActiveMember.color}
+              label={`${copy.mostActive} · ${copy.tasksSuffix(stats.mostActiveMember.tasksCompleted)}`}
+              lang={lang}
+            />
+          ) : (
+            <StatBlock
+              value="—"
+              label={copy.noActiveYet}
+              lang={lang}
+            />
+          )}
           <StatBlock
             icon={Gauge}
-            iconColor={rateColor}
-            value={`${stats.completionRatePct}%`}
-            valueColor={rateColor}
-            label={copy.completionRate}
+            iconColor={monthRateColor}
+            value={`${stats.completionRateMonthPct}%`}
+            valueColor={monthRateColor}
+            label={copy.rateMonth}
+            lang={lang}
+          />
+          <StatBlock
+            icon={TrendingUp}
+            iconColor={overallRateColor}
+            value={`${stats.completionRateOverallPct}%`}
+            valueColor={overallRateColor}
+            label={copy.rateOverall}
             lang={lang}
           />
         </div>

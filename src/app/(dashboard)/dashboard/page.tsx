@@ -7,7 +7,7 @@ import TeamProgress, { type TeamMemberData } from '@/components/dashboard/TeamPr
 import ProjectCalendar, { type CalendarMemberData, type CalendarTaskData } from '@/components/dashboard/ProjectCalendar';
 import DeadlineCountdown, { type DeadlineData } from '@/components/dashboard/DeadlineCountdown';
 import MembersCard       from '@/components/dashboard/MembersCard';
-import StudioPulse       from '@/components/dashboard/StudioPulse';
+import StudioPulse, { type DailyVerseData, type StudioPulseStatsData } from '@/components/dashboard/StudioPulse';
 import Leaderboard, { type LeaderEntry } from '@/components/dashboard/Leaderboard';
 import { sortMembersForDisplay } from '@/lib/sortMembersForDisplay';
 
@@ -55,6 +55,29 @@ type CalendarTaskRow = {
   start_date: string;
   end_date: string;
   status: string;
+};
+
+// شكل الصف الراجع من get_daily_verse() بالظبط (migration 20260803120100)
+type DailyVerseRow = {
+  id: number;
+  surah_number: number;
+  ayah_number: number;
+  surah_name_ar: string;
+  surah_name_en: string;
+  arabic_text: string;
+};
+
+// شكل الصف الراجع من get_studio_pulse_stats() بالظبط (migration 20260803120900)
+type StudioPulseStatsRow = {
+  tasks_completed_this_month: number;
+  completion_rate_month_pct: number;
+  completion_rate_overall_pct: number;
+  most_active_member_id: string | null;
+  most_active_member_name: string | null;
+  most_active_member_initials: string | null;
+  most_active_member_color: string | null;
+  most_active_member_avatar_url: string | null;
+  most_active_member_tasks_completed: number | null;
 };
 
 function toISODate(date: Date): string {
@@ -144,6 +167,37 @@ export default async function DashboardPage() {
     end: row.end_date,
   }));
 
+  // ── Studio Pulse ─────────────────────────────────────────────────────
+  const [{ data: verseRows }, { data: pulseStatsRows }] = await Promise.all([
+    supabase.rpc('get_daily_verse'),
+    supabase.rpc('get_studio_pulse_stats'),
+  ]);
+
+  const verseRow: DailyVerseRow | undefined = verseRows?.[0];
+  const verse: DailyVerseData = {
+    surahNameAr: verseRow?.surah_name_ar ?? '',
+    surahNameEn: verseRow?.surah_name_en ?? '',
+    ayahNumber: verseRow?.ayah_number ?? 0,
+    arabicText: verseRow?.arabic_text ?? '',
+  };
+
+  const statsRow: StudioPulseStatsRow | undefined = pulseStatsRows?.[0];
+  const studioPulseStats: StudioPulseStatsData = {
+    tasksCompletedThisMonth: statsRow?.tasks_completed_this_month ?? 0,
+    completionRateMonthPct: statsRow?.completion_rate_month_pct ?? 0,
+    completionRateOverallPct: statsRow?.completion_rate_overall_pct ?? 0,
+    mostActiveMember: statsRow?.most_active_member_id
+      ? {
+          id: statsRow.most_active_member_id,
+          name: statsRow.most_active_member_name?.trim() || '—',
+          initials: statsRow.most_active_member_initials || '—',
+          color: statsRow.most_active_member_color || '#0d9488',
+          avatarUrl: statsRow.most_active_member_avatar_url,
+          tasksCompleted: statsRow.most_active_member_tasks_completed ?? 0,
+        }
+      : null,
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-8">
 
@@ -173,7 +227,7 @@ export default async function DashboardPage() {
           <MembersCard />
         </div>
         <div className="lg:col-span-2 flex flex-col h-full">
-          <StudioPulse />
+          <StudioPulse verse={verse} stats={studioPulseStats} />
         </div>
       </section>
 
