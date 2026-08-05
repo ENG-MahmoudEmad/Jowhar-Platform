@@ -1,7 +1,7 @@
 "use client"
 
-import React, { useMemo, useCallback, memo } from 'react'
-import { Heart, Clock, Megaphone, RefreshCw, AlertTriangle, CalendarClock } from 'lucide-react'
+import React, { useState, useMemo, useCallback, memo } from 'react'
+import { Heart, Clock, Megaphone, RefreshCw, AlertTriangle, CalendarClock, Trash2, Check, X as XIcon } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
@@ -27,14 +27,17 @@ interface NewsCardProps {
   post:    NewsPost
   liked:   boolean
   likes:   number
+  isAdmin: boolean
   onLike:  () => void
   onClick: (post: NewsPost) => void
+  onDelete: () => void
 }
 
-function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
+function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: NewsCardProps) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const themeColors = useMemo(() => ({
     bg:        isDark ? 'var(--card)'        : '#ffffff',
@@ -63,6 +66,21 @@ function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
     e.stopPropagation()
     onLike()
   }, [onLike])
+
+  const handleStartDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    setConfirmingDelete(true)
+  }, [])
+
+  const handleCancelDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    setConfirmingDelete(false)
+  }, [])
+
+  const handleConfirmDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete()
+  }, [onDelete])
 
   const imageStyle = useMemo(() => ({
     filter: isDark ? 'brightness(0.85)' : 'none',
@@ -185,18 +203,55 @@ function NewsCard({ post, liked, likes, onLike, onClick }: NewsCardProps) {
             </span>
           </div>
 
-          {/* Like */}
-          <button
-            onClick={handleLike}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold cursor-pointer transition-all"
-            style={likeBtnStyle}
-          >
-            <Heart
-              className="w-3.5 h-3.5 transition-transform"
-              style={heartStyle}
-            />
-            <span>{likes}</span>
-          </button>
+          {/* Delete (Chief/Developer/news.publish admins only) + Like */}
+          <div className="flex items-center gap-1.5" style={{ flexDirection: 'row' }}>
+            {isAdmin && (
+              confirmingDelete ? (
+                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={handleConfirmDelete}
+                    title={lang === 'ar' ? 'تأكيد الحذف' : 'Confirm delete'}
+                    className="flex items-center justify-center w-7 h-7 rounded-lg cursor-pointer"
+                    style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={handleCancelDelete}
+                    title={lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                    className="flex items-center justify-center w-7 h-7 rounded-lg cursor-pointer"
+                    style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', color: textMuted }}
+                  >
+                    <XIcon className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleStartDelete}
+                  title={lang === 'ar' ? 'حذف الخبر' : 'Delete post'}
+                  className="flex items-center justify-center w-7 h-7 rounded-lg cursor-pointer transition-colors"
+                  style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)', color: textMuted }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = '#ef4444' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'; e.currentTarget.style.color = textMuted }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )
+            )}
+
+            {/* Like */}
+            <button
+              onClick={handleLike}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold cursor-pointer transition-all"
+              style={likeBtnStyle}
+            >
+              <Heart
+                className="w-3.5 h-3.5 transition-transform"
+                style={heartStyle}
+              />
+              <span>{likes}</span>
+            </button>
+          </div>
         </div>
       </div>
     </motion.div>

@@ -1,8 +1,8 @@
 "use client"
 
-import React, { useEffect, useMemo, memo } from 'react'
+import React, { useEffect, useState, useMemo, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Clock, Heart, CalendarClock } from 'lucide-react'
+import { X, Clock, Heart, CalendarClock, Trash2, Check } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import Avatar from '@/components/ui/Avatar'
@@ -27,14 +27,21 @@ interface NewsModalProps {
   post:    NewsPost | null
   liked:   boolean
   likes:   number
+  isAdmin: boolean
   onClose: () => void
   onLike:  () => void
+  onDelete: (id: number) => void
 }
 
-function NewsModal({ post, liked, likes, onClose, onLike }: NewsModalProps) {
+function NewsModal({ post, liked, likes, isAdmin, onClose, onLike, onDelete }: NewsModalProps) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  useEffect(() => {
+    setConfirmingDelete(false)
+  }, [post?.id])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -196,17 +203,51 @@ function NewsModal({ post, liked, likes, onClose, onLike }: NewsModalProps) {
                   </span>
                 </div>
 
-                <button
-                  onClick={onLike}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-bold cursor-pointer"
-                  style={likeBtnStyle}
-                >
-                  <Heart
-                    className="w-4 h-4"
-                    style={heartStyle}
-                  />
-                  <span>{likes}</span>
-                </button>
+                <div className="flex items-center gap-1.5" style={{ flexDirection: 'row' }}>
+                  {isAdmin && (
+                    confirmingDelete ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => post && onDelete(post.id)}
+                          title={lang === 'ar' ? 'تأكيد الحذف' : 'Confirm delete'}
+                          className="flex items-center justify-center w-9 h-9 rounded-xl cursor-pointer"
+                          style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDelete(false)}
+                          title={lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                          className="flex items-center justify-center w-9 h-9 rounded-xl cursor-pointer"
+                          style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', color: 'var(--foreground-muted)' }}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmingDelete(true)}
+                        title={lang === 'ar' ? 'حذف الخبر' : 'Delete post'}
+                        className="flex items-center justify-center w-9 h-9 rounded-xl cursor-pointer transition-colors"
+                        style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', color: 'var(--foreground-muted)' }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )
+                  )}
+
+                  <button
+                    onClick={onLike}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-bold cursor-pointer"
+                    style={likeBtnStyle}
+                  >
+                    <Heart
+                      className="w-4 h-4"
+                      style={heartStyle}
+                    />
+                    <span>{likes}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>

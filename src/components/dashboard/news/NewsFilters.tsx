@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useMemo, useCallback, memo } from 'react'
+import { motion } from 'framer-motion'
 import { Search, X } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
@@ -22,6 +23,9 @@ const TYPE_FILTERS: { key: NewsType; en: string; ar: string; dot: string }[] = [
   { key: 'alert',        en: 'Alert',        ar: 'تنبيه', dot: '#ef4444' },
 ]
 
+const DOT_TRANSITION = { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const }
+const PILL_TRANSITION = { type: 'spring' as const, stiffness: 480, damping: 34 }
+
 const FilterPill = memo(function FilterPill({
   filter, active, inputBdr, textMuted, lang, onSelect,
 }: {
@@ -34,22 +38,34 @@ const FilterPill = memo(function FilterPill({
 }) {
   const handleClick = useCallback(() => onSelect(filter.key), [onSelect, filter.key])
 
-  const style = useMemo(() => ({
-    background: active ? filter.dot : 'transparent',
-    color:      active ? '#fff'      : textMuted,
-    border:     active ? 'none'      : `1px solid ${inputBdr}`,
-    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-  }), [active, filter.dot, textMuted, inputBdr, lang])
-
   return (
-    <button
+    <motion.button
+      layout
       onClick={handleClick}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer"
-      style={style}
+      aria-pressed={active}
+      transition={PILL_TRANSITION}
+      animate={{
+        backgroundColor: active ? filter.dot : 'rgba(0,0,0,0)',
+        color: active ? '#ffffff' : textMuted,
+        boxShadow: active ? `0 0 0 1px ${filter.dot}, 0 0 16px ${filter.dot}55` : `0 0 0 1px ${inputBdr}, 0 0 0 ${filter.dot}00`,
+      }}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+      style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
     >
-      {!active && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: filter.dot }} />}
+      <motion.span
+        layout
+        initial={false}
+        animate={{
+          width: active ? 0 : 6,
+          opacity: active ? 0 : 1,
+          marginInlineEnd: active ? 0 : 6,
+        }}
+        transition={DOT_TRANSITION}
+        className="rounded-full shrink-0 overflow-hidden"
+        style={{ height: 6, background: filter.dot }}
+      />
       {lang === 'ar' ? filter.ar : filter.en}
-    </button>
+    </motion.button>
   )
 })
 

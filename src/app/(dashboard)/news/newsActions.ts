@@ -92,3 +92,36 @@ export async function togglePostLike(postId: number): Promise<{ liked: boolean; 
 
   return { liked: data.liked, likesCount: data.likes_count };
 }
+
+// ===========================================================
+// حذف خبر — نفس صلاحية النشر بالضبط (news.publish: Chief/Developer
+// تلقائيًا + أي أدمن ثانوي تُمنح له الصلاحية). مافي نظام صلاحيات
+// منفصل للحذف — المين ينشر هو يلي يقدر يحذف.
+// ===========================================================
+export async function deleteNewsPost(postId: number): Promise<void> {
+  const { supabase } = await requireNewsPublisher();
+
+  // نجيب رابط الصورة قبل الحذف عشان ننضّف Storage بعده (best-effort —
+  // فشل تنضيف الصورة ما بيلغي حذف الخبر نفسه).
+  const { data: post } = await supabase
+    .from('news_posts')
+    .select('image_url')
+    .eq('id', postId)
+    .maybeSingle();
+
+  const { error } = await supabase
+    .from('news_posts')
+    .delete()
+    .eq('id', postId);
+
+  if (error) throw new Error('post_delete_failed');
+
+  if (post?.image_url?.includes('/news-images/')) {
+    try {
+      const path = post.image_url.split('/news-images/')[1];
+      if (path) await supabase.storage.from('news-images').remove([path]);
+    } catch {
+      // فشل تنضيف الصورة اليتيمة ما بيلغي الحذف — مش حرج
+    }
+  }
+}

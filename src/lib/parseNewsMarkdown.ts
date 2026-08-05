@@ -5,7 +5,7 @@
 
 import type { RichSegment } from '@/components/dashboard/news/NewsFeed';
 
-function parseInline(line: string): RichSegment[] {
+function parseBoldItalic(line: string): RichSegment[] {
   const segments: RichSegment[] = [];
   const regex = /(\*\*[^*]+\*\*|\*[^*]+\*)/g;
   let lastIndex = 0;
@@ -25,6 +25,32 @@ function parseInline(line: string): RichSegment[] {
   }
   if (lastIndex < line.length) {
     segments.push({ text: line.slice(lastIndex) });
+  }
+  if (segments.length === 0) segments.push({ text: '' });
+  return segments;
+}
+
+/**
+ * [#458482]نص[/#458482] — رمز اللون. بيلف حواليه بولد/مائل عاديين
+ * كمان (parseBoldItalic بتشتغل جوّاه)، عشان تقدر تلوّن + تعرّض بنفس الوقت.
+ */
+function parseInline(line: string): RichSegment[] {
+  const segments: RichSegment[] = [];
+  const colorRegex = /\[(#[0-9a-fA-F]{6})\]([\s\S]*?)\[\/\1\]/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = colorRegex.exec(line)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push(...parseBoldItalic(line.slice(lastIndex, match.index)));
+    }
+    const color = match[1];
+    const inner = match[2];
+    segments.push(...parseBoldItalic(inner).map(seg => ({ ...seg, color })));
+    lastIndex = colorRegex.lastIndex;
+  }
+  if (lastIndex < line.length) {
+    segments.push(...parseBoldItalic(line.slice(lastIndex)));
   }
   if (segments.length === 0) segments.push({ text: '' });
   return segments;
@@ -50,6 +76,8 @@ export function parseNewsMarkdown(text: string): RichSegment[] {
 /** بيشيل رموز التنسيق ويرجّع نص عادي — للمعاينة المختصرة بكارت الخبر. */
 export function stripNewsMarkdown(text: string): string {
   return text
+    .replace(/\[#[0-9a-fA-F]{6}\]/g, '')
+    .replace(/\[\/#[0-9a-fA-F]{6}\]/g, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/^[-•]\s+/gm, '')

@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback, useMemo, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, ImageIcon, Send, Megaphone, RefreshCw, AlertTriangle, Bold, Italic, List, Smile, Calendar } from 'lucide-react'
+import { X, ImageIcon, Send, Megaphone, RefreshCw, AlertTriangle, Bold, Italic, List, Smile, Calendar, Palette } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import { createClient } from '@/lib/supabase/client'
@@ -10,6 +10,17 @@ import { createNewsPost } from '@/app/(dashboard)/news/newsActions'
 import type { NewsType, NewsPostData, CurrentUserSummary } from './NewsFeed'
 
 const EMOJI_PRESET = ['😀', '🎉', '✅', '⚠️', '📢', '🔥', '💡', '👍', '❤️', '🚀', '📌', '🙏', '👏', '💯', '🎯', '📅']
+
+const COLOR_PRESET = [
+  { hex: '#458482', label: 'Teal' },
+  { hex: '#3b82f6', label: 'Blue' },
+  { hex: '#a855f7', label: 'Purple' },
+  { hex: '#ef4444', label: 'Red' },
+  { hex: '#f59e0b', label: 'Amber' },
+  { hex: '#10b981', label: 'Green' },
+  { hex: '#ec4899', label: 'Pink' },
+  { hex: '#64748b', label: 'Slate' },
+]
 
 const TYPE_OPTIONS: { key: Exclude<NewsType, 'all'>; icon: React.ElementType; en: string; ar: string; color: string }[] = [
   { key: 'announcement', icon: Megaphone,     en: 'Announcement', ar: 'إعلان',  color: '#3b82f6' },
@@ -83,6 +94,7 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
   const [publishAt,  setPublishAt]  = useState('') // datetime-local string, فاضي = ينشر فورًا
   const [expiresAt,  setExpiresAt]  = useState('') // datetime-local string, فاضي = ما بينتهي
   const [showEmoji,  setShowEmoji]  = useState(false)
+  const [showColorPicker, setShowColorPicker] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
@@ -128,7 +140,7 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
   const reset = useCallback(() => {
     setType('announcement'); setTitleEn(''); setTitleAr('')
     setBody(''); setImageFile(null); setImagePreview(null); setImageUrl('')
-    setPublishAt(''); setExpiresAt(''); setShowEmoji(false)
+    setPublishAt(''); setExpiresAt(''); setShowEmoji(false); setShowColorPicker(false)
     setSubmitting(false); setUploadError(null)
   }, [])
 
@@ -137,22 +149,26 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
    * معقّد — نفس أسلوب GitHub/Slack. الرموز بتتحوّل لتنسيق حقيقي وقت
    * العرض عبر parseNewsMarkdown (شوف NewsCard/NewsModal).
    */
-  const wrapSelection = useCallback((marker: string) => {
+  const wrapSelection = useCallback((before: string, after: string = before) => {
     const el = bodyRef.current
     if (!el) return
     const start = el.selectionStart
     const end = el.selectionEnd
     const selected = body.slice(start, end)
-    const newText = body.slice(0, start) + marker + selected + marker + body.slice(end)
+    const newText = body.slice(0, start) + before + selected + after + body.slice(end)
     setBody(newText)
     requestAnimationFrame(() => {
       el.focus()
-      el.setSelectionRange(start + marker.length, start + marker.length + selected.length)
+      el.setSelectionRange(start + before.length, start + before.length + selected.length)
     })
   }, [body])
 
   const handleBold = useCallback(() => wrapSelection('**'), [wrapSelection])
   const handleItalic = useCallback(() => wrapSelection('*'), [wrapSelection])
+  const handleColor = useCallback((hex: string) => {
+    wrapSelection(`[${hex}]`, `[/${hex}]`)
+    setShowColorPicker(false)
+  }, [wrapSelection])
 
   const handleBullet = useCallback(() => {
     const el = bodyRef.current
@@ -452,6 +468,47 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
                     </button>
                     <button
                       type="button"
+                      onClick={() => setShowColorPicker(v => !v)}
+                      title={lang === 'ar' ? 'لون النص' : 'Text color'}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer relative"
+                      style={toolbarBtnStyle}
+                    >
+                      <Palette className="w-3.5 h-3.5" />
+                    </button>
+
+                    <AnimatePresence>
+                      {showColorPicker && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                          transition={{ duration: 0.13 }}
+                          className="absolute z-20 grid grid-cols-4 gap-1.5 p-2 rounded-xl"
+                          style={{
+                            top: 'calc(100% + 6px)',
+                            insetInlineEnd: 76, // يفضى مكان لقائمة الإيموجي جنبه لو الاثنين مفتوحين بالتتابع
+                            width: 116,
+                            background: isDark ? '#161b22' : '#ffffff',
+                            border: `1px solid ${colors.inputBdr}`,
+                            boxShadow: '0 12px 32px rgba(0,0,0,0.3)',
+                          }}
+                        >
+                          {COLOR_PRESET.map(({ hex, label }) => (
+                            <button
+                              key={hex}
+                              type="button"
+                              onClick={() => handleColor(hex)}
+                              title={label}
+                              className="w-6 h-6 rounded-full cursor-pointer"
+                              style={{ background: hex, border: '2px solid rgba(255,255,255,0.15)' }}
+                            />
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    <button
+                      type="button"
                       onClick={() => setShowEmoji(v => !v)}
                       title={lang === 'ar' ? 'إيموجي' : 'Emoji'}
                       className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer"
@@ -504,7 +561,7 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
                   style={bodyInputStyle}
                 />
                 <p className="text-[9px] mt-1" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-                  {lang === 'ar' ? 'حدّد نص واضغط عريض/مائل، أو ابدأ سطر بـ "- " لنقطة' : 'Select text then Bold/Italic, or start a line with "- " for a bullet'}
+                  {lang === 'ar' ? 'حدّد نص واضغط عريض/مائل/لون، أو ابدأ سطر بـ "- " لنقطة' : 'Select text then Bold/Italic/Color, or start a line with "- " for a bullet'}
                 </p>
               </div>
 

@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Plus, Newspaper } from 'lucide-react'
 import { useLang } from '@/context/LangContext'
 import { formatRelativeTime } from '@/lib/relativeTime'
-import { togglePostLike } from '@/app/(dashboard)/news/newsActions'
+import { togglePostLike, deleteNewsPost } from '@/app/(dashboard)/news/newsActions'
 import NewsFilters  from './NewsFilters'
 import NewsCard     from './NewsCard'
 import NewsModal    from './NewsModal'
@@ -118,32 +118,42 @@ function toDisplayPost(data: NewsPostData, lang: 'en' | 'ar'): NewsPost {
 }
 
 const NewsPostItem = memo(function NewsPostItem({
-  post, liked, likes, onLike, onClick,
+  post, index, liked, likes, isAdmin, onLike, onClick, onDelete,
 }: {
   post:    NewsPost
+  index:   number
   liked:   boolean
   likes:   number
+  isAdmin: boolean
   onLike:  (id: number) => void
   onClick: (post: NewsPost) => void
+  onDelete: (id: number) => void
 }) {
   const handleLike = useCallback(() => onLike(post.id), [onLike, post.id])
+  const handleDelete = useCallback(() => onDelete(post.id), [onDelete, post.id])
+
+  const entryTransition = useMemo(
+    () => ({ ...CARD_ENTRY_TRANSITION, delay: Math.min(index * 0.04, 0.24) }),
+    [index],
+  )
 
   return (
-    <div className="break-inside-avoid mb-4">
-      <motion.div
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={CARD_ENTRY_TRANSITION}
-      >
-        <NewsCard
-          post={post}
-          liked={liked}
-          likes={likes}
-          onLike={handleLike}
-          onClick={onClick}
-        />
-      </motion.div>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={entryTransition}
+      className="break-inside-avoid mb-4"
+    >
+      <NewsCard
+        post={post}
+        liked={liked}
+        likes={likes}
+        isAdmin={isAdmin}
+        onLike={handleLike}
+        onClick={onClick}
+        onDelete={handleDelete}
+      />
+    </motion.div>
   )
 })
 
@@ -205,6 +215,15 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
   }), [posts, search, type])
 
   /**
+   * مفتاح الحاوية مبني على محتوى النتيجة الفعلي (IDs)، مش اسم الفلتر —
+   * لو نفس الكاردز بالظبط ظاهرة بفلترين مختلفين (مثلاً كارت واحد بس
+   * موجود، فهو نفسه ظاهر بـ "الكل" و"تنبيه" مع بعض)، المفتاح بيضل
+   * نفسه، فـ React ما بيعتبرها عنصر جديد وما بيشغّل أي حركة — الكارت
+   * بيضل مكانه بالظبط بدون ما يختفي ويرجع يظهر.
+   */
+  const gridKey = useMemo(() => filtered.map(p => p.id).join('-'), [filtered])
+
+  /**
    * الكومبوزر بيكون خلّص الرفع للـ Storage والنشر الفعلي (createNewsPost)
    * قبل ما ينادي هالدالة — هون بس منضيف النتيجة لأول القائمة محليًا.
    */
@@ -216,6 +235,17 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
   const handleOpenComposer = useCallback(() => setComposer(true), [])
   const handleCloseComposer = useCallback(() => setComposer(false), [])
   const handleCloseModal = useCallback(() => setModal(null), [])
+
+  const handleDeletePost = useCallback((id: number) => {
+    const prev = postsData
+    setPostsData(cur => cur.filter(p => p.id !== id))
+    setModal(cur => (cur && cur.id === id ? null : cur))
+
+    deleteNewsPost(id).catch(() => {
+      setActionError(lang === 'ar' ? 'تعذّر حذف الخبر — تم التراجع.' : 'Could not delete the post — reverted.')
+      setPostsData(prev)
+    })
+  }, [postsData, lang])
 
   const handleModalLike = useCallback(() => {
     if (modal) toggleLike(modal.id)
@@ -258,11 +288,17 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
         )}
       </div>
 
-      {/* Cards — masonry columns, key resets animation on filter change */}
-      <AnimatePresence mode="popLayout">
+      {/* Cards — masonry columns. CSS multi-column (columns-*) بيعيد
+          حساب توزيع الأعمدة بطريقة غير متوقّعة لو صار فيه تداخل زمني
+          بين كاردز بتختفي وكاردز بتتحرك لمكان جديد بنفس اللحظة —
+          هيك السبب الحقيقي لمشكلة "القفزة". الحل: القديم يختفي بالكامل
+          (mode="wait") قبل ما الجديد يبلش يظهر — صفر تداخل، صفر تخبيط.
+          الكاردز الجديدة بتدخل بحركة متتالية لطيفة (stagger) بدل ما
+          تطلع كلها دفعة وحدة. */}
+      <AnimatePresence mode="wait">
         {filtered.length > 0 ? (
           <motion.div
-            key={`${type}-${search}`}
+            key={gridKey}
             className="columns-1 md:columns-2 xl:columns-3"
             style={COLUMNS_STYLE}
             initial={{ opacity: 0 }}
@@ -270,16 +306,19 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
             exit={{ opacity: 0 }}
             transition={FADE_TRANSITION}
           >
-            {filtered.map(post => {
+            {filtered.map((post, index) => {
               const state = getLikeState(post)
               return (
                 <NewsPostItem
                   key={post.id}
+                  index={index}
                   post={post}
                   liked={state.liked}
                   likes={state.count}
+                  isAdmin={isAdmin}
                   onLike={toggleLike}
                   onClick={setModal}
+                  onDelete={handleDeletePost}
                 />
               )
             })}
@@ -302,8 +341,10 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
         post={modal}
         liked={modalLikeState.liked}
         likes={modalLikeState.count}
+        isAdmin={isAdmin}
         onClose={handleCloseModal}
         onLike={handleModalLike}
+        onDelete={handleDeletePost}
       />
 
       {isAdmin && (
