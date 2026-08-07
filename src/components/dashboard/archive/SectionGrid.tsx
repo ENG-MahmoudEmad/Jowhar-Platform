@@ -1,11 +1,17 @@
+//src\components\dashboard\archive\SectionGrid.tsx
 "use client"
 
 import { useState, useCallback, useMemo, useRef, memo } from "react"
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
-import { Plus, X, ExternalLink, Search, SlidersHorizontal, Upload } from 'lucide-react'
+import { Plus, X, ExternalLink, Search, SlidersHorizontal, Upload, Pipette, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
+import { useRouter } from 'next/navigation'
 import type { Section } from '@/components/dashboard/archive/SectionTabs'
+import ViewToggle, { type ViewMode } from '@/components/dashboard/archive/ViewToggle'
+import { useSmartSearch } from '@/lib/useSmartSearch'
+import { useUndoableDelete } from '@/lib/useUndoableDelete'
+import UndoToastHost from '@/components/dashboard/archive/UndoToast'
 
 /* ── Types ── */
 export interface ArchiveItem {
@@ -23,12 +29,37 @@ export interface ArchiveItem {
    * and every response. See the BACKEND NOTE at the bottom of this file.
    */
   thumbnail?:  string
+  /**
+   * Drive URL for the whole item's folder. Shown at the top of the file-list
+   * page (the level below this one), not opened directly from the card
+   * anymore — clicking a card now drills into that file-list page instead.
+   */
   driveUrl:    string
-  tag?:        string   // e.g. "AE" | "PNG" | "MP4" | "PDF"
+  tag?:        string   // key into `fileTypes`, e.g. "AE" | "PNG" | "MP4" | "PDF"
 }
 
+/* ── File type registry ── */
+export interface FileType {
+  key:   string
+  color: string
+}
+
+/**
+ * Starting set — mirrors the old hardcoded TAG_COLORS, but is now data the
+ * admin can extend from the Add Item form (new extension + a chosen color).
+ * See BACKEND NOTE: this needs a real `file_types` table so additions persist
+ * for everyone, not just this browser tab.
+ */
+export const DEFAULT_FILE_TYPES: FileType[] = [
+  { key: 'AE',    color: '#9d6bff' },
+  { key: 'PNG',   color: '#10b981' },
+  { key: 'MP4',   color: '#ef4444' },
+  { key: 'PDF',   color: '#f59e0b' },
+  { key: 'BLEND', color: '#f97316' },
+]
+
 /* ── Mock items ── */
-const INITIAL_ITEMS: ArchiveItem[] = [
+export const INITIAL_ITEMS: ArchiveItem[] = [
   { id: '1', sectionId: 'published', nameEn: 'Post #1',   nameAr: 'منشور 1',  description: 'Instagram carousel — product launch',       descriptionAr: 'كاروسيل إنستغرام — إطلاق المنتج',       driveUrl: 'https://drive.google.com', tag: 'PNG' },
   { id: '2', sectionId: 'published', nameEn: 'Post #2',   nameAr: 'منشور 2',  description: 'Twitter thread graphics pack',               descriptionAr: 'حزمة رسومات سلسلة تويتر',               driveUrl: 'https://drive.google.com', tag: 'PNG' },
   { id: '3', sectionId: 'published', nameEn: 'Post #3',   nameAr: 'منشور 3',  description: 'LinkedIn cover image series',                descriptionAr: 'سلسلة صور غلاف لينكدإن',                driveUrl: 'https://drive.google.com', tag: 'PNG' },
@@ -40,22 +71,17 @@ const INITIAL_ITEMS: ArchiveItem[] = [
   { id: '9', sectionId: 'documents', nameEn: 'Brief #1',  nameAr: 'موجز 1',   description: 'Q1 campaign creative brief',                 descriptionAr: 'الموجز الإبداعي لحملة الربع الأول',      driveUrl: 'https://drive.google.com', tag: 'PDF' },
 ]
 
-const TAG_COLORS: Record<string, string> = {
-  AE:   '#9d6bff',
-  PNG:  '#10b981',
-  MP4:  '#ef4444',
-  PDF:  '#f59e0b',
-  BLEND:'#f97316',
-}
-
 // ─── Module-level constants (zero per-render allocation) ───────────────────────
 const TEXT_MAIN  = "var(--foreground)";
 const TEXT_MUTED = "var(--foreground-muted)";
 
-const TAG_OPTIONS = ['PNG', 'MP4', 'AE', 'PDF', 'BLEND'] as const;
-
 /** Rejected before reading, so a huge file never gets turned into a data URL. */
 const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024; // 5 MB
+
+/** A curated starting palette for "add a new file type" — avoids the admin
+    landing on a muddy or unreadable color, while still letting them pick
+    freely via the native color input beside it. */
+const NEW_TYPE_COLOR_SWATCHES = ['#458482', '#3b82f6', '#a855f7', '#ec4899', '#eab308', '#06b6d4', '#84cc16', '#f43f5e'];
 
 const MODAL_BACKDROP_STYLE: React.CSSProperties = { background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', cursor: 'pointer' };
 const CLOSE_BUTTON_STYLE: React.CSSProperties = { color: TEXT_MUTED, cursor: 'pointer' };
@@ -88,22 +114,99 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 /* ── TagOption ── */
-const TagOption = memo(function TagOption({ tag, isSelected, isDark, onToggle }: {
-  tag: string; isSelected: boolean; isDark: boolean; onToggle: (tag: string) => void;
+const TagOption = memo(function TagOption({ fileType, isSelected, isDark, onToggle }: {
+  fileType: FileType; isSelected: boolean; isDark: boolean; onToggle: (key: string) => void;
 }) {
-  const tagColor = TAG_COLORS[tag];
-
   const style = useMemo<React.CSSProperties>(() => ({
-    background: isSelected ? (tagColor + '25') : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
-    border:     `1px solid ${isSelected ? tagColor + '60' : 'transparent'}`,
-    color:      isSelected ? tagColor : TEXT_MUTED,
+    background: isSelected ? (fileType.color + '25') : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+    border:     `1px solid ${isSelected ? fileType.color + '60' : 'transparent'}`,
+    color:      isSelected ? fileType.color : TEXT_MUTED,
     cursor:     'pointer',
-  }), [isSelected, isDark, tagColor]);
+  }), [isSelected, isDark, fileType.color]);
+
+  const handleClick = useCallback(() => onToggle(fileType.key), [onToggle, fileType.key]);
 
   return (
-    <button onClick={() => onToggle(tag)} className="px-3 py-1.5 rounded-lg text-[10px] font-black transition-all" style={style}>
-      {tag}
+    <button onClick={handleClick} className="px-3 py-1.5 rounded-lg text-[10px] font-black transition-all" style={style}>
+      {fileType.key}
     </button>
+  );
+});
+
+/* ── New file-type composer (inline, inside Add Item modal) ── */
+const NewFileTypeComposer = memo(function NewFileTypeComposer({
+  isDark, lang, onCreate, onCancel,
+}: {
+  isDark:   boolean
+  lang:     string
+  onCreate: (ft: FileType) => void
+  onCancel: () => void
+}) {
+  const [key,   setKey]   = useState('')
+  const [color, setColor] = useState(NEW_TYPE_COLOR_SWATCHES[0])
+
+  const tx = useMemo(() => ({
+    placeholder: lang === 'ar' ? 'مثال: PSD' : 'e.g. PSD',
+    create:      lang === 'ar' ? 'إنشاء'      : 'Create',
+    cancel:      lang === 'ar' ? 'إلغاء'      : 'Cancel',
+  }), [lang]);
+
+  const isValid = key.trim().length > 0 && key.trim().length <= 8;
+
+  const handleKeyChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+  }, []);
+
+  const handleSwatchClick = useCallback((c: string) => setColor(c), []);
+
+  const handleCreate = useCallback(() => {
+    if (!isValid) return;
+    onCreate({ key: key.trim(), color });
+  }, [isValid, key, color, onCreate]);
+
+  const inputStyle = useMemo<React.CSSProperties>(() => ({
+    background:   isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    border:       `1px solid ${isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)'}`,
+    color:        TEXT_MAIN,
+    borderRadius: '8px',
+    padding:      '6px 10px',
+    fontSize:     '11px',
+    fontFamily:   'monospace',
+    width:        '90px',
+    outline:      'none',
+  }), [isDark]);
+
+  const createBtnStyle = useMemo<React.CSSProperties>(() => ({
+    background: isValid ? color : 'var(--hover-bg)',
+    color:      isValid ? '#ffffff' : TEXT_MUTED,
+    cursor:     isValid ? 'pointer' : 'not-allowed',
+  }), [isValid, color]);
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap px-2.5 py-2 rounded-lg"
+      style={{ background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)', border: `1px dashed ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}` }}>
+      <input value={key} onChange={handleKeyChange} placeholder={tx.placeholder} maxLength={8} style={inputStyle} autoFocus />
+
+      <div className="flex items-center gap-1">
+        {NEW_TYPE_COLOR_SWATCHES.map(c => (
+          <button key={c} type="button" onClick={() => handleSwatchClick(c)}
+            className="w-4 h-4 rounded-full shrink-0"
+            style={{ background: c, boxShadow: c === color ? `0 0 0 2px var(--card-bg, #161b22), 0 0 0 3px ${c}` : 'none' }}
+          />
+        ))}
+        <input type="color" value={color} onChange={e => setColor(e.target.value)}
+          className="w-5 h-5 rounded cursor-pointer border-0 p-0 shrink-0" title={lang === 'ar' ? 'لون مخصص' : 'Custom color'} />
+      </div>
+
+      <button type="button" onClick={handleCreate} disabled={!isValid}
+        className="px-2.5 py-1 rounded-md text-[10px] font-bold" style={createBtnStyle}>
+        {tx.create}
+      </button>
+      <button type="button" onClick={onCancel}
+        className="px-2 py-1 rounded-md text-[10px] font-bold" style={{ color: TEXT_MUTED, cursor: 'pointer' }}>
+        {tx.cancel}
+      </button>
+    </div>
   );
 });
 
@@ -111,39 +214,48 @@ const TagOption = memo(function TagOption({ tag, isSelected, isDark, onToggle }:
 const AddItemModal = memo(function AddItemModal({
   sectionId,
   color,
+  fileTypes,
+  editingItem,
   onClose,
   onAdd,
+  onSave,
+  onCreateFileType,
 }: {
   sectionId: string
   color:     string
+  fileTypes: FileType[]
+  /** Present → editing an existing item; absent → creating one. */
+  editingItem?: ArchiveItem | null
   onClose:   () => void
   onAdd:     (item: ArchiveItem) => void
+  onSave:    (id: string, updates: Omit<ArchiveItem, 'id' | 'sectionId'>) => void
+  onCreateFileType: (ft: FileType) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark          = theme === 'dark'
-  const [nameEn,        setNameEn]        = useState('')
-  const [nameAr,        setNameAr]        = useState('')
-  const [description,   setDescription]   = useState('')
-  const [descriptionAr, setDescriptionAr] = useState('')
-  const [driveUrl,      setDriveUrl]      = useState('')
-  const [tag,           setTag]           = useState('')
+  const isEditing        = !!editingItem
+  const [nameEn,        setNameEn]        = useState(editingItem?.nameEn ?? '')
+  const [nameAr,        setNameAr]        = useState(editingItem?.nameAr ?? '')
+  const [description,   setDescription]   = useState(editingItem?.description ?? '')
+  const [descriptionAr, setDescriptionAr] = useState(editingItem?.descriptionAr ?? '')
+  const [driveUrl,      setDriveUrl]      = useState(editingItem?.driveUrl ?? '')
+  const [tag,           setTag]           = useState(editingItem?.tag ?? '')
+  const [addingType,    setAddingType]    = useState(false)
 
-  /* Thumbnail — same pattern as Add Platform: a path field plus a Choose File
-     button. Picking a file fills the field with the file name and keeps the
-     decoded image in `thumbnailData` for the preview and the created item. */
   const [thumbnailPath,  setThumbnailPath]  = useState('')
-  const [thumbnailData,  setThumbnailData]  = useState('')
+  const [thumbnailData,  setThumbnailData]  = useState(editingItem?.thumbnail ?? '')
   const [thumbnailError, setThumbnailError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const tx = useMemo(() => ({
-    title:    lang === 'ar' ? 'إضافة عنصر جديد'     : 'Add New Item',
+    titleAdd: lang === 'ar' ? 'إضافة عنصر جديد'     : 'Add New Item',
+    titleEdit:lang === 'ar' ? 'تعديل العنصر'        : 'Edit Item',
     nameEn:   lang === 'ar' ? 'الاسم بالإنجليزي'    : 'English Name',
     nameAr:   lang === 'ar' ? 'الاسم بالعربي'       : 'Arabic Name',
     descEn:   lang === 'ar' ? 'الوصف بالإنجليزي'    : 'English Description',
     descAr:   lang === 'ar' ? 'الوصف بالعربي'       : 'Arabic Description',
-    drive:    lang === 'ar' ? 'رابط الدرايف'         : 'Drive URL',
+    drive:    lang === 'ar' ? 'رابط مجلد الدرايف'    : 'Drive Folder URL',
     drivePh:  lang === 'ar' ? 'https://drive.google.com/...' : 'https://drive.google.com/...',
     thumb:    lang === 'ar' ? 'الصورة المصغرة (اختياري)' : 'Thumbnail (optional)',
     thumbPh:  lang === 'ar' ? 'لم يتم اختيار ملف'   : 'No file chosen',
@@ -153,7 +265,9 @@ const AddItemModal = memo(function AddItemModal({
     errSize:  lang === 'ar' ? 'حجم الصورة يتجاوز 5 ميجابايت' : 'Image exceeds the 5 MB limit',
     errRead:  lang === 'ar' ? 'تعذّرت قراءة الملف'   : 'Could not read the file',
     tagLabel: lang === 'ar' ? 'نوع الملف'            : 'File Type',
+    addType:  lang === 'ar' ? 'إضافة نوع جديد'       : 'Add new type',
     add:      lang === 'ar' ? 'إضافة'               : 'Add Item',
+    save:     lang === 'ar' ? 'حفظ التعديلات'        : 'Save Changes',
     cancel:   lang === 'ar' ? 'إلغاء'               : 'Cancel',
   }), [lang]);
 
@@ -184,7 +298,6 @@ const AddItemModal = memo(function AddItemModal({
     ...inputStyle, fontFamily: 'monospace', fontSize: '11px',
   }), [inputStyle]);
 
-  /* Read-only: the path is filled by the file picker, not typed. */
   const thumbnailFieldStyle = useMemo<React.CSSProperties>(() => ({
     ...inputStyle,
     color: thumbnailPath ? TEXT_MAIN : TEXT_MUTED,
@@ -284,6 +397,14 @@ const AddItemModal = memo(function AddItemModal({
     if (e.target === e.currentTarget) onClose();
   }, [onClose]);
 
+  const handleOpenTypeComposer = useCallback(() => setAddingType(true), []);
+  const handleCancelTypeComposer = useCallback(() => setAddingType(false), []);
+  const handleCreateType = useCallback((ft: FileType) => {
+    onCreateFileType(ft);
+    setTag(ft.key);
+    setAddingType(false);
+  }, [onCreateFileType]);
+
   /* ── Thumbnail upload ── */
   const handleChooseFile = useCallback(() => {
     fileInputRef.current?.click();
@@ -291,7 +412,6 @@ const AddItemModal = memo(function AddItemModal({
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    // Reset immediately so re-picking the SAME file still fires a change event.
     e.target.value = '';
     if (!file) return;
 
@@ -321,11 +441,9 @@ const AddItemModal = memo(function AddItemModal({
     setThumbnailError('');
   }, []);
 
-  const handleAdd = () => {
+  const handleSubmit = () => {
     if (isAddDisabled) return
-    onAdd({
-      id:            Date.now().toString(),
-      sectionId,
+    const payload = {
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),
@@ -333,7 +451,12 @@ const AddItemModal = memo(function AddItemModal({
       driveUrl:      driveUrl.trim(),
       thumbnail:     thumbnailData || undefined,
       tag:           tag.trim().toUpperCase() || undefined,
-    })
+    }
+    if (isEditing && editingItem) {
+      onSave(editingItem.id, payload)
+    } else {
+      onAdd({ id: Date.now().toString(), sectionId, ...payload })
+    }
     onClose()
   }
 
@@ -359,10 +482,10 @@ const AddItemModal = memo(function AddItemModal({
         <div className="flex items-center justify-between px-6 py-4 shrink-0" style={headerBorderStyle}>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={iconWrapStyle}>
-              <Plus className="w-4 h-4 text-white" />
+              {isEditing ? <Pencil className="w-3.5 h-3.5 text-white" /> : <Plus className="w-4 h-4 text-white" />}
             </div>
             <h2 className="text-sm font-black" style={titleStyle}>
-              {tx.title}
+              {isEditing ? tx.titleEdit : tx.titleAdd}
             </h2>
           </div>
           <button onClick={onClose}
@@ -401,7 +524,8 @@ const AddItemModal = memo(function AddItemModal({
               style={arabicTextareaStyle} />
           </div>
 
-          {/* Drive URL — required */}
+          {/* Drive URL — required, this is the WHOLE FOLDER link shown at the
+              top of the file-list page, not a single-file link */}
           <div>
             <label style={driveLabelStyle}>
               {tx.drive} <span style={REQUIRED_ASTERISK_STYLE}>*</span>
@@ -444,7 +568,6 @@ const AddItemModal = memo(function AddItemModal({
 
             {thumbnailError && <p style={ERROR_TEXT_STYLE}>{thumbnailError}</p>}
 
-            {/* Preview + remove */}
             {thumbnailData && (
               <div className="flex items-center gap-2 mt-2">
                 <img
@@ -469,14 +592,28 @@ const AddItemModal = memo(function AddItemModal({
             )}
           </div>
 
-          {/* Tag */}
+          {/* File type — now a live, extensible registry */}
           <div>
             <label style={labelStyle}>{tx.tagLabel}</label>
-            <div className="flex gap-2 flex-wrap">
-              {TAG_OPTIONS.map(t => (
-                <TagOption key={t} tag={t} isSelected={tag === t} isDark={isDark} onToggle={handleTagToggle} />
+            <div className="flex gap-2 flex-wrap items-center">
+              {fileTypes.map(ft => (
+                <TagOption key={ft.key} fileType={ft} isSelected={tag === ft.key} isDark={isDark} onToggle={handleTagToggle} />
               ))}
+              {!addingType && (
+                <button type="button" onClick={handleOpenTypeComposer}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold"
+                  style={{ border: `1px dashed ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`, color: TEXT_MUTED, cursor: 'pointer' }}
+                >
+                  <Plus className="w-3 h-3" />
+                  {tx.addType}
+                </button>
+              )}
             </div>
+            {addingType && (
+              <div className="mt-2">
+                <NewFileTypeComposer isDark={isDark} lang={lang} onCreate={handleCreateType} onCancel={handleCancelTypeComposer} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -487,14 +624,14 @@ const AddItemModal = memo(function AddItemModal({
             style={cancelButtonStyle}>
             {tx.cancel}
           </button>
-          <button onClick={handleAdd}
+          <button onClick={handleSubmit}
             disabled={isAddDisabled}
             className="px-4 py-2 rounded-lg text-[11px] font-bold"
             style={addButtonStyle}
             onMouseEnter={handleAddButtonEnter}
             onMouseLeave={handleAddButtonLeave}
           >
-            {tx.add}
+            {isEditing ? tx.save : tx.add}
           </button>
         </div>
       </m.div>
@@ -502,8 +639,13 @@ const AddItemModal = memo(function AddItemModal({
   )
 })
 
-/* ── Single item card ── */
-const ItemCard = memo(function ItemCard({ item, color, index }: { item: ArchiveItem; color: string; index: number }) {
+/* ── Single item card (Grid mode) ── */
+const ItemCard = memo(function ItemCard({ item, color, index, fileTypeColor, isAdmin, onOpen, onEdit, onDelete }: {
+  item: ArchiveItem; color: string; index: number; fileTypeColor: string; isAdmin: boolean
+  onOpen: (item: ArchiveItem) => void
+  onEdit: (item: ArchiveItem) => void
+  onDelete: (item: ArchiveItem) => void
+}) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark          = theme === 'dark'
@@ -511,14 +653,12 @@ const ItemCard = memo(function ItemCard({ item, color, index }: { item: ArchiveI
 
   const name = lang === 'ar' ? item.nameAr        : item.nameEn
   const desc = lang === 'ar' ? item.descriptionAr : item.description
-  const tagColor = item.tag ? (TAG_COLORS[item.tag] ?? color) : color
 
-  const handleClick = () => {
-    window.open(item.driveUrl, '_blank', 'noopener,noreferrer')
-  }
-
+  const handleClick = useCallback(() => onOpen(item), [onOpen, item]);
   const handleMouseEnter = useCallback(() => setHovered(true), []);
   const handleMouseLeave = useCallback(() => setHovered(false), []);
+  const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(item) }, [onEdit, item]);
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(item) }, [onDelete, item]);
 
   const cardStyle = useMemo<React.CSSProperties>(() => ({
     background: isDark
@@ -552,11 +692,11 @@ const ItemCard = memo(function ItemCard({ item, color, index }: { item: ArchiveI
 
   const tagBadgeStyle = useMemo<React.CSSProperties>(() => ({
     [isRTL ? 'left' : 'right']: '10px',
-    background: tagColor + '25',
-    color:      tagColor,
-    border:     `1px solid ${tagColor}50`,
+    background: fileTypeColor + '25',
+    color:      fileTypeColor,
+    border:     `1px solid ${fileTypeColor}50`,
     backdropFilter: 'blur(8px)',
-  }), [isRTL, tagColor]);
+  }), [isRTL, fileTypeColor]);
 
   const hoverOverlayStyle = useMemo<React.CSSProperties>(() => ({
     pointerEvents: hovered ? 'auto' : 'none',
@@ -585,7 +725,6 @@ const ItemCard = memo(function ItemCard({ item, color, index }: { item: ArchiveI
       onMouseLeave={handleMouseLeave}
       onClick={handleClick}
     >
-      {/* Thumbnail */}
       <div className="relative w-full overflow-hidden" style={thumbWrapStyle}>
         <div className="absolute inset-0" style={radialOverlayStyle} />
 
@@ -600,17 +739,29 @@ const ItemCard = memo(function ItemCard({ item, color, index }: { item: ArchiveI
           )
         }
 
-        {/* Top accent */}
         <div className="absolute top-0 inset-x-0 h-0.5" style={topAccentStyle} />
 
-        {/* Tag badge */}
         {item.tag && (
           <div className="absolute top-3 px-2 py-0.5 rounded-full text-[9px] font-black" style={tagBadgeStyle}>
             {item.tag}
           </div>
         )}
 
-        {/* Hover overlay */}
+        {isAdmin && (
+          <div className="absolute top-2" style={{ [isRTL ? 'right' : 'left']: '8px' }}>
+            <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1">
+              <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ background: 'rgba(8,15,18,0.5)', color: '#ffffff', backdropFilter: 'blur(6px)' }}>
+                <Pencil className="w-3 h-3" />
+              </button>
+              <button onClick={handleDeleteClick} className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ background: 'rgba(8,15,18,0.5)', color: '#ff8080', backdropFilter: 'blur(6px)' }}>
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </m.div>
+          </div>
+        )}
+
         <m.div
           animate={{ opacity: hovered ? 1 : 0 }}
           transition={{ duration: 0.2 }}
@@ -629,17 +780,14 @@ const ItemCard = memo(function ItemCard({ item, color, index }: { item: ArchiveI
             <div
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold text-white"
               style={DRIVE_LINK_STYLE}
-              onMouseEnter={handleDriveLinkEnter}
-              onMouseLeave={handleDriveLinkLeave}
             >
-              <ExternalLink className="w-3 h-3" />
-              {lang === 'ar' ? 'فتح في الدرايف' : 'Open in Drive'}
+              <ChevronRight className="w-3 h-3" style={{ transform: isRTL ? 'rotate(180deg)' : 'none' }} />
+              {lang === 'ar' ? 'عرض الملفات' : 'View Files'}
             </div>
           </m.div>
         </m.div>
       </div>
 
-      {/* Footer */}
       <div className="px-4 py-3" dir={isRTL ? 'rtl' : 'ltr'}>
         <h3 className="text-sm font-black truncate" style={titleStyle}>
           {name}
@@ -649,37 +797,145 @@ const ItemCard = memo(function ItemCard({ item, color, index }: { item: ArchiveI
   )
 })
 
+/* ── Single item row (List mode) ── */
+const ItemListRow = memo(function ItemListRow({ item, color, index, fileTypeColor, isAdmin, onOpen, onEdit, onDelete }: {
+  item: ArchiveItem; color: string; index: number; fileTypeColor: string; isAdmin: boolean
+  onOpen: (item: ArchiveItem) => void
+  onEdit: (item: ArchiveItem) => void
+  onDelete: (item: ArchiveItem) => void
+}) {
+  const { theme }       = useTheme()
+  const { lang, isRTL } = useLang()
+  const isDark          = theme === 'dark'
+  const [hovered, setHovered] = useState(false)
+
+  const name = lang === 'ar' ? item.nameAr : item.nameEn
+
+  const handleClick = useCallback(() => onOpen(item), [onOpen, item]);
+  const handleMouseEnter = useCallback(() => setHovered(true), []);
+  const handleMouseLeave = useCallback(() => setHovered(false), []);
+  const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(item) }, [onEdit, item]);
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(item) }, [onDelete, item]);
+
+  const rowStyle = useMemo<React.CSSProperties>(() => ({
+    background: hovered ? (isDark ? `${color}12` : `${color}0a`) : 'transparent',
+    borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
+    transition: 'background 0.15s',
+  }), [hovered, isDark, color]);
+
+  const thumbStyle = useMemo<React.CSSProperties>(() => ({
+    background: `linear-gradient(135deg, ${color}22, ${color}08)`,
+  }), [color]);
+
+  const tagBadgeStyle = useMemo<React.CSSProperties>(() => ({
+    background: fileTypeColor + '20', color: fileTypeColor, border: `1px solid ${fileTypeColor}40`,
+  }), [fileTypeColor]);
+
+  const chevronStyle = useMemo<React.CSSProperties>(() => ({
+    color, transform: isRTL ? 'rotate(180deg)' : 'none', opacity: hovered ? 1 : 0.4, transition: 'opacity 0.15s',
+  }), [color, isRTL, hovered]);
+
+  return (
+    <m.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: index * 0.02, duration: 0.25 }}
+      dir={isRTL ? 'rtl' : 'ltr'}
+      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none"
+      style={rowStyle}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
+    >
+      <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style={thumbStyle}>
+        {item.thumbnail
+          ? <img src={item.thumbnail} alt={name} className="w-full h-full object-cover" />
+          : <span className="text-xs font-black" style={{ color, fontFamily: 'var(--font-display)' }}>{name.charAt(0)}</span>
+        }
+      </div>
+
+      <div className="flex-1 min-w-0 text-[12.5px] font-bold truncate" style={{
+        color: TEXT_MAIN, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)',
+      }}>
+        {name}
+      </div>
+
+      {item.tag && (
+        <span className="shrink-0 px-2 py-0.5 rounded-full text-[9px] font-black" style={tagBadgeStyle}>
+          {item.tag}
+        </span>
+      )}
+
+      {isAdmin && (
+        <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1 shrink-0">
+          <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ color: TEXT_MUTED }}>
+            <Pencil className="w-3 h-3" />
+          </button>
+          <button onClick={handleDeleteClick} className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ color: '#ef4444' }}>
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </m.div>
+      )}
+
+      <ChevronRight className="w-4 h-4 shrink-0" style={chevronStyle} />
+    </m.div>
+  )
+})
+
 /* ── SectionGrid ── */
 function SectionGrid({
   activeSection,
-  color   = '#458482',
-  isAdmin = true,
+  color        = '#458482',
+  isAdmin      = true,
+  platformSlug,
+  workId,
 }: {
   activeSection: Section
   color?:        string
   isAdmin?:      boolean
+  /** Needed to build the route to the file-list page one level down. */
+  platformSlug:  string
+  workId:        string
 }) {
   const { lang, isRTL }       = useLang()
   const { theme }             = useTheme()
+  const router                = useRouter()
   const isDark                = theme === 'dark'
   const [items, setItems]     = useState<ArchiveItem[]>(INITIAL_ITEMS)
+  const [fileTypes, setFileTypes] = useState<FileType[]>(DEFAULT_FILE_TYPES)
   const [showModal, setShowModal] = useState(false)
+  const [editingItem, setEditingItem] = useState<ArchiveItem | null>(null)
   const [search, setSearch]   = useState('')
 
-  // Combined into a single filter pass (was two sequential .filter() calls before)
-  const sectionItems = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return items.filter(i => {
-      if (i.sectionId !== activeSection.id) return false
-      if (!q) return true
-      return (
-        i.nameEn.toLowerCase().includes(q) ||
-        i.nameAr.includes(q) ||
-        i.description.toLowerCase().includes(q) ||
-        i.tag?.toLowerCase().includes(q)
-      )
-    })
-  }, [items, activeSection.id, search])
+  const { pendingDeletions, isPending, scheduleDelete, undo } = useUndoableDelete()
+
+  // TEMPORARY — not persisted cross-device yet, see BACKEND NOTE in ViewToggle.tsx
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+
+  const fileTypeColorMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const ft of fileTypes) map.set(ft.key, ft.color)
+    return map
+  }, [fileTypes])
+
+  const getFileTypeColor = useCallback(
+    (tag?: string) => (tag && fileTypeColorMap.get(tag)) || color,
+    [fileTypeColorMap, color]
+  )
+
+  /* Items mid-delete-countdown vanish from the grid/list immediately — the
+     undo toast, not their continued presence here, is what keeps them
+     recoverable. */
+  const itemsInSection = useMemo(
+    () => items.filter(i => i.sectionId === activeSection.id && !isPending(i.id)),
+    [items, activeSection.id, isPending]
+  )
+
+  const getItemSearchFields = useCallback(
+    (i: ArchiveItem) => [i.nameEn, i.nameAr, i.description, i.descriptionAr, i.tag],
+    []
+  )
+  const sectionItems = useSmartSearch(itemsInSection, search, getItemSearchFields)
 
   const tx = useMemo(() => ({
     search:    lang === 'ar' ? 'ابحث في هذا التقسيم...' : 'Search this section...',
@@ -688,10 +944,37 @@ function SectionGrid({
     emptyHint: lang === 'ar' ? 'جرّب كلمة بحث أخرى'     : 'Try a different search term',
   }), [lang])
 
-  const handleOpenModal  = useCallback(() => setShowModal(true), [])
-  const handleCloseModal = useCallback(() => setShowModal(false), [])
+  const handleOpenModal  = useCallback(() => { setEditingItem(null); setShowModal(true) }, [])
+  const handleOpenEditModal = useCallback((item: ArchiveItem) => { setEditingItem(item); setShowModal(true) }, [])
+  const handleCloseModal = useCallback(() => { setShowModal(false); setEditingItem(null) }, [])
   const handleAddItem    = useCallback((item: ArchiveItem) => {
     setItems(prev => [...prev, item])
+  }, [])
+  const handleSaveItem = useCallback((id: string, updates: Omit<ArchiveItem, 'id' | 'sectionId'>) => {
+    setItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i))
+  }, [])
+  const handleCreateFileType = useCallback((ft: FileType) => {
+    setFileTypes(prev => prev.some(t => t.key === ft.key) ? prev : [...prev, ft])
+  }, [])
+
+  /* Same "hide immediately, remove for real only after the 10s window"
+     pattern as section deletion — see SectionTabs.tsx. */
+  const handleDeleteItem = useCallback((item: ArchiveItem) => {
+    const label = lang === 'ar' ? item.nameAr : item.nameEn
+    scheduleDelete(item.id, label, () => {
+      setItems(prev => prev.filter(i => i.id !== item.id))
+    })
+  }, [lang, scheduleDelete])
+
+  /* Opening an item now drills into the file-list page (level 5) instead of
+     jumping straight to Drive — the Drive folder link lives at the top of
+     that page instead. See FileList.tsx (built separately) for that route. */
+  const handleOpenItem = useCallback((item: ArchiveItem) => {
+    router.push(`/archive/${platformSlug}/${workId}/${activeSection.id}/${item.id}`)
+  }, [router, platformSlug, workId, activeSection.id])
+
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearch(e.target.value)
   }, [])
 
   const searchIconStyle = useMemo<React.CSSProperties>(() => ({
@@ -744,7 +1027,6 @@ function SectionGrid({
     background: color + '15',
   }), [color])
 
-  // Shared by the "no results" text and the "Add Item" label — identical expression in both spots
   const mutedTextStyle = useMemo<React.CSSProperties>(() => ({
     color: TEXT_MUTED, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
   }), [lang])
@@ -767,12 +1049,14 @@ function SectionGrid({
           />
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={handleSearchChange}
             placeholder={tx.search}
             className="w-full py-2 rounded-xl text-[12px] outline-none"
             style={searchInputStyle}
           />
         </div>
+
+        <ViewToggle value={viewMode} onChange={setViewMode} />
 
         {/* Add item — admin */}
         {isAdmin && (
@@ -789,45 +1073,64 @@ function SectionGrid({
         )}
       </div>
 
-      {/* Grid */}
+      {/* Grid / List */}
       <AnimatePresence mode="wait">
         {sectionItems.length > 0 ? (
-          <m.div
-            key={activeSection.id + search}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
-          >
-            {sectionItems.map((item, i) => (
-              <ItemCard key={item.id} item={item} color={color} index={i} />
-            ))}
+          viewMode === 'grid' ? (
+            <m.div
+              key={activeSection.id + search + 'grid'}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
+            >
+              {sectionItems.map((item, i) => (
+                <ItemCard key={item.id} item={item} color={color} index={i}
+                  fileTypeColor={getFileTypeColor(item.tag)} isAdmin={isAdmin}
+                  onOpen={handleOpenItem} onEdit={handleOpenEditModal} onDelete={handleDeleteItem} />
+              ))}
 
-            {/* Add card — admin */}
-            {isAdmin && !search && (
-              <m.button
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: sectionItems.length * 0.05 }}
-                onClick={handleOpenModal}
-                className="relative rounded-2xl overflow-hidden cursor-pointer flex flex-col"
-                style={addCardStyle}
-                onMouseEnter={handleAddCardEnter}
-                onMouseLeave={handleAddCardLeave}
-              >
-                <div className="w-full flex flex-col items-center justify-center gap-3" style={{ aspectRatio: '1 / 1' }}>
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={addCardIconWrapStyle}>
-                    <Plus className="w-5 h-5" style={{ color }} />
+              {isAdmin && !search && (
+                <m.button
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: sectionItems.length * 0.05 }}
+                  onClick={handleOpenModal}
+                  className="relative rounded-2xl overflow-hidden cursor-pointer flex flex-col"
+                  style={addCardStyle}
+                  onMouseEnter={handleAddCardEnter}
+                  onMouseLeave={handleAddCardLeave}
+                >
+                  <div className="w-full flex flex-col items-center justify-center gap-3" style={{ aspectRatio: '1 / 1' }}>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={addCardIconWrapStyle}>
+                      <Plus className="w-5 h-5" style={{ color }} />
+                    </div>
+                    <span className="text-[11px] font-bold" style={mutedTextStyle}>
+                      {lang === 'ar' ? 'إضافة عنصر' : 'Add Item'}
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold" style={mutedTextStyle}>
-                    {lang === 'ar' ? 'إضافة عنصر' : 'Add Item'}
-                  </span>
-                </div>
-                <div className="h-[52px] shrink-0" />
-              </m.button>
-            )}
-          </m.div>
+                  <div className="h-[52px] shrink-0" />
+                </m.button>
+              )}
+            </m.div>
+          ) : (
+            <m.div
+              key={activeSection.id + search + 'list'}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="rounded-xl overflow-hidden"
+              style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}
+            >
+              {sectionItems.map((item, i) => (
+                <ItemListRow key={item.id} item={item} color={color} index={i}
+                  fileTypeColor={getFileTypeColor(item.tag)} isAdmin={isAdmin}
+                  onOpen={handleOpenItem} onEdit={handleOpenEditModal} onDelete={handleDeleteItem} />
+              ))}
+            </m.div>
+          )
         ) : (
           <m.div
             key="empty"
@@ -853,11 +1156,20 @@ function SectionGrid({
           <AddItemModal
             sectionId={activeSection.id}
             color={color}
+            fileTypes={fileTypes}
+            editingItem={editingItem}
             onClose={handleCloseModal}
             onAdd={handleAddItem}
+            onSave={handleSaveItem}
+            onCreateFileType={handleCreateFileType}
           />
         )}
       </AnimatePresence>
+
+      {/* Offset above SectionTabs' own undo toasts (section deletions) so both
+          can be visible at once without overlapping — both mount on the same
+          WorkPage. */}
+      <UndoToastHost deletions={pendingDeletions} onUndo={undo} color={color} bottomOffset={90} />
     </div>
     </LazyMotion>
   )
@@ -890,4 +1202,25 @@ export default memo(SectionGrid)
 
    Deleting an item must delete its stored object too, otherwise the bucket fills
    with orphans that nothing references.
+   ═══════════════════════════════════════════════════════════════════════════
+
+   BACKEND NOTE — file types registry
+   ═══════════════════════════════════════════════════════════════════════════
+   `fileTypes` currently lives in this component's state (`DEFAULT_FILE_TYPES`
+   plus whatever gets added in-session), so a type an admin creates disappears
+   on refresh and is invisible to every other admin. The plan doc calls for
+   this to be permanent and shared, which means a real table:
+
+     create table file_types (
+       key        text primary key,        -- e.g. 'PSD', stored upper-case
+       color      text not null,           -- hex, e.g. '#458482'
+       created_by uuid references profiles(id),
+       created_at timestamptz not null default now()
+     );
+
+   Load it once per page (or globally, since it's small and rarely changes)
+   instead of re-fetching per section. Creating a new type from the Add Item
+   modal should insert here — guard against a duplicate `key` with an
+   `on conflict do nothing` or a friendly "this type already exists" message
+   rather than a raw constraint error.
    ═══════════════════════════════════════════════════════════════════════════ */

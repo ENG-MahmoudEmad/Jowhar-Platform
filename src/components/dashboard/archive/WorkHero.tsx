@@ -6,7 +6,7 @@ import { ChevronRight, FolderOpen, FileStack } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import { useRouter } from 'next/navigation'
-import type { Platform } from '@/components/dashboard/archive/PlatformGrid'
+import type { Work } from '@/components/dashboard/archive/WorksGrid'
 
 // ─── Module-level constants (zero per-render allocation) ───────────────────────
 const TEXT_MAIN  = "var(--foreground)";
@@ -21,7 +21,6 @@ const GRID_PATTERN_STYLE: React.CSSProperties = {
   backgroundSize: '40px 40px',
 };
 
-// Resets to the same constant regardless of platform colour — safe as a static function
 function handleBackLinkLeave(e: React.MouseEvent<HTMLSpanElement>) {
   e.currentTarget.style.color = TEXT_MUTED;
 }
@@ -33,7 +32,6 @@ interface StatItem {
   Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }
 
-// ─── StatCard ───────────────────────────────────────────────────────────────
 const StatCard = memo(function StatCard({ value, label, Icon, cardStyle, iconStyle, labelStyle }: {
   value: number; label: string;
   Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
@@ -48,24 +46,38 @@ const StatCard = memo(function StatCard({ value, label, Icon, cardStyle, iconSty
   );
 });
 
-function PlatformHero({ platform }: { platform: Platform }) {
+function WorkHero({
+  work,
+  platformSlug,
+  platformName,
+  color,
+}: {
+  work:         Work
+  platformSlug: string
+  platformName: string
+  color:        string
+}) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const router          = useRouter()
   const isDark          = theme === 'dark'
 
-  const name        = lang === 'ar' ? platform.nameAr : platform.nameEn
-  const description = lang === 'ar' ? platform.descriptionAr : platform.description
-  const c            = platform.color
+  const name        = lang === 'ar' ? work.nameAr : work.nameEn
+  const description = lang === 'ar' ? work.descriptionAr : work.description
+  const c            = color
 
   const tx = useMemo(() => ({
-    back:          lang === 'ar' ? 'الأرشيف'  : 'Archive',
-    platformLabel: lang === 'ar' ? 'منصة'      : 'Platform',
-    folders:       lang === 'ar' ? 'مجلد'     : 'Folders',
-    files:         lang === 'ar' ? 'ملف'      : 'Files',
+    archive:   lang === 'ar' ? 'الأرشيف'  : 'Archive',
+    workLabel: lang === 'ar' ? 'عمل'       : 'Work',
+    sections:  lang === 'ar' ? 'تقسيم'    : 'Sections',
+    files:     lang === 'ar' ? 'ملف'      : 'Files',
   }), [lang]);
 
   const handleBackLinkEnter = useCallback((e: React.MouseEvent<HTMLSpanElement>) => {
+    e.currentTarget.style.color = c;
+  }, [c]);
+
+  const handlePlatformLinkEnter = useCallback((e: React.MouseEvent<HTMLSpanElement>) => {
     e.currentTarget.style.color = c;
   }, [c]);
 
@@ -100,7 +112,7 @@ function PlatformHero({ platform }: { platform: Platform }) {
     color: c, fontFamily: 'var(--font-display)',
   }), [c]);
 
-  const platformLabelStyle = useMemo<React.CSSProperties>(() => ({
+  const workLabelStyle = useMemo<React.CSSProperties>(() => ({
     color: c, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
   }), [c, lang]);
 
@@ -110,12 +122,10 @@ function PlatformHero({ platform }: { platform: Platform }) {
     letterSpacing: lang === 'ar' ? 0 : '-0.02em',
   }), [lang]);
 
-  // Shared by the description AND both stat labels — identical expression in all three spots
   const mutedTextStyle = useMemo<React.CSSProperties>(() => ({
     color: TEXT_MUTED, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
   }), [lang]);
 
-  // Shared by both stat cards — identical regardless of which stat (folders/files)
   const statCardStyle = useMemo<React.CSSProperties>(() => ({
     background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
     border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
@@ -124,9 +134,12 @@ function PlatformHero({ platform }: { platform: Platform }) {
   const statIconStyle = useMemo<React.CSSProperties>(() => ({ color: c }), [c]);
 
   const statsItems: StatItem[] = useMemo(() => ([
-    { id: 'folders', value: platform.folderCount, label: tx.folders, Icon: FolderOpen },
-    { id: 'files',   value: platform.fileCount,   label: tx.files,   Icon: FileStack  },
-  ]), [platform.folderCount, platform.fileCount, tx]);
+    { id: 'sections', value: work.sectionCount, label: tx.sections, Icon: FolderOpen },
+    { id: 'files',    value: work.fileCount,    label: tx.files,    Icon: FileStack  },
+  ]), [work.sectionCount, work.fileCount, tx]);
+
+  const handleArchiveClick = useCallback(() => router.push('/archive'), [router]);
+  const handlePlatformClick = useCallback(() => router.push(`/archive/${platformSlug}`), [router, platformSlug]);
 
   return (
     <LazyMotion features={domAnimation}>
@@ -135,29 +148,35 @@ function PlatformHero({ platform }: { platform: Platform }) {
         className="relative overflow-hidden rounded-2xl select-none"
         style={wrapperStyle}
       >
-        {/* Ambient glow */}
         <div className="absolute inset-0 pointer-events-none" style={ambientGlowStyle} />
-
-        {/* Grid pattern */}
         <div className="absolute inset-0 pointer-events-none opacity-[0.025]" style={GRID_PATTERN_STYLE} />
-
-        {/* Top accent line */}
         <div className="absolute top-0 inset-x-0 h-0.5" style={accentLineStyle} />
 
         <div className="relative px-8 pt-12 pb-7 flex flex-col sm:flex-row items-start sm:items-center gap-6">
 
-          {/* Breadcrumb */}
+          {/* Breadcrumb: Archive > Platform > Work */}
           <div
-            className="absolute flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
+            className="absolute flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest"
             style={breadcrumbStyle}
-            onClick={() => router.push('/archive')}
           >
             <span
               style={BACK_LINK_STYLE}
               onMouseEnter={handleBackLinkEnter}
               onMouseLeave={handleBackLinkLeave}
+              onClick={handleArchiveClick}
+              className="cursor-pointer"
             >
-              {tx.back}
+              {tx.archive}
+            </span>
+            <ChevronRight className="w-3 h-3" style={{ transform: isRTL ? 'rotate(180deg)' : 'none' }} />
+            <span
+              style={BACK_LINK_STYLE}
+              onMouseEnter={handlePlatformLinkEnter}
+              onMouseLeave={handleBackLinkLeave}
+              onClick={handlePlatformClick}
+              className="cursor-pointer"
+            >
+              {platformName}
             </span>
             <ChevronRight className="w-3 h-3" style={{ transform: isRTL ? 'rotate(180deg)' : 'none' }} />
             <span style={TEXT_MAIN_STYLE}>{name}</span>
@@ -171,8 +190,8 @@ function PlatformHero({ platform }: { platform: Platform }) {
             className="mt-5 sm:mt-0 w-20 h-20 rounded-2xl overflow-hidden shrink-0 flex items-center justify-center"
             style={logoWrapStyle}
           >
-            {platform.thumbnail
-              ? <img src={platform.thumbnail} alt={name} className="w-full h-full object-cover" />
+            {work.thumbnail
+              ? <img src={work.thumbnail} alt={name} className="w-full h-full object-cover" />
               : <span className="text-4xl font-black select-none" style={fallbackLetterStyle}>
                   {name.charAt(0)}
                 </span>
@@ -186,9 +205,9 @@ function PlatformHero({ platform }: { platform: Platform }) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
               className="text-[10px] font-black uppercase tracking-[0.2em] mb-1"
-              style={platformLabelStyle}
+              style={workLabelStyle}
             >
-              {tx.platformLabel}
+              {tx.workLabel}
             </m.p>
 
             <m.h1
@@ -238,4 +257,4 @@ function PlatformHero({ platform }: { platform: Platform }) {
   )
 }
 
-export default memo(PlatformHero)
+export default memo(WorkHero)

@@ -1,10 +1,45 @@
+//src\components\dashboard\archive\SectionTabs.tsx
 "use client"
 
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, X, FolderOpen } from 'lucide-react'
+import {
+  Plus, X, FolderOpen, Trash2, Check, Pencil,
+  Video, Image as ImageIcon, Music, FileText, Palette,
+  Film, Mic, Archive, Layers, Sparkles, Camera, PenTool,
+} from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
+import { useUndoableDelete } from '@/lib/useUndoableDelete'
+import UndoToastHost from '@/components/dashboard/archive/UndoToast'
+
+/* ── Icon library ── */
+/**
+ * Curated set an admin picks from when creating a section — not an open text
+ * field, so every section icon renders consistently and nothing breaks if a
+ * typo'd icon name ever made it into the data. Extend this map to add more
+ * choices; the *key* is what gets persisted (`Section.icon`), not the
+ * component itself.
+ */
+export const SECTION_ICONS = {
+  folder:  FolderOpen,
+  video:   Video,
+  image:   ImageIcon,
+  music:   Music,
+  file:    FileText,
+  palette: Palette,
+  film:    Film,
+  mic:     Mic,
+  archive: Archive,
+  layers:  Layers,
+  sparkles:Sparkles,
+  camera:  Camera,
+  pen:     PenTool,
+} as const
+
+export type SectionIconKey = keyof typeof SECTION_ICONS
+
+const ICON_KEYS = Object.keys(SECTION_ICONS) as SectionIconKey[]
 
 /* ── Types ── */
 export interface Section {
@@ -14,37 +49,38 @@ export interface Section {
   description:   string
   descriptionAr: string
   itemCount:   number
+  icon:        SectionIconKey
 }
 
 /* ── Mock sections (replace with API later) ── */
-const INITIAL_SECTIONS: Section[] = [
+export const INITIAL_SECTIONS: Section[] = [
   {
     id: 'published',
     nameEn: 'Published Posts',   nameAr: 'المنشورات',
     description: 'All published social media posts.',
     descriptionAr: 'جميع المنشورات المنشورة على وسائل التواصل الاجتماعي.',
-    itemCount: 14,
+    itemCount: 14, icon: 'folder',
   },
   {
     id: 'videos',
     nameEn: 'Videos',            nameAr: 'الفيديوهات',
     description: 'Produced and published video content.',
     descriptionAr: 'محتوى الفيديو المنتج والمنشور.',
-    itemCount: 8,
+    itemCount: 8, icon: 'video',
   },
   {
     id: 'designs',
     nameEn: 'Designs',           nameAr: 'التصاميم',
     description: 'Graphic design assets and deliverables.',
     descriptionAr: 'أصول التصميم الجرافيكي والمخرجات.',
-    itemCount: 22,
+    itemCount: 22, icon: 'palette',
   },
   {
     id: 'documents',
     nameEn: 'Documents',         nameAr: 'الوثائق',
     description: 'Scripts, briefs, and production documents.',
     descriptionAr: 'النصوص والموجزات ووثائق الإنتاج.',
-    itemCount: 6,
+    itemCount: 6, icon: 'file',
   },
 ]
 
@@ -82,32 +118,72 @@ function makeUniqueSectionId(nameEn: string, existing: Section[]): string {
   return `${base}-${suffix}`
 }
 
-/* ── Add Section Modal ── */
+/* ── Icon picker (used inside Add Section modal) ── */
+const IconPickerOption = memo(function IconPickerOption({
+  iconKey, selected, color, isDark, onSelect,
+}: {
+  iconKey:  SectionIconKey
+  selected: boolean
+  color:    string
+  isDark:   boolean
+  onSelect: (key: SectionIconKey) => void
+}) {
+  const Icon = SECTION_ICONS[iconKey]
+  const handleClick = useCallback(() => onSelect(iconKey), [onSelect, iconKey])
+
+  const style = useMemo<React.CSSProperties>(() => ({
+    background: selected ? color + '25' : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+    border:     `1px solid ${selected ? color + '60' : 'transparent'}`,
+    color:      selected ? color : 'var(--foreground-muted)',
+    cursor:     'pointer',
+  }), [selected, isDark, color])
+
+  return (
+    <button type="button" onClick={handleClick}
+      className="w-9 h-9 rounded-lg flex items-center justify-center transition-all"
+      style={style}
+    >
+      <Icon className="w-4 h-4" />
+    </button>
+  )
+})
+
+/* ── Add/Edit Section Modal ── */
 const AddSectionModal = memo(function AddSectionModal({
   color,
+  editingSection,
   onClose,
   onAdd,
+  onSave,
 }: {
   color:   string
+  /** Present → editing an existing section; absent → creating one. */
+  editingSection?: Section | null
   onClose: () => void
   onAdd:   (s: Omit<Section, 'id'>) => void
+  onSave:  (id: string, updates: Omit<Section, 'id'>) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark          = theme === 'dark'
+  const isEditing       = !!editingSection
 
-  const [nameEn,        setNameEn]        = useState('')
-  const [nameAr,        setNameAr]        = useState('')
-  const [description,   setDescription]   = useState('')
-  const [descriptionAr, setDescriptionAr] = useState('')
+  const [nameEn,        setNameEn]        = useState(editingSection?.nameEn ?? '')
+  const [nameAr,        setNameAr]        = useState(editingSection?.nameAr ?? '')
+  const [description,   setDescription]   = useState(editingSection?.description ?? '')
+  const [descriptionAr, setDescriptionAr] = useState(editingSection?.descriptionAr ?? '')
+  const [icon,          setIcon]          = useState<SectionIconKey>(editingSection?.icon ?? 'folder')
 
   const tx = useMemo(() => ({
-    title:   lang === 'ar' ? 'إضافة تقسيم جديد'    : 'Add New Section',
+    titleAdd:  lang === 'ar' ? 'إضافة تقسيم جديد'    : 'Add New Section',
+    titleEdit: lang === 'ar' ? 'تعديل التقسيم'        : 'Edit Section',
     nameEn:  lang === 'ar' ? 'الاسم بالإنجليزي'     : 'English Name',
     nameAr:  lang === 'ar' ? 'الاسم بالعربي'        : 'Arabic Name',
     descEn:  lang === 'ar' ? 'الوصف بالإنجليزي'     : 'English Description',
     descAr:  lang === 'ar' ? 'الوصف بالعربي'        : 'Arabic Description',
+    icon:    lang === 'ar' ? 'الأيقونة'             : 'Icon',
     add:     lang === 'ar' ? 'إضافة التقسيم'        : 'Add Section',
+    save:    lang === 'ar' ? 'حفظ التعديلات'         : 'Save Changes',
     cancel:  lang === 'ar' ? 'إلغاء'                : 'Cancel',
   }), [lang])
 
@@ -135,19 +211,25 @@ const AddSectionModal = memo(function AddSectionModal({
 
   const isValid = !!(nameEn.trim() && nameAr.trim())
 
-  /* Emits a draft without an id — the parent owns id generation, since only it
-     knows the current list and can guarantee uniqueness. */
-  const handleAdd = useCallback(() => {
+  /* Emits a draft without an id when adding — the parent owns id generation.
+     When editing, calls onSave with the existing id instead. */
+  const handleSubmit = useCallback(() => {
     if (!isValid) return
-    onAdd({
+    const payload = {
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),
       descriptionAr: descriptionAr.trim(),
-      itemCount:     0,
-    })
+      itemCount:     editingSection?.itemCount ?? 0,
+      icon,
+    }
+    if (isEditing && editingSection) {
+      onSave(editingSection.id, payload)
+    } else {
+      onAdd(payload)
+    }
     onClose()
-  }, [isValid, nameEn, nameAr, description, descriptionAr, onAdd, onClose])
+  }, [isValid, isEditing, editingSection, nameEn, nameAr, description, descriptionAr, icon, onAdd, onSave, onClose])
 
   const headerIconStyle = useMemo(() => ({
     background: `linear-gradient(135deg, ${color}, ${color}99)`,
@@ -171,6 +253,8 @@ const AddSectionModal = memo(function AddSectionModal({
   const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) onClose()
   }, [onClose])
+
+  const handleSelectIcon = useCallback((key: SectionIconKey) => setIcon(key), [])
 
   /* Escape closes the dialog — expected of any modal, and the only way out for
      keyboard users who never reach the close button. */
@@ -210,13 +294,13 @@ const AddSectionModal = memo(function AddSectionModal({
           style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={headerIconStyle}>
-              <Plus className="w-4 h-4 text-white" />
+              {isEditing ? <Pencil className="w-3.5 h-3.5 text-white" /> : <Plus className="w-4 h-4 text-white" />}
             </div>
             <h2 className="text-sm font-black" style={{
               color:      'var(--foreground)',
               fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)',
             }}>
-              {tx.title}
+              {isEditing ? tx.titleEdit : tx.titleAdd}
             </h2>
           </div>
           <button
@@ -276,6 +360,23 @@ const AddSectionModal = memo(function AddSectionModal({
               style={{ ...inputStyle, resize: 'none', fontFamily: 'var(--font-arabic)' }}
             />
           </div>
+
+          {/* Icon picker */}
+          <div>
+            <label style={labelStyle}>{tx.icon}</label>
+            <div className="flex flex-wrap gap-2">
+              {ICON_KEYS.map(key => (
+                <IconPickerOption
+                  key={key}
+                  iconKey={key}
+                  selected={icon === key}
+                  color={color}
+                  isDark={isDark}
+                  onSelect={handleSelectIcon}
+                />
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
@@ -296,14 +397,14 @@ const AddSectionModal = memo(function AddSectionModal({
           </button>
           <button
             type="button"
-            onClick={handleAdd}
+            onClick={handleSubmit}
             disabled={!isValid}
             className="px-4 py-2 rounded-lg text-[11px] font-bold"
             style={addBtnStyle}
             onMouseEnter={handleAddBtnEnter}
             onMouseLeave={handleAddBtnLeave}
           >
-            {tx.add}
+            {isEditing ? tx.save : tx.add}
           </button>
         </div>
       </motion.div>
@@ -318,19 +419,36 @@ const SectionTab = memo(function SectionTab({
   color,
   isDark,
   lang,
+  isAdmin,
   onSelect,
+  onEdit,
+  onDelete,
 }: {
   section:  Section
   active:   boolean
   color:    string
   isDark:   boolean
   lang:     string
+  isAdmin:  boolean
   /** Takes the id, so one stable callback serves every tab. */
   onSelect: (id: string) => void
+  onEdit:   (section: Section) => void
+  onDelete: (id: string) => void
 }) {
   const label = lang === 'ar' ? section.nameAr : section.nameEn
+  const Icon  = SECTION_ICONS[section.icon] ?? FolderOpen
+
+  /* Delete goes through an inline confirm (✓/✕ in place of the trash icon) —
+     same pattern used for News Feed deletion elsewhere in the app, rather
+     than a separate confirmation modal. Confirming schedules a 10s-undoable
+     delete at the parent rather than removing anything immediately here. */
+  const [confirming, setConfirming] = useState(false)
 
   const handleClick = useCallback(() => onSelect(section.id), [onSelect, section.id])
+  const handleEditClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onEdit(section)
+  }, [onEdit, section])
 
   const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (!active) e.currentTarget.style.background = 'var(--hover-bg)'
@@ -338,6 +456,19 @@ const SectionTab = memo(function SectionTab({
   const handleMouseLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (!active) e.currentTarget.style.background = 'transparent'
   }, [active])
+
+  const handleDeleteIconClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    setConfirming(true)
+  }, [])
+  const handleConfirmDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete(section.id)
+  }, [onDelete, section.id])
+  const handleCancelDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    setConfirming(false)
+  }, [])
 
   const tabStyle = useMemo<React.CSSProperties>(() => ({
     background: active
@@ -364,16 +495,64 @@ const SectionTab = memo(function SectionTab({
       role="tab"
       aria-selected={active}
       onClick={handleClick}
-      className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold shrink-0 transition-all duration-200"
+      className="group relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold shrink-0 transition-all duration-200"
       style={tabStyle}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+      <Icon className="w-3.5 h-3.5 shrink-0" />
       {label}
       <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black" style={countBadgeStyle}>
         {section.itemCount}
       </span>
+
+      {/* Edit + Delete controls — admin only, revealed on hover */}
+      {isAdmin && (
+        <span className="flex items-center gap-1 ms-0.5">
+          <span
+            role="button"
+            onClick={handleEditClick}
+            className="w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
+            style={{ color: active ? color : 'var(--foreground-muted)' }}
+            title={lang === 'ar' ? 'تعديل التقسيم' : 'Edit section'}
+          >
+            <Pencil className="w-2.5 h-2.5" />
+          </span>
+
+          {confirming ? (
+            <span className="flex items-center gap-1">
+              <span
+                role="button"
+                onClick={handleConfirmDelete}
+                className="w-4 h-4 rounded-full flex items-center justify-center"
+                style={{ background: '#ef444425', color: '#ef4444' }}
+                title={lang === 'ar' ? 'تأكيد الحذف' : 'Confirm delete'}
+              >
+                <Check className="w-2.5 h-2.5" />
+              </span>
+              <span
+                role="button"
+                onClick={handleCancelDelete}
+                className="w-4 h-4 rounded-full flex items-center justify-center"
+                style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', color: 'var(--foreground-muted)' }}
+                title={lang === 'ar' ? 'إلغاء' : 'Cancel'}
+              >
+                <X className="w-2.5 h-2.5" />
+              </span>
+            </span>
+          ) : (
+            <span
+              role="button"
+              onClick={handleDeleteIconClick}
+              className="w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
+              style={{ color: '#ef4444' }}
+              title={lang === 'ar' ? 'حذف التقسيم' : 'Delete section'}
+            >
+              <Trash2 className="w-2.5 h-2.5" />
+            </span>
+          )}
+        </span>
+      )}
 
       {/* Active underline */}
       {active && (
@@ -408,6 +587,17 @@ function SectionTabs({
   const [sections, setSections]     = useState<Section[]>(initialSections)
   const [activeId, setActiveId]     = useState(initialSections[0]?.id ?? '')
   const [showModal, setShowModal]   = useState(false)
+  const [editingSection, setEditingSection] = useState<Section | null>(null)
+
+  const { pendingDeletions, isPending, scheduleDelete, undo } = useUndoableDelete()
+
+  /* Sections mid-delete-countdown vanish from the tab row immediately — the
+     undo toast is what keeps them recoverable, not their continued presence
+     here. */
+  const visibleSections = useMemo(
+    () => sections.filter(s => !isPending(s.id)),
+    [sections, isPending]
+  )
 
   /* A useState initialiser runs ONCE. Without this sync, sections arriving after
      the first render — a different platform, or data that was still loading —
@@ -431,8 +621,8 @@ function SectionTabs({
   }, [platformId, sectionsKey])
 
   const activeSection = useMemo(
-    () => sections.find(s => s.id === activeId),
-    [sections, activeId]
+    () => visibleSections.find(s => s.id === activeId),
+    [visibleSections, activeId]
   )
 
   /* Kept in a ref so the notification effect below doesn't re-fire just because
@@ -465,8 +655,38 @@ function SectionTabs({
     setActiveId(id)
   }, [sections])
 
-  const handleOpenModal = useCallback(() => setShowModal(true), [])
-  const handleCloseModal = useCallback(() => setShowModal(false), [])
+  const handleOpenEdit = useCallback((section: Section) => {
+    setEditingSection(section)
+    setShowModal(true)
+  }, [])
+
+  const handleSaveEdit = useCallback((id: string, updates: Omit<Section, 'id'>) => {
+    setSections(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
+  }, [])
+
+  /* Deleting the active section falls back to the first remaining visible one
+     — same "keep current if possible, otherwise first" rule the sync effect
+     above already uses. The section itself isn't removed from `sections` yet
+     — only hidden via `isPending` — so `undo` can bring it straight back with
+     no data loss. Only the 10s timeout's finalize callback actually removes
+     it. */
+  const handleDelete = useCallback((id: string) => {
+    const target = sections.find(s => s.id === id)
+    if (!target) return
+
+    if (activeId === id) {
+      const fallback = sections.find(s => s.id !== id)
+      setActiveId(fallback?.id ?? '')
+    }
+
+    const label = lang === 'ar' ? target.nameAr : target.nameEn
+    scheduleDelete(id, label, () => {
+      setSections(prev => prev.filter(s => s.id !== id))
+    })
+  }, [sections, activeId, lang, scheduleDelete])
+
+  const handleOpenModal = useCallback(() => { setEditingSection(null); setShowModal(true) }, [])
+  const handleCloseModal = useCallback(() => { setShowModal(false); setEditingSection(null) }, [])
 
   const addSectionBtnStyle = useMemo<React.CSSProperties>(() => ({
     background: 'transparent',
@@ -498,7 +718,7 @@ function SectionTabs({
           style={{ scrollbarWidth: 'none' }}
         >
 
-          {sections.map(s => (
+          {visibleSections.map(s => (
             <SectionTab
               key={s.id}
               section={s}
@@ -506,7 +726,10 @@ function SectionTabs({
               color={color}
               isDark={isDark}
               lang={lang}
+              isAdmin={isAdmin}
               onSelect={handleSelect}
+              onEdit={handleOpenEdit}
+              onDelete={handleDelete}
             />
           ))}
 
@@ -560,11 +783,15 @@ function SectionTabs({
         {showModal && (
           <AddSectionModal
             color={color}
+            editingSection={editingSection}
             onClose={handleCloseModal}
             onAdd={handleAdd}
+            onSave={handleSaveEdit}
           />
         )}
       </AnimatePresence>
+
+      <UndoToastHost deletions={pendingDeletions} onUndo={undo} color={color} />
     </>
   )
 }

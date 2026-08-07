@@ -1,3 +1,4 @@
+//src\app\(dashboard)\archive\page.tsx
 import ArchiveHero   from "@/components/dashboard/archive/ArchiveHero"
 import PlatformGrid  from "@/components/dashboard/archive/PlatformGrid"
 

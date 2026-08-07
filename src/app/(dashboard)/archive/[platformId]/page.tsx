@@ -1,12 +1,9 @@
 "use client"
 
-import { useState } from 'react'
-import { useParams }    from 'next/navigation'
-import PlatformHero     from '@/components/dashboard/archive/PlatformHero'
-import SectionTabs      from '@/components/dashboard/archive/SectionTabs'
-import SectionGrid      from '@/components/dashboard/archive/SectionGrid'
-import { PLATFORMS }    from '@/components/dashboard/archive/PlatformGrid'
-import type { Section } from '@/components/dashboard/archive/SectionTabs'
+import { useParams } from 'next/navigation'
+import PlatformHero  from '@/components/dashboard/archive/PlatformHero'
+import WorksGrid      from '@/components/dashboard/archive/WorksGrid'
+import { PLATFORMS } from '@/components/dashboard/archive/PlatformGrid'
 
 export default function PlatformPage() {
   const params     = useParams()
@@ -16,8 +13,6 @@ export default function PlatformPage() {
   const platform = PLATFORMS.find(
     p => p.nameEn.toLowerCase().replace(/\s+/g, '-') === platformId || p.id === platformId
   )
-
-  const [activeSection, setActiveSection] = useState<Section | null>(null)
 
   if (!platform) {
     return (
@@ -29,28 +24,21 @@ export default function PlatformPage() {
     )
   }
 
+  const platformSlug = platform.nameEn.toLowerCase().replace(/\s+/g, '-')
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
 
-      {/* Hero */}
+      {/* Hero — same PlatformHero as before */}
       <PlatformHero platform={platform} />
 
-      {/* Tabs */}
-      <SectionTabs
+      {/* Works — new middle level, replaces sections here */}
+      <WorksGrid
         platformId={platform.id}
+        platformSlug={platformSlug}
         color={platform.color}
         isAdmin={true}
-        onSectionChange={section => setActiveSection(section)}
       />
-
-      {/* Grid — only render when a section is active */}
-      {activeSection && (
-        <SectionGrid
-          activeSection={activeSection}
-          color={platform.color}
-          isAdmin={true}
-        />
-      )}
 
     </div>
   )
