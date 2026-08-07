@@ -3,15 +3,19 @@
 
 import { useState, useCallback, useMemo, useRef, memo } from "react"
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
-import { Plus, X, ExternalLink, Search, SlidersHorizontal, Upload, Pipette, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { Plus, X, ExternalLink, Search, SlidersHorizontal, Upload, Pipette, ChevronRight, Pencil, Trash2, CheckSquare, Square } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import { useRouter } from 'next/navigation'
 import type { Section } from '@/components/dashboard/archive/SectionTabs'
+import { INITIAL_SECTIONS } from '@/components/dashboard/archive/SectionTabs'
 import ViewToggle, { type ViewMode } from '@/components/dashboard/archive/ViewToggle'
 import { useSmartSearch } from '@/lib/useSmartSearch'
-import { useUndoableDelete } from '@/lib/useUndoableDelete'
-import UndoToastHost from '@/components/dashboard/archive/UndoToast'
+import { useSelection } from '@/lib/useSelection'
+import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
+import SelectionToolbar from '@/components/dashboard/archive/SelectionToolbar'
+import DestinationPicker, { type DestinationResult } from '@/components/dashboard/archive/DestinationPicker'
+import ActionToast from '@/components/dashboard/archive/ActionToast'
 
 /* ── Types ── */
 export interface ArchiveItem {
@@ -73,6 +77,7 @@ export const INITIAL_ITEMS: ArchiveItem[] = [
 
 // ─── Module-level constants (zero per-render allocation) ───────────────────────
 const TEXT_MAIN  = "var(--foreground)";
+const INITIAL_SECTIONS_LOOKUP = new Map<string, Section>(INITIAL_SECTIONS.map(s => [s.id, s]));
 const TEXT_MUTED = "var(--foreground-muted)";
 
 /** Rejected before reading, so a huge file never gets turned into a data URL. */
@@ -640,11 +645,20 @@ const AddItemModal = memo(function AddItemModal({
 })
 
 /* ── Single item card (Grid mode) ── */
-const ItemCard = memo(function ItemCard({ item, color, index, fileTypeColor, isAdmin, onOpen, onEdit, onDelete }: {
+const ItemCard = memo(function ItemCard({
+  item, color, index, fileTypeColor, isAdmin, onOpen, onEdit, onDelete,
+  selectionActive, isSelected, onStartDrag, onDragOver,
+}: {
   item: ArchiveItem; color: string; index: number; fileTypeColor: string; isAdmin: boolean
   onOpen: (item: ArchiveItem) => void
   onEdit: (item: ArchiveItem) => void
   onDelete: (item: ArchiveItem) => void
+  selectionActive: boolean
+  isSelected:      boolean
+  /** Press-down decides & applies the drag direction for this item. */
+  onStartDrag: (id: string) => void
+  /** Pointer entering this item while a drag from another item is in progress. */
+  onDragOver:  (id: string) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -654,8 +668,20 @@ const ItemCard = memo(function ItemCard({ item, color, index, fileTypeColor, isA
   const name = lang === 'ar' ? item.nameAr        : item.nameEn
   const desc = lang === 'ar' ? item.descriptionAr : item.description
 
-  const handleClick = useCallback(() => onOpen(item), [onOpen, item]);
-  const handleMouseEnter = useCallback(() => setHovered(true), []);
+  /* Selecting happens on mousedown (not click) so a press-and-drag across
+     several cards works — see useSelection.ts. A plain click still opens the
+     item when selection mode is off; while it's on, mousedown already did
+     the toggling, so click intentionally does nothing further. */
+  const handleClick = useCallback(() => {
+    if (!selectionActive) onOpen(item)
+  }, [selectionActive, onOpen, item]);
+  const handleMouseDown = useCallback(() => {
+    if (selectionActive) onStartDrag(item.id)
+  }, [selectionActive, onStartDrag, item.id]);
+  const handleMouseEnter = useCallback(() => {
+    setHovered(true)
+    if (selectionActive) onDragOver(item.id)
+  }, [selectionActive, onDragOver, item.id]);
   const handleMouseLeave = useCallback(() => setHovered(false), []);
   const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(item) }, [onEdit, item]);
   const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(item) }, [onDelete, item]);
@@ -664,10 +690,10 @@ const ItemCard = memo(function ItemCard({ item, color, index, fileTypeColor, isA
     background: isDark
       ? `linear-gradient(145deg, #161b22, ${color}12)`
       : `linear-gradient(145deg, #ffffff, ${color}08)`,
-    border:     `1px solid ${hovered ? color + '50' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`,
-    boxShadow:  hovered ? `0 8px 28px ${color}22` : 'none',
+    border:     `1px solid ${isSelected ? color : hovered ? color + '50' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`,
+    boxShadow:  isSelected ? `0 0 0 2px ${color}40` : hovered ? `0 8px 28px ${color}22` : 'none',
     transition: 'border-color 0.3s, box-shadow 0.3s',
-  }), [isDark, hovered, color]);
+  }), [isDark, hovered, color, isSelected]);
 
   const thumbWrapStyle = useMemo<React.CSSProperties>(() => ({
     aspectRatio: '1 / 1',
@@ -723,6 +749,7 @@ const ItemCard = memo(function ItemCard({ item, color, index, fileTypeColor, isA
       style={cardStyle}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onMouseDown={handleMouseDown}
       onClick={handleClick}
     >
       <div className="relative w-full overflow-hidden" style={thumbWrapStyle}>
@@ -747,7 +774,7 @@ const ItemCard = memo(function ItemCard({ item, color, index, fileTypeColor, isA
           </div>
         )}
 
-        {isAdmin && (
+        {isAdmin && !selectionActive && (
           <div className="absolute top-2" style={{ [isRTL ? 'right' : 'left']: '8px' }}>
             <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1">
               <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center"
@@ -759,6 +786,23 @@ const ItemCard = memo(function ItemCard({ item, color, index, fileTypeColor, isA
                 <Trash2 className="w-3 h-3" />
               </button>
             </m.div>
+          </div>
+        )}
+
+        {selectionActive && (
+          <div
+            className="absolute top-2 w-6 h-6 rounded-lg flex items-center justify-center"
+            style={{
+              [isRTL ? 'right' : 'left']: '8px',
+              background: isSelected ? color : 'rgba(8,15,18,0.5)',
+              backdropFilter: 'blur(6px)',
+              padding: 0,
+              lineHeight: 0,
+            }}
+          >
+            {isSelected
+              ? <CheckSquare className="w-3.5 h-3.5 text-white" style={{ display: 'block' }} />
+              : <Square className="w-3.5 h-3.5 text-white/80" style={{ display: 'block' }} />}
           </div>
         )}
 
@@ -798,11 +842,18 @@ const ItemCard = memo(function ItemCard({ item, color, index, fileTypeColor, isA
 })
 
 /* ── Single item row (List mode) ── */
-const ItemListRow = memo(function ItemListRow({ item, color, index, fileTypeColor, isAdmin, onOpen, onEdit, onDelete }: {
+const ItemListRow = memo(function ItemListRow({
+  item, color, index, fileTypeColor, isAdmin, onOpen, onEdit, onDelete,
+  selectionActive, isSelected, onStartDrag, onDragOver,
+}: {
   item: ArchiveItem; color: string; index: number; fileTypeColor: string; isAdmin: boolean
   onOpen: (item: ArchiveItem) => void
   onEdit: (item: ArchiveItem) => void
   onDelete: (item: ArchiveItem) => void
+  selectionActive: boolean
+  isSelected:      boolean
+  onStartDrag: (id: string) => void
+  onDragOver:  (id: string) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -811,17 +862,25 @@ const ItemListRow = memo(function ItemListRow({ item, color, index, fileTypeColo
 
   const name = lang === 'ar' ? item.nameAr : item.nameEn
 
-  const handleClick = useCallback(() => onOpen(item), [onOpen, item]);
-  const handleMouseEnter = useCallback(() => setHovered(true), []);
+  const handleClick = useCallback(() => {
+    if (!selectionActive) onOpen(item)
+  }, [selectionActive, onOpen, item]);
+  const handleMouseDown = useCallback(() => {
+    if (selectionActive) onStartDrag(item.id)
+  }, [selectionActive, onStartDrag, item.id]);
+  const handleMouseEnter = useCallback(() => {
+    setHovered(true)
+    if (selectionActive) onDragOver(item.id)
+  }, [selectionActive, onDragOver, item.id]);
   const handleMouseLeave = useCallback(() => setHovered(false), []);
   const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(item) }, [onEdit, item]);
   const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(item) }, [onDelete, item]);
 
   const rowStyle = useMemo<React.CSSProperties>(() => ({
-    background: hovered ? (isDark ? `${color}12` : `${color}0a`) : 'transparent',
+    background: isSelected ? `${color}14` : hovered ? (isDark ? `${color}12` : `${color}0a`) : 'transparent',
     borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
     transition: 'background 0.15s',
-  }), [hovered, isDark, color]);
+  }), [hovered, isDark, color, isSelected]);
 
   const thumbStyle = useMemo<React.CSSProperties>(() => ({
     background: `linear-gradient(135deg, ${color}22, ${color}08)`,
@@ -845,8 +904,17 @@ const ItemListRow = memo(function ItemListRow({ item, color, index, fileTypeColo
       style={rowStyle}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onMouseDown={handleMouseDown}
       onClick={handleClick}
     >
+      {selectionActive && (
+        <div className="w-5 h-5 rounded flex items-center justify-center shrink-0" style={{ color: isSelected ? color : 'var(--foreground-muted)', padding: 0, lineHeight: 0 }}>
+          {isSelected
+            ? <CheckSquare className="w-4 h-4" style={{ display: 'block' }} />
+            : <Square className="w-4 h-4" style={{ display: 'block' }} />}
+        </div>
+      )}
+
       <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style={thumbStyle}>
         {item.thumbnail
           ? <img src={item.thumbnail} alt={name} className="w-full h-full object-cover" />
@@ -866,7 +934,7 @@ const ItemListRow = memo(function ItemListRow({ item, color, index, fileTypeColo
         </span>
       )}
 
-      {isAdmin && (
+      {isAdmin && !selectionActive && (
         <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1 shrink-0">
           <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ color: TEXT_MUTED }}>
             <Pencil className="w-3 h-3" />
@@ -905,12 +973,17 @@ function SectionGrid({
   const [fileTypes, setFileTypes] = useState<FileType[]>(DEFAULT_FILE_TYPES)
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState<ArchiveItem | null>(null)
+  /** The item currently showing the big delete-confirmation popup, if any. */
+  const [pendingDelete, setPendingDelete] = useState<ArchiveItem | null>(null)
   const [search, setSearch]   = useState('')
-
-  const { pendingDeletions, isPending, scheduleDelete, undo } = useUndoableDelete()
 
   // TEMPORARY — not persisted cross-device yet, see BACKEND NOTE in ViewToggle.tsx
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
+
+  const selection = useSelection()
+  const [showDestPicker, setShowDestPicker] = useState(false)
+  const [copyMoveKind, setCopyMoveKind] = useState<'copy' | 'move'>('copy')
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   const fileTypeColorMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -923,12 +996,9 @@ function SectionGrid({
     [fileTypeColorMap, color]
   )
 
-  /* Items mid-delete-countdown vanish from the grid/list immediately — the
-     undo toast, not their continued presence here, is what keeps them
-     recoverable. */
   const itemsInSection = useMemo(
-    () => items.filter(i => i.sectionId === activeSection.id && !isPending(i.id)),
-    [items, activeSection.id, isPending]
+    () => items.filter(i => i.sectionId === activeSection.id),
+    [items, activeSection.id]
   )
 
   const getItemSearchFields = useCallback(
@@ -942,6 +1012,7 @@ function SectionGrid({
     addItem:   lang === 'ar' ? 'إضافة عنصر'             : 'Add Item',
     empty:     lang === 'ar' ? 'لا توجد نتائج'           : 'No results found',
     emptyHint: lang === 'ar' ? 'جرّب كلمة بحث أخرى'     : 'Try a different search term',
+    select:    lang === 'ar' ? 'تحديد'                   : 'Select',
   }), [lang])
 
   const handleOpenModal  = useCallback(() => { setEditingItem(null); setShowModal(true) }, [])
@@ -957,14 +1028,71 @@ function SectionGrid({
     setFileTypes(prev => prev.some(t => t.key === ft.key) ? prev : [...prev, ft])
   }, [])
 
-  /* Same "hide immediately, remove for real only after the 10s window"
-     pattern as section deletion — see SectionTabs.tsx. */
-  const handleDeleteItem = useCallback((item: ArchiveItem) => {
-    const label = lang === 'ar' ? item.nameAr : item.nameEn
-    scheduleDelete(item.id, label, () => {
-      setItems(prev => prev.filter(i => i.id !== item.id))
-    })
-  }, [lang, scheduleDelete])
+  /* Trash click only opens the big confirm popup — the item stays in the
+     grid until the person explicitly confirms after the forced countdown. */
+  const handleRequestDeleteItem = useCallback((item: ArchiveItem) => {
+    setPendingDelete(item)
+  }, [])
+
+  const handleConfirmDeleteItem = useCallback(() => {
+    if (!pendingDelete) return
+    const id = pendingDelete.id
+    setItems(prev => prev.filter(i => i.id !== id))
+    setPendingDelete(null)
+  }, [pendingDelete])
+
+  const handleCancelDeleteItem = useCallback(() => setPendingDelete(null), [])
+
+  const handleOpenCopy = useCallback(() => { setCopyMoveKind('copy'); setShowDestPicker(true) }, [])
+  const handleOpenMove = useCallback(() => { setCopyMoveKind('move'); setShowDestPicker(true) }, [])
+  const handleCancelDestPicker = useCallback(() => setShowDestPicker(false), [])
+
+  const selectedItemsLabel = useMemo(() => {
+    const n = selection.selectedCount
+    const sectionName = lang === 'ar' ? activeSection.nameAr : activeSection.nameEn
+    return lang === 'ar'
+      ? `${n} عنصر من "${sectionName}"`
+      : `${n} item${n === 1 ? '' : 's'} from "${sectionName}"`
+  }, [selection.selectedCount, lang, activeSection])
+
+  /* Items only exist scoped to sections within the SAME work in this
+     component's local state (there's no shared client-side store yet — see
+     BACKEND NOTE at the bottom of this file). So a destination inside this
+     work is a real, working move/copy; anywhere else just confirms visually,
+     since there's nowhere local to actually place it. Wiring the backend
+     later replaces this whole branch with a single server action call. */
+  const handleConfirmDestination = useCallback((dest: DestinationResult) => {
+    const selectedIds = selection.selectedIds
+    const destSection = INITIAL_SECTIONS_LOOKUP.get(dest.sectionId ?? '')
+    const destName = destSection ? (lang === 'ar' ? destSection.nameAr : destSection.nameEn) : ''
+
+    if (dest.workId === workId && dest.sectionId) {
+      if (copyMoveKind === 'move') {
+        setItems(prev => prev.map(i => selectedIds.has(i.id) ? { ...i, sectionId: dest.sectionId! } : i))
+      } else {
+        setItems(prev => [
+          ...prev,
+          ...prev.filter(i => selectedIds.has(i.id)).map(i => ({
+            ...i,
+            id: `${i.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            sectionId: dest.sectionId!,
+          })),
+        ])
+      }
+    }
+
+    const n = selectedIds.size
+    setToastMessage(
+      copyMoveKind === 'move'
+        ? (lang === 'ar' ? `تم نقل ${n} عنصر إلى "${destName}"` : `Moved ${n} item${n === 1 ? '' : 's'} to "${destName}"`)
+        : (lang === 'ar' ? `تم نسخ ${n} عنصر إلى "${destName}"` : `Copied ${n} item${n === 1 ? '' : 's'} to "${destName}"`)
+    )
+
+    setShowDestPicker(false)
+    selection.disable()
+  }, [selection, workId, copyMoveKind, lang])
+
+  const handleToastDone = useCallback(() => setToastMessage(null), [])
 
   /* Opening an item now drills into the file-list page (level 5) instead of
      jumping straight to Drive — the Drive folder link lives at the top of
@@ -1039,39 +1167,66 @@ function SectionGrid({
     <LazyMotion features={domAnimation}>
       <div dir={isRTL ? 'rtl' : 'ltr'} className="select-none">
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 mb-5">
-        {/* Search */}
-        <div className="relative flex-1">
-          <Search
-            className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
-            style={searchIconStyle}
-          />
-          <input
-            value={search}
-            onChange={handleSearchChange}
-            placeholder={tx.search}
-            className="w-full py-2 rounded-xl text-[12px] outline-none"
-            style={searchInputStyle}
-          />
+      {/* Toolbar — swaps to the selection bar while selecting */}
+      {selection.active ? (
+        <SelectionToolbar
+          color={color}
+          selectedCount={selection.selectedCount}
+          onCopy={handleOpenCopy}
+          onMove={handleOpenMove}
+          onCancel={selection.disable}
+        />
+      ) : (
+        <div className="flex items-center gap-3 mb-5">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search
+              className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+              style={searchIconStyle}
+            />
+            <input
+              value={search}
+              onChange={handleSearchChange}
+              placeholder={tx.search}
+              className="w-full py-2 rounded-xl text-[12px] outline-none"
+              style={searchInputStyle}
+            />
+          </div>
+
+          <ViewToggle value={viewMode} onChange={setViewMode} />
+
+          {/* Select mode toggle — admin only, needs at least one item to matter */}
+          {isAdmin && sectionItems.length > 0 && (
+            <button
+              onClick={selection.enable}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                color: 'var(--foreground-muted)', cursor: 'pointer',
+                fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+              }}
+            >
+              <CheckSquare className="w-3 h-3" />
+              {tx.select}
+            </button>
+          )}
+
+          {/* Add item — admin */}
+          {isAdmin && (
+            <button
+              onClick={handleOpenModal}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
+              style={addItemButtonStyle}
+              onMouseEnter={handleAddItemButtonEnter}
+              onMouseLeave={handleAddItemButtonLeave}
+            >
+              <Plus className="w-3 h-3" />
+              {tx.addItem}
+            </button>
+          )}
         </div>
-
-        <ViewToggle value={viewMode} onChange={setViewMode} />
-
-        {/* Add item — admin */}
-        {isAdmin && (
-          <button
-            onClick={handleOpenModal}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
-            style={addItemButtonStyle}
-            onMouseEnter={handleAddItemButtonEnter}
-            onMouseLeave={handleAddItemButtonLeave}
-          >
-            <Plus className="w-3 h-3" />
-            {tx.addItem}
-          </button>
-        )}
-      </div>
+      )}
 
       {/* Grid / List */}
       <AnimatePresence mode="wait">
@@ -1088,10 +1243,11 @@ function SectionGrid({
               {sectionItems.map((item, i) => (
                 <ItemCard key={item.id} item={item} color={color} index={i}
                   fileTypeColor={getFileTypeColor(item.tag)} isAdmin={isAdmin}
-                  onOpen={handleOpenItem} onEdit={handleOpenEditModal} onDelete={handleDeleteItem} />
+                  onOpen={handleOpenItem} onEdit={handleOpenEditModal} onDelete={handleRequestDeleteItem}
+                  selectionActive={selection.active} isSelected={selection.isSelected(item.id)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
               ))}
 
-              {isAdmin && !search && (
+              {isAdmin && !search && !selection.active && (
                 <m.button
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1127,7 +1283,8 @@ function SectionGrid({
               {sectionItems.map((item, i) => (
                 <ItemListRow key={item.id} item={item} color={color} index={i}
                   fileTypeColor={getFileTypeColor(item.tag)} isAdmin={isAdmin}
-                  onOpen={handleOpenItem} onEdit={handleOpenEditModal} onDelete={handleDeleteItem} />
+                  onOpen={handleOpenItem} onEdit={handleOpenEditModal} onDelete={handleRequestDeleteItem}
+                  selectionActive={selection.active} isSelected={selection.isSelected(item.id)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
               ))}
             </m.div>
           )
@@ -1166,10 +1323,34 @@ function SectionGrid({
         )}
       </AnimatePresence>
 
-      {/* Offset above SectionTabs' own undo toasts (section deletions) so both
-          can be visible at once without overlapping — both mount on the same
-          WorkPage. */}
-      <UndoToastHost deletions={pendingDeletions} onUndo={undo} color={color} bottomOffset={90} />
+      <AnimatePresence>
+        {pendingDelete && (
+          <DeleteConfirmModal
+            label={lang === 'ar' ? pendingDelete.nameAr : pendingDelete.nameEn}
+            message={lang === 'ar'
+              ? 'سيتم حذف هذا العنصر نهائيًا مع كل الملفات بداخله. هذا الإجراء لا يمكن التراجع عنه.'
+              : 'This item and every file inside it will be permanently deleted. This cannot be undone.'}
+            onConfirm={handleConfirmDeleteItem}
+            onCancel={handleCancelDeleteItem}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showDestPicker && (
+          <DestinationPicker
+            color={color}
+            targetLevel="section"
+            actionKind={copyMoveKind}
+            sourceLabel={selectedItemsLabel}
+            excludeSectionId={activeSection.id}
+            onConfirm={handleConfirmDestination}
+            onCancel={handleCancelDestPicker}
+          />
+        )}
+      </AnimatePresence>
+
+      <ActionToast message={toastMessage} color={color} onDone={handleToastDone} />
     </div>
     </LazyMotion>
   )

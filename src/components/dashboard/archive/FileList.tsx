@@ -5,7 +5,7 @@ import { useState, useCallback, useMemo, useRef, memo } from 'react'
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
 import {
   Plus, X, ExternalLink, Search, SlidersHorizontal, Upload,
-  ChevronRight, FolderOpen, Pencil, Trash2, FolderSymlink,
+  ChevronRight, FolderOpen, Pencil, Trash2, FolderSymlink, CheckSquare, Square,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
@@ -13,8 +13,11 @@ import { useRouter } from 'next/navigation'
 import type { ArchiveItem, FileType } from '@/components/dashboard/archive/SectionGrid'
 import ViewToggle, { type ViewMode } from '@/components/dashboard/archive/ViewToggle'
 import { useSmartSearch } from '@/lib/useSmartSearch'
-import { useUndoableDelete } from '@/lib/useUndoableDelete'
-import UndoToastHost from '@/components/dashboard/archive/UndoToast'
+import { useSelection } from '@/lib/useSelection'
+import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
+import SelectionToolbar from '@/components/dashboard/archive/SelectionToolbar'
+import DestinationPicker, { type DestinationResult } from '@/components/dashboard/archive/DestinationPicker'
+import ActionToast from '@/components/dashboard/archive/ActionToast'
 
 /* ── Types ── */
 export interface ArchiveFile {
@@ -59,6 +62,119 @@ function handleHoverBgEnter(e: React.MouseEvent<HTMLButtonElement>) {
 function handleHoverBgLeave(e: React.MouseEvent<HTMLButtonElement>) {
   e.currentTarget.style.background = 'transparent';
 }
+
+/* ── Edit Folder Link Modal ── */
+const FolderLinkModal = memo(function FolderLinkModal({
+  color,
+  currentUrl,
+  onClose,
+  onSave,
+}: {
+  color:      string
+  currentUrl: string
+  onClose:    () => void
+  onSave:     (url: string) => void
+}) {
+  const { theme }       = useTheme()
+  const { lang, isRTL } = useLang()
+  const isDark          = theme === 'dark'
+  const [url, setUrl] = useState(currentUrl)
+
+  const tx = useMemo(() => ({
+    title:  lang === 'ar' ? 'تعديل رابط المجلد' : 'Edit Folder Link',
+    label:  lang === 'ar' ? 'رابط مجلد الدرايف الكامل' : 'Full Drive Folder URL',
+    save:   lang === 'ar' ? 'حفظ' : 'Save',
+    cancel: lang === 'ar' ? 'إلغاء' : 'Cancel',
+  }), [lang])
+
+  const isValid = url.trim().length > 0
+
+  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) onClose()
+  }, [onClose])
+
+  const handleSave = useCallback(() => {
+    if (!isValid) return
+    onSave(url.trim())
+    onClose()
+  }, [isValid, url, onSave, onClose])
+
+  const inputStyle = useMemo<React.CSSProperties>(() => ({
+    background:   isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+    border:       `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.10)'}`,
+    color:        TEXT_MAIN,
+    borderRadius: '10px',
+    padding:      '8px 12px',
+    fontSize:     '11px',
+    fontFamily:   'monospace',
+    width:        '100%',
+    outline:      'none',
+  }), [isDark]);
+
+  const saveBtnStyle = useMemo<React.CSSProperties>(() => ({
+    background: isValid ? `linear-gradient(135deg, ${color}, ${color}cc)` : 'var(--hover-bg)',
+    color:      isValid ? '#ffffff' : TEXT_MUTED,
+    cursor:     isValid ? 'pointer' : 'not-allowed',
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [isValid, color, lang])
+
+  return (
+    <m.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={MODAL_BACKDROP_STYLE}
+      onClick={handleBackdropClick}
+    >
+      <m.div
+        initial={{ scale: 0.92, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.92, opacity: 0, y: 20 }}
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full max-w-sm rounded-2xl overflow-hidden"
+        dir={isRTL ? 'rtl' : 'ltr'}
+        style={{
+          background: isDark ? '#161b22' : '#ffffff',
+          border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+          boxShadow: '0 24px 64px rgba(0,0,0,0.4)', cursor: 'default',
+        }}
+      >
+        <div className="flex items-center justify-between px-6 py-4"
+          style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${color}, ${color}99)` }}>
+              <Pencil className="w-3.5 h-3.5 text-white" />
+            </div>
+            <h2 className="text-sm font-black" style={{ color: TEXT_MAIN, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)' }}>
+              {tx.title}
+            </h2>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center" style={CLOSE_BUTTON_STYLE}
+            onMouseEnter={handleHoverBgEnter} onMouseLeave={handleHoverBgLeave}>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5">
+          <label style={{ fontSize: '10px', fontWeight: 700, color: TEXT_MUTED, marginBottom: '4px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            {tx.label}
+          </label>
+          <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://drive.google.com/drive/folders/..." style={inputStyle} autoFocus />
+        </div>
+
+        <div className="px-6 py-4 flex items-center justify-end gap-2"
+          style={{ borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-[11px] font-bold"
+            style={{ background: 'var(--hover-bg)', color: TEXT_MUTED, cursor: 'pointer', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+            {tx.cancel}
+          </button>
+          <button onClick={handleSave} disabled={!isValid} className="px-4 py-2 rounded-lg text-[11px] font-bold" style={saveBtnStyle}>
+            {tx.save}
+          </button>
+        </div>
+      </m.div>
+    </m.div>
+  )
+})
 
 /* ── Add / Edit File Modal (same form, different mode) ── */
 const FileFormModal = memo(function FileFormModal({
@@ -242,10 +358,15 @@ const FileFormModal = memo(function FileFormModal({
 /* ── Single file card (Grid mode) ── */
 const FileCard = memo(function FileCard({
   file, color, index, fileTypeColor, isAdmin, onEdit, onDelete,
+  selectionActive, isSelected, onStartDrag, onDragOver,
 }: {
   file: ArchiveFile; color: string; index: number; fileTypeColor: string; isAdmin: boolean
   onEdit: (file: ArchiveFile) => void
   onDelete: (file: ArchiveFile) => void
+  selectionActive: boolean
+  isSelected:      boolean
+  onStartDrag: (id: string) => void
+  onDragOver:  (id: string) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -254,18 +375,26 @@ const FileCard = memo(function FileCard({
 
   const name = lang === 'ar' ? file.nameAr : file.nameEn
 
-  const handleMouseEnter = useCallback(() => setHovered(true), [])
+  const handleClick = useCallback(() => {
+    if (!selectionActive) window.open(file.driveUrl, '_blank', 'noopener,noreferrer')
+  }, [selectionActive, file.driveUrl])
+  const handleMouseDown = useCallback(() => {
+    if (selectionActive) onStartDrag(file.id)
+  }, [selectionActive, onStartDrag, file.id])
+  const handleMouseEnter = useCallback(() => {
+    setHovered(true)
+    if (selectionActive) onDragOver(file.id)
+  }, [selectionActive, onDragOver, file.id])
   const handleMouseLeave = useCallback(() => setHovered(false), [])
-  const handleOpen = useCallback(() => window.open(file.driveUrl, '_blank', 'noopener,noreferrer'), [file.driveUrl])
   const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(file) }, [onEdit, file])
   const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(file) }, [onDelete, file])
 
   const cardStyle = useMemo<React.CSSProperties>(() => ({
     background: isDark ? `linear-gradient(145deg, #161b22, ${color}12)` : `linear-gradient(145deg, #ffffff, ${color}08)`,
-    border: `1px solid ${hovered ? color + '50' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`,
-    boxShadow: hovered ? `0 8px 28px ${color}22` : 'none',
+    border: `1px solid ${isSelected ? color : hovered ? color + '50' : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`,
+    boxShadow: isSelected ? `0 0 0 2px ${color}40` : hovered ? `0 8px 28px ${color}22` : 'none',
     transition: 'border-color 0.3s, box-shadow 0.3s',
-  }), [isDark, hovered, color]);
+  }), [isDark, hovered, color, isSelected]);
 
   const thumbStyle = useMemo<React.CSSProperties>(() => ({
     aspectRatio: '1 / 1', background: `linear-gradient(135deg, ${color}20, ${color}08)`,
@@ -283,7 +412,8 @@ const FileCard = memo(function FileCard({
       className="relative rounded-2xl overflow-hidden cursor-pointer select-none"
       style={cardStyle}
       onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}
-      onClick={handleOpen}
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
     >
       <div className="relative w-full overflow-hidden flex items-center justify-center" style={thumbStyle}>
         <span className="font-black" style={{ fontSize: 'clamp(2.5rem, 5vw, 4rem)', color: color + '25', fontFamily: 'var(--font-display)' }}>
@@ -296,7 +426,7 @@ const FileCard = memo(function FileCard({
           </div>
         )}
 
-        {isAdmin && (
+        {isAdmin && !selectionActive && (
           <div className="absolute top-2" style={{ [isRTL ? 'right' : 'left']: '8px' }}>
             <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1">
               <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center"
@@ -308,6 +438,23 @@ const FileCard = memo(function FileCard({
                 <Trash2 className="w-3 h-3" />
               </button>
             </m.div>
+          </div>
+        )}
+
+        {selectionActive && (
+          <div
+            className="absolute top-2 w-6 h-6 rounded-lg flex items-center justify-center"
+            style={{
+              [isRTL ? 'right' : 'left']: '8px',
+              background: isSelected ? color : 'rgba(8,15,18,0.5)',
+              backdropFilter: 'blur(6px)',
+              padding: 0,
+              lineHeight: 0,
+            }}
+          >
+            {isSelected
+              ? <CheckSquare className="w-3.5 h-3.5 text-white" style={{ display: 'block' }} />
+              : <Square className="w-3.5 h-3.5 text-white/80" style={{ display: 'block' }} />}
           </div>
         )}
 
@@ -334,10 +481,15 @@ const FileCard = memo(function FileCard({
 /* ── Single file row (List mode) ── */
 const FileListRow = memo(function FileListRow({
   file, color, index, fileTypeColor, isAdmin, onEdit, onDelete,
+  selectionActive, isSelected, onStartDrag, onDragOver,
 }: {
   file: ArchiveFile; color: string; index: number; fileTypeColor: string; isAdmin: boolean
   onEdit: (file: ArchiveFile) => void
   onDelete: (file: ArchiveFile) => void
+  selectionActive: boolean
+  isSelected:      boolean
+  onStartDrag: (id: string) => void
+  onDragOver:  (id: string) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -346,17 +498,25 @@ const FileListRow = memo(function FileListRow({
 
   const name = lang === 'ar' ? file.nameAr : file.nameEn
 
-  const handleMouseEnter = useCallback(() => setHovered(true), [])
+  const handleClick = useCallback(() => {
+    if (!selectionActive) window.open(file.driveUrl, '_blank', 'noopener,noreferrer')
+  }, [selectionActive, file.driveUrl])
+  const handleMouseDown = useCallback(() => {
+    if (selectionActive) onStartDrag(file.id)
+  }, [selectionActive, onStartDrag, file.id])
+  const handleMouseEnter = useCallback(() => {
+    setHovered(true)
+    if (selectionActive) onDragOver(file.id)
+  }, [selectionActive, onDragOver, file.id])
   const handleMouseLeave = useCallback(() => setHovered(false), [])
-  const handleOpen = useCallback(() => window.open(file.driveUrl, '_blank', 'noopener,noreferrer'), [file.driveUrl])
   const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(file) }, [onEdit, file])
   const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(file) }, [onDelete, file])
 
   const rowStyle = useMemo<React.CSSProperties>(() => ({
-    background: hovered ? (isDark ? `${color}12` : `${color}0a`) : 'transparent',
+    background: isSelected ? `${color}14` : hovered ? (isDark ? `${color}12` : `${color}0a`) : 'transparent',
     borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}`,
     transition: 'background 0.15s',
-  }), [hovered, isDark, color]);
+  }), [hovered, isDark, color, isSelected]);
 
   const thumbStyle = useMemo<React.CSSProperties>(() => ({ background: `linear-gradient(135deg, ${color}22, ${color}08)` }), [color]);
   const tagBadgeStyle = useMemo<React.CSSProperties>(() => ({
@@ -368,8 +528,17 @@ const FileListRow = memo(function FileListRow({
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: index * 0.02, duration: 0.25 }}
       dir={isRTL ? 'rtl' : 'ltr'}
       className="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none"
-      style={rowStyle} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} onClick={handleOpen}
+      style={rowStyle} onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}
+      onMouseDown={handleMouseDown} onClick={handleClick}
     >
+      {selectionActive && (
+        <div className="w-5 h-5 rounded flex items-center justify-center shrink-0" style={{ color: isSelected ? color : 'var(--foreground-muted)', padding: 0, lineHeight: 0 }}>
+          {isSelected
+            ? <CheckSquare className="w-4 h-4" style={{ display: 'block' }} />
+            : <Square className="w-4 h-4" style={{ display: 'block' }} />}
+        </div>
+      )}
+
       <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style={thumbStyle}>
         <span className="text-xs font-black" style={{ color, fontFamily: 'var(--font-display)' }}>{name.charAt(0)}</span>
       </div>
@@ -380,7 +549,7 @@ const FileListRow = memo(function FileListRow({
 
       {file.tag && <span className="shrink-0 px-2 py-0.5 rounded-full text-[9px] font-black" style={tagBadgeStyle}>{file.tag}</span>}
 
-      {isAdmin && (
+      {isAdmin && !selectionActive && (
         <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1 shrink-0">
           <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ color: TEXT_MUTED }}>
             <Pencil className="w-3 h-3" />
@@ -413,14 +582,21 @@ function FileList({
   const isDark          = theme === 'dark'
 
   const [files, setFiles]         = useState<ArchiveFile[]>(() => seedFilesForItem(item))
+  const [folderUrl, setFolderUrl] = useState(item.driveUrl)
+  const [showFolderLinkModal, setShowFolderLinkModal] = useState(false)
   const [search, setSearch]       = useState('')
   const [viewMode, setViewMode]   = useState<ViewMode>('grid') // TEMPORARY — see ViewToggle.tsx BACKEND NOTE
   const [showModal, setShowModal] = useState(false)
   const [editingFile, setEditingFile] = useState<ArchiveFile | null>(null)
+  /** The file currently showing the big delete-confirmation popup, if any. */
+  const [pendingDelete, setPendingDelete] = useState<ArchiveFile | null>(null)
 
-  const { pendingDeletions, isPending, scheduleDelete, undo } = useUndoableDelete()
+  const selection = useSelection()
+  const [showDestPicker, setShowDestPicker] = useState(false)
+  const [copyMoveKind, setCopyMoveKind] = useState<'copy' | 'move'>('copy')
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
 
-  const visibleFiles = useMemo(() => files.filter(f => !isPending(f.id)), [files, isPending])
+  const visibleFiles = files
 
   const fileTypeColorMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -439,6 +615,7 @@ function FileList({
     noResults:   lang === 'ar' ? 'لا توجد نتائج'        : 'No results found',
     openFolder:  lang === 'ar' ? 'فتح مجلد الدرايف الكامل' : 'Open Full Drive Folder',
     itemLabel:   lang === 'ar' ? 'عنصر'                 : 'Item',
+    select:      lang === 'ar' ? 'تحديد'                 : 'Select',
   }), [lang])
 
   const name = lang === 'ar' ? item.nameAr : item.nameEn
@@ -457,15 +634,63 @@ function FileList({
   }, [item.id])
 
   const handleDeleteFile = useCallback((file: ArchiveFile) => {
-    const label = lang === 'ar' ? file.nameAr : file.nameEn
-    scheduleDelete(file.id, label, () => {
-      setFiles(prev => prev.filter(f => f.id !== file.id))
-    })
-  }, [lang, scheduleDelete])
+    setPendingDelete(file)
+  }, [])
+
+  const handleConfirmDeleteFile = useCallback(() => {
+    if (!pendingDelete) return
+    const id = pendingDelete.id
+    setFiles(prev => prev.filter(f => f.id !== id))
+    setPendingDelete(null)
+  }, [pendingDelete])
+
+  const handleCancelDeleteFile = useCallback(() => setPendingDelete(null), [])
+
+  const handleOpenCopy = useCallback(() => { setCopyMoveKind('copy'); setShowDestPicker(true) }, [])
+  const handleOpenMove = useCallback(() => { setCopyMoveKind('move'); setShowDestPicker(true) }, [])
+  const handleCancelDestPicker = useCallback(() => setShowDestPicker(false), [])
+
+  const selectedFilesLabel = useMemo(() => {
+    const n = selection.selectedCount
+    return lang === 'ar'
+      ? `${n} ملف من "${name}"`
+      : `${n} file${n === 1 ? '' : 's'} from "${name}"`
+  }, [selection.selectedCount, lang, name])
+
+  /* Every FileList instance only knows about its own item's files (each item
+     page mounts fresh from `seedFilesForItem`, there's no shared client-side
+     store yet — see BACKEND NOTE at the bottom of this file). So there's
+     nowhere local to actually place files landing on a different item; Move
+     still removes them from here (they're "leaving"), Copy leaves this list
+     untouched, and either way the toast is the confirmation of record until
+     the backend replaces this with a real server action. */
+  const handleConfirmDestination = useCallback((dest: DestinationResult) => {
+    const selectedIds = selection.selectedIds
+    const n = selectedIds.size
+
+    if (copyMoveKind === 'move') {
+      setFiles(prev => prev.filter(f => !selectedIds.has(f.id)))
+    }
+
+    setToastMessage(
+      copyMoveKind === 'move'
+        ? (lang === 'ar' ? `تم نقل ${n} ملف` : `Moved ${n} file${n === 1 ? '' : 's'}`)
+        : (lang === 'ar' ? `تم نسخ ${n} ملف` : `Copied ${n} file${n === 1 ? '' : 's'}`)
+    )
+
+    setShowDestPicker(false)
+    selection.disable()
+  }, [selection, copyMoveKind, lang])
+
+  const handleToastDone = useCallback(() => setToastMessage(null), [])
 
   const handleOpenFullFolder = useCallback(() => {
-    window.open(item.driveUrl, '_blank', 'noopener,noreferrer')
-  }, [item.driveUrl])
+    window.open(folderUrl, '_blank', 'noopener,noreferrer')
+  }, [folderUrl])
+
+  const handleOpenFolderLinkModal = useCallback(() => setShowFolderLinkModal(true), [])
+  const handleCloseFolderLinkModal = useCallback(() => setShowFolderLinkModal(false), [])
+  const handleSaveFolderLink = useCallback((url: string) => setFolderUrl(url), [])
 
   const searchIconStyle = useMemo<React.CSSProperties>(() => ({ [isRTL ? 'right' : 'left']: '12px', color: TEXT_MUTED }), [isRTL])
   const searchInputStyle = useMemo<React.CSSProperties>(() => ({
@@ -489,40 +714,79 @@ function FileList({
     <LazyMotion features={domAnimation}>
       <div dir={isRTL ? 'rtl' : 'ltr'} className="select-none">
 
-        {/* Full-folder link — always at the top of this page, per spec */}
-        <button
-          onClick={handleOpenFullFolder}
-          className="w-full flex items-center gap-3 px-5 py-4 rounded-2xl mb-5 text-start"
-          style={folderLinkStyle}
-        >
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: color + '25' }}>
-            <FolderSymlink className="w-5 h-5" style={{ color }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-black truncate" style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)' }}>
-              {tx.openFolder}
+        {/* Full-folder link — always at the top of this page, per spec.
+            Wrapped in a div rather than a single button so the "open" click
+            target and the "edit" click target don't fight each other. */}
+        <div className="flex items-center gap-2 mb-5">
+          <button
+            onClick={handleOpenFullFolder}
+            className="flex-1 flex items-center gap-3 px-5 py-4 rounded-2xl text-start min-w-0"
+            style={folderLinkStyle}
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: color + '25' }}>
+              <FolderSymlink className="w-5 h-5" style={{ color }} />
             </div>
-            <div className="text-[10.5px] opacity-70 truncate">{item.driveUrl}</div>
-          </div>
-          <ExternalLink className="w-4 h-4 shrink-0" />
-        </button>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-black truncate" style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)' }}>
+                {tx.openFolder}
+              </div>
+              <div className="text-[10.5px] opacity-70 truncate">{folderUrl}</div>
+            </div>
+            <ExternalLink className="w-4 h-4 shrink-0" />
+          </button>
 
-        {/* Toolbar */}
-        <div className="flex items-center gap-3 mb-5">
-          <div className="relative flex-1">
-            <Search className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={searchIconStyle} />
-            <input value={search} onChange={handleSearchChange} placeholder={tx.search}
-              className="w-full py-2 rounded-xl text-[12px] outline-none" style={searchInputStyle} />
-          </div>
-          <ViewToggle value={viewMode} onChange={setViewMode} />
           {isAdmin && (
-            <button onClick={handleOpenAddModal}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0" style={addBtnStyle}>
-              <Plus className="w-3 h-3" />
-              {tx.addFile}
+            <button
+              onClick={handleOpenFolderLinkModal}
+              className="w-[52px] h-[52px] rounded-2xl flex items-center justify-center shrink-0"
+              style={{ background: color + '15', border: `1px solid ${color}30`, color }}
+              title={lang === 'ar' ? 'تعديل رابط المجلد' : 'Edit folder link'}
+            >
+              <Pencil className="w-4 h-4" />
             </button>
           )}
         </div>
+
+        {/* Toolbar — swaps to the selection bar while selecting */}
+        {selection.active ? (
+          <SelectionToolbar
+            color={color}
+            selectedCount={selection.selectedCount}
+            onCopy={handleOpenCopy}
+            onMove={handleOpenMove}
+            onCancel={selection.disable}
+          />
+        ) : (
+          <div className="flex items-center gap-3 mb-5">
+            <div className="relative flex-1">
+              <Search className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={searchIconStyle} />
+              <input value={search} onChange={handleSearchChange} placeholder={tx.search}
+                className="w-full py-2 rounded-xl text-[12px] outline-none" style={searchInputStyle} />
+            </div>
+            <ViewToggle value={viewMode} onChange={setViewMode} />
+            {isAdmin && filteredFiles.length > 0 && (
+              <button onClick={selection.enable}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                  color: 'var(--foreground-muted)', cursor: 'pointer',
+                  fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                }}
+              >
+                <CheckSquare className="w-3 h-3" />
+                {tx.select}
+              </button>
+            )}
+            {isAdmin && (
+              <button onClick={handleOpenAddModal}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0" style={addBtnStyle}>
+                <Plus className="w-3 h-3" />
+                {tx.addFile}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Grid / List */}
         <AnimatePresence mode="wait">
@@ -532,7 +796,8 @@ function FileList({
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {filteredFiles.map((f, i) => (
                   <FileCard key={f.id} file={f} color={color} index={i} fileTypeColor={getFileTypeColor(f.tag)}
-                    isAdmin={isAdmin} onEdit={handleOpenEditModal} onDelete={handleDeleteFile} />
+                    isAdmin={isAdmin} onEdit={handleOpenEditModal} onDelete={handleDeleteFile}
+                    selectionActive={selection.active} isSelected={selection.isSelected(f.id)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
                 ))}
               </m.div>
             ) : (
@@ -540,7 +805,8 @@ function FileList({
                 className="rounded-xl overflow-hidden" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
                 {filteredFiles.map((f, i) => (
                   <FileListRow key={f.id} file={f} color={color} index={i} fileTypeColor={getFileTypeColor(f.tag)}
-                    isAdmin={isAdmin} onEdit={handleOpenEditModal} onDelete={handleDeleteFile} />
+                    isAdmin={isAdmin} onEdit={handleOpenEditModal} onDelete={handleDeleteFile}
+                    selectionActive={selection.active} isSelected={selection.isSelected(f.id)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
                 ))}
               </m.div>
             )
@@ -565,7 +831,44 @@ function FileList({
           )}
         </AnimatePresence>
 
-        <UndoToastHost deletions={pendingDeletions} onUndo={undo} color={color} />
+        <AnimatePresence>
+          {showFolderLinkModal && (
+            <FolderLinkModal
+              color={color}
+              currentUrl={folderUrl}
+              onClose={handleCloseFolderLinkModal}
+              onSave={handleSaveFolderLink}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {pendingDelete && (
+            <DeleteConfirmModal
+              label={lang === 'ar' ? pendingDelete.nameAr : pendingDelete.nameEn}
+              message={lang === 'ar'
+                ? 'سيتم حذف هذا الملف نهائيًا. هذا الإجراء لا يمكن التراجع عنه.'
+                : 'This file will be permanently deleted. This cannot be undone.'}
+              onConfirm={handleConfirmDeleteFile}
+              onCancel={handleCancelDeleteFile}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showDestPicker && (
+            <DestinationPicker
+              color={color}
+              targetLevel="item"
+              actionKind={copyMoveKind}
+              sourceLabel={selectedFilesLabel}
+              onConfirm={handleConfirmDestination}
+              onCancel={handleCancelDestPicker}
+            />
+          )}
+        </AnimatePresence>
+
+        <ActionToast message={toastMessage} color={color} onDone={handleToastDone} />
       </div>
     </LazyMotion>
   )

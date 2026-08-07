@@ -3,7 +3,7 @@
 
 import { useState, useRef, useMemo, useCallback, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderOpen, ChevronRight, Layers, Plus, X, Upload, Pipette } from 'lucide-react'
+import { FolderOpen, ChevronRight, Layers, Plus, X, Upload, Pipette, Lock, Pencil } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import { useRouter } from 'next/navigation'
@@ -19,6 +19,15 @@ export interface Platform {
   color:         string
   folderCount:   number
   fileCount:     number
+  /**
+   * TEMPORARY stand-in for real membership. Once wired to the backend, this
+   * should stop being a static per-platform flag and instead be computed per
+   * *current user* from `platform_team_members` (is this user's id in that
+   * platform's member list?). Chief Admin / Developer always bypass this
+   * regardless of membership — reflected here by the `isAdmin` prop already
+   * short-circuiting the lock in PlatformCard below.
+   */
+  locked?:       boolean
 }
 
 /* ── Mock data ── */
@@ -84,6 +93,7 @@ export const PLATFORMS: Platform[] = [
     description:   'Unedited camera footage, raw files, and original source material.',
     descriptionAr: 'لقطات الكاميرا غير المحررة والملفات الخام والمصدر الأصلي.',
     color: '#8b5cf6',  folderCount: 6,  fileCount: 178,
+    locked: true, // demo only — see the `locked` field note above
   },
 ]
 
@@ -139,29 +149,36 @@ const handleOpenBtnLeave = (e: React.MouseEvent<HTMLDivElement>) => {
   e.currentTarget.style.borderColor = 'rgba(255,255,255,0.45)'
 }
 
-/* ── Add Platform Modal ── */
+/* ── Add/Edit Platform Modal ── */
 const AddPlatformModal = memo(function AddPlatformModal({
+  editingPlatform,
   onClose,
   onAdd,
+  onSave,
 }: {
+  /** Present → editing an existing platform; absent → creating one. */
+  editingPlatform?: Platform | null
   onClose: () => void
   onAdd:   (p: Platform) => void
+  onSave:  (id: string, updates: Omit<Platform, 'id' | 'folderCount' | 'fileCount' | 'locked'>) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark          = theme === 'dark'
   const fileInputRef    = useRef<HTMLInputElement>(null)
+  const isEditing        = !!editingPlatform
 
-  const [nameEn,        setNameEn]        = useState('')
-  const [nameAr,        setNameAr]        = useState('')
-  const [description,   setDescription]   = useState('')
-  const [descriptionAr, setDescriptionAr] = useState('')
-  const [color,         setColor]         = useState('#458482')
-  const [thumbnailUrl,  setThumbnailUrl]  = useState('')
+  const [nameEn,        setNameEn]        = useState(editingPlatform?.nameEn ?? '')
+  const [nameAr,        setNameAr]        = useState(editingPlatform?.nameAr ?? '')
+  const [description,   setDescription]   = useState(editingPlatform?.description ?? '')
+  const [descriptionAr, setDescriptionAr] = useState(editingPlatform?.descriptionAr ?? '')
+  const [color,         setColor]         = useState(editingPlatform?.color ?? '#458482')
+  const [thumbnailUrl,  setThumbnailUrl]  = useState(editingPlatform?.thumbnail ?? '')
   const [eyedropperSupported] = useState(() => typeof window !== 'undefined' && !!window.EyeDropper)
 
   const tx = useMemo(() => ({
-    title:       lang === 'ar' ? 'إضافة منصة جديدة'        : 'Add New Platform',
+    titleAdd:    lang === 'ar' ? 'إضافة منصة جديدة'        : 'Add New Platform',
+    titleEdit:   lang === 'ar' ? 'تعديل المنصة'             : 'Edit Platform',
     nameEn:      lang === 'ar' ? 'الاسم بالإنجليزي'         : 'English Name',
     nameEnHint:  lang === 'ar' ? 'يُستخدم كرابط URL'        : 'Used as URL slug',
     nameAr:      lang === 'ar' ? 'الاسم بالعربي'            : 'Arabic Name',
@@ -172,6 +189,7 @@ const AddPlatformModal = memo(function AddPlatformModal({
     noSupport:   lang === 'ar' ? 'غير مدعوم في هذا المتصفح' : 'Not supported in this browser',
     thumbnail:   lang === 'ar' ? 'رابط الصورة'              : 'Image URL',
     add:         lang === 'ar' ? 'إضافة المنصة'             : 'Add Platform',
+    save:        lang === 'ar' ? 'حفظ التعديلات'            : 'Save Changes',
     cancel:      lang === 'ar' ? 'إلغاء'                    : 'Cancel',
     preview:     lang === 'ar' ? 'معاينة'                   : 'Preview',
   }), [lang])
@@ -187,22 +205,24 @@ const AddPlatformModal = memo(function AddPlatformModal({
     }
   }, [])
 
-  const handleAdd = useCallback(() => {
+  const handleSubmit = useCallback(() => {
     if (!nameEn.trim() || !nameAr.trim()) return
-    const slug = nameEn.toLowerCase().replace(/\s+/g, '-')
-    onAdd({
-      id:            slug,
+    const payload = {
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),
       descriptionAr: descriptionAr.trim(),
       color,
       thumbnail:     thumbnailUrl.trim() || undefined,
-      folderCount:   0,
-      fileCount:     0,
-    })
+    }
+    if (isEditing && editingPlatform) {
+      onSave(editingPlatform.id, payload)
+    } else {
+      const slug = nameEn.toLowerCase().replace(/\s+/g, '-')
+      onAdd({ id: slug, ...payload, folderCount: 0, fileCount: 0 })
+    }
     onClose()
-  }, [nameEn, nameAr, description, descriptionAr, color, thumbnailUrl, onAdd, onClose])
+  }, [nameEn, nameAr, description, descriptionAr, color, thumbnailUrl, isEditing, editingPlatform, onAdd, onSave, onClose])
 
   const handleEyedropperBtnEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (eyedropperSupported) e.currentTarget.style.background = 'rgba(69,132,130,0.25)'
@@ -297,13 +317,13 @@ const AddPlatformModal = memo(function AddPlatformModal({
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center"
               style={{ background: 'linear-gradient(135deg, #458482, #5ea8a4)' }}>
-              <Plus className="w-4 h-4 text-white" />
+              {isEditing ? <Pencil className="w-3.5 h-3.5 text-white" /> : <Plus className="w-4 h-4 text-white" />}
             </div>
             <h2 className="text-sm font-black" style={{
               color: 'var(--foreground)',
               fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)',
             }}>
-              {tx.title}
+              {isEditing ? tx.titleEdit : tx.titleAdd}
             </h2>
           </div>
           <button onClick={onClose}
@@ -506,12 +526,12 @@ const AddPlatformModal = memo(function AddPlatformModal({
             {tx.cancel}
           </button>
           <button
-            onClick={handleAdd}
+            onClick={handleSubmit}
             disabled={!nameEn.trim() || !nameAr.trim()}
             className="px-4 py-2 rounded-lg text-[11px] font-bold transition-all"
             style={addBtnStyle}
           >
-            {tx.add}
+            {isEditing ? tx.save : tx.add}
           </button>
         </div>
       </motion.div>
@@ -541,7 +561,12 @@ const OpenButton = memo(function OpenButton({ label, color }: { label: string; c
 })
 
 /* ── Single card ── */
-const PlatformCard = memo(function PlatformCard({ platform, index }: { platform: Platform; index: number }) {
+const PlatformCard = memo(function PlatformCard({ platform, index, isAdmin, onEdit }: {
+  platform: Platform
+  index:    number
+  isAdmin:  boolean
+  onEdit:   (platform: Platform) => void
+}) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const router          = useRouter()
@@ -551,15 +576,24 @@ const PlatformCard = memo(function PlatformCard({ platform, index }: { platform:
   const name = lang === 'ar' ? platform.nameAr        : platform.nameEn
   const desc = lang === 'ar' ? platform.descriptionAr : platform.description
 
+  /* Chief Admin / Developer (isAdmin) always bypass the lock — membership
+     restrictions are for regular members browsing the archive, not for the
+     people managing it. See the `locked` field note on the Platform type. */
+  const isLocked = !!platform.locked && !isAdmin
+
   const slug = useMemo(
     () => platform.nameEn.toLowerCase().replace(/\s+/g, '-'),
     [platform.nameEn]
   )
 
   const tx = useMemo(() => ({
-    folders: lang === 'ar' ? 'مجلد'       : 'folders',
-    files:   lang === 'ar' ? 'ملف'        : 'files',
-    open:    lang === 'ar' ? 'فتح المنصة' : 'Open Platform',
+    folders:      lang === 'ar' ? 'مجلد'       : 'folders',
+    files:        lang === 'ar' ? 'ملف'        : 'files',
+    open:         lang === 'ar' ? 'فتح المنصة' : 'Open Platform',
+    lockedTitle:  lang === 'ar' ? 'غير مصرح'    : 'Not authorized',
+    lockedBody:   lang === 'ar'
+      ? 'إذا كنت تعتقد بوجود خطأ فاطلب من المدير تصحيح هذا الخطأ'
+      : 'If you believe this is a mistake, ask an admin to correct it',
   }), [lang])
 
   const firstLetter = useMemo(
@@ -569,18 +603,28 @@ const PlatformCard = memo(function PlatformCard({ platform, index }: { platform:
 
   const handleMouseEnter = useCallback(() => setHovered(true), [])
   const handleMouseLeave = useCallback(() => setHovered(false), [])
-  const handleClick = useCallback(() => router.push(`/archive/${slug}`), [router, slug])
+  const handleClick = useCallback(() => {
+    if (isLocked) return
+    router.push(`/archive/${slug}`)
+  }, [isLocked, router, slug])
+  const handleEditClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onEdit(platform)
+  }, [onEdit, platform])
 
   const cardStyle = useMemo<React.CSSProperties>(() => ({
     background: isDark
       ? `linear-gradient(145deg, #161b22, ${platform.color}15)`
       : `linear-gradient(145deg, #ffffff, ${platform.color}10)`,
-    border:     `1px solid ${hovered
+    border:     `1px solid ${hovered && !isLocked
       ? platform.color + '55'
       : isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'}`,
-    boxShadow:  hovered ? `0 8px 32px ${platform.color}28` : 'none',
-    transition: 'border-color 0.3s, box-shadow 0.3s',
-  }), [isDark, hovered, platform.color])
+    boxShadow:  hovered && !isLocked ? `0 8px 32px ${platform.color}28` : 'none',
+    filter:     isLocked ? 'grayscale(0.7)' : 'none',
+    opacity:    isLocked ? 0.75 : 1,
+    cursor:     isLocked ? 'not-allowed' : 'pointer',
+    transition: 'border-color 0.3s, box-shadow 0.3s, filter 0.3s, opacity 0.3s',
+  }), [isDark, hovered, platform.color, isLocked])
 
   const thumbBgStyle = useMemo<React.CSSProperties>(() => ({
     aspectRatio: '1 / 1',
@@ -614,17 +658,43 @@ const PlatformCard = memo(function PlatformCard({ platform, index }: { platform:
       transparent 100%)`,
   }), [hovered, platform.color])
 
+  const lockOverlayStyle = useMemo<React.CSSProperties>(() => ({
+    pointerEvents: hovered ? 'auto' : 'none',
+    cursor:        'not-allowed',
+    background:    isDark ? 'rgba(8,15,18,0.88)' : 'rgba(20,20,20,0.82)',
+    backdropFilter: 'blur(2px)',
+  }), [hovered, isDark])
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className="relative rounded-2xl overflow-hidden cursor-pointer select-none"
+      className="relative rounded-2xl overflow-hidden select-none"
       style={cardStyle}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={handleClick}
+      aria-disabled={isLocked}
     >
+      {/* Edit button — admin only, never blocked by the lock (admins bypass it) */}
+      {isAdmin && (
+        <motion.div
+          animate={{ opacity: hovered ? 1 : 0 }}
+          transition={{ duration: 0.15 }}
+          className="absolute top-2.5 z-20"
+          style={{ [isRTL ? 'left' : 'right']: '10px' }}
+        >
+          <button
+            onClick={handleEditClick}
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: 'rgba(8,15,18,0.55)', color: '#ffffff', backdropFilter: 'blur(6px)' }}
+            title={lang === 'ar' ? 'تعديل المنصة' : 'Edit platform'}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        </motion.div>
+      )}
       {/* ── Square thumbnail ── */}
       <div className="relative w-full overflow-hidden" style={thumbBgStyle}>
         <div className="absolute inset-0" style={radialStyle} />
@@ -690,24 +760,50 @@ const PlatformCard = memo(function PlatformCard({ platform, index }: { platform:
       </div>
 
       {/* ── Hover overlay — covers entire card including footer ── */}
-      <motion.div
-        animate={{ opacity: hovered ? 1 : 0 }}
-        transition={{ duration: 0.2 }}
-        className="absolute inset-0 z-10 flex flex-col justify-end p-5"
-        style={overlayStyle}
-      >
+      {isLocked ? (
         <motion.div
-          animate={{ y: hovered ? 0 : 10, opacity: hovered ? 1 : 0 }}
-          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-          dir={isRTL ? 'rtl' : 'ltr'}
+          animate={{ opacity: hovered ? 1 : 0 }}
+          transition={{ duration: 0.2 }}
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center p-5 text-center"
+          style={lockOverlayStyle}
         >
-          <p className="text-[11px] text-white/90 mb-3 leading-relaxed"
-            style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-            {desc}
-          </p>
-          <OpenButton label={tx.open} color={platform.color} />
+          <motion.div
+            animate={{ y: hovered ? 0 : 8, opacity: hovered ? 1 : 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="flex flex-col items-center gap-2"
+          >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.1)' }}>
+              <Lock className="w-5 h-5 text-white" />
+            </div>
+            <p className="text-[12px] font-black text-white" style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)' }}>
+              {tx.lockedTitle}
+            </p>
+            <p className="text-[10.5px] text-white/70 leading-relaxed max-w-[180px]"
+              style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+              {tx.lockedBody}
+            </p>
+          </motion.div>
         </motion.div>
-      </motion.div>
+      ) : (
+        <motion.div
+          animate={{ opacity: hovered ? 1 : 0 }}
+          transition={{ duration: 0.2 }}
+          className="absolute inset-0 z-10 flex flex-col justify-end p-5"
+          style={overlayStyle}
+        >
+          <motion.div
+            animate={{ y: hovered ? 0 : 10, opacity: hovered ? 1 : 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            dir={isRTL ? 'rtl' : 'ltr'}
+          >
+            <p className="text-[11px] text-white/90 mb-3 leading-relaxed"
+              style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
+              {desc}
+            </p>
+            <OpenButton label={tx.open} color={platform.color} />
+          </motion.div>
+        </motion.div>
+      )}
     </motion.div>
   )
 })
@@ -725,6 +821,7 @@ function PlatformGrid({
   const isDark                    = theme === 'dark'
   const [platforms, setPlatforms] = useState<Platform[]>(initialPlatforms)
   const [showModal, setShowModal] = useState(false)
+  const [editingPlatform, setEditingPlatform] = useState<Platform | null>(null)
 
   const tx = useMemo(() => ({
     title:       lang === 'ar' ? 'المنصات'       : 'Platforms',
@@ -735,8 +832,17 @@ function PlatformGrid({
     setPlatforms(prev => [...prev, p])
   }, [])
 
-  const handleOpenModal = useCallback(() => setShowModal(true), [])
-  const handleCloseModal = useCallback(() => setShowModal(false), [])
+  const handleOpenEdit = useCallback((platform: Platform) => {
+    setEditingPlatform(platform)
+    setShowModal(true)
+  }, [])
+
+  const handleSaveEdit = useCallback((id: string, updates: Omit<Platform, 'id' | 'folderCount' | 'fileCount' | 'locked'>) => {
+    setPlatforms(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+  }, [])
+
+  const handleOpenModal = useCallback(() => { setEditingPlatform(null); setShowModal(true) }, [])
+  const handleCloseModal = useCallback(() => { setShowModal(false); setEditingPlatform(null) }, [])
 
   const handleAddBtnEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.style.filter = 'brightness(1.08)'
@@ -800,7 +906,7 @@ function PlatformGrid({
       {/* Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {platforms.map((p, i) => (
-          <PlatformCard key={p.id} platform={p} index={i} />
+          <PlatformCard key={p.id} platform={p} index={i} isAdmin={isAdmin} onEdit={handleOpenEdit} />
         ))}
 
         {/* Add card — admin only */}
@@ -837,8 +943,10 @@ function PlatformGrid({
       <AnimatePresence>
         {showModal && (
           <AddPlatformModal
+            editingPlatform={editingPlatform}
             onClose={handleCloseModal}
             onAdd={handleAdd}
+            onSave={handleSaveEdit}
           />
         )}
       </AnimatePresence>

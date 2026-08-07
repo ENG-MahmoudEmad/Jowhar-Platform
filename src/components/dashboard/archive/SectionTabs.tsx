@@ -4,14 +4,16 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Plus, X, FolderOpen, Trash2, Check, Pencil,
+  Plus, X, FolderOpen, Trash2, Pencil, Copy, FolderInput,
   Video, Image as ImageIcon, Music, FileText, Palette,
   Film, Mic, Archive, Layers, Sparkles, Camera, PenTool,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
-import { useUndoableDelete } from '@/lib/useUndoableDelete'
-import UndoToastHost from '@/components/dashboard/archive/UndoToast'
+import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
+import DestinationPicker, { type DestinationResult } from '@/components/dashboard/archive/DestinationPicker'
+import ActionToast from '@/components/dashboard/archive/ActionToast'
+import { WORKS } from '@/components/dashboard/archive/WorksGrid'
 
 /* ── Icon library ── */
 /**
@@ -40,6 +42,7 @@ export const SECTION_ICONS = {
 export type SectionIconKey = keyof typeof SECTION_ICONS
 
 const ICON_KEYS = Object.keys(SECTION_ICONS) as SectionIconKey[]
+const WORKS_LOOKUP = new Map(WORKS.map(w => [w.id, w]))
 
 /* ── Types ── */
 export interface Section {
@@ -422,6 +425,8 @@ const SectionTab = memo(function SectionTab({
   isAdmin,
   onSelect,
   onEdit,
+  onCopy,
+  onMove,
   onDelete,
 }: {
   section:  Section
@@ -433,22 +438,30 @@ const SectionTab = memo(function SectionTab({
   /** Takes the id, so one stable callback serves every tab. */
   onSelect: (id: string) => void
   onEdit:   (section: Section) => void
-  onDelete: (id: string) => void
+  onCopy:   (section: Section) => void
+  onMove:   (section: Section) => void
+  onDelete: (section: Section) => void
 }) {
   const label = lang === 'ar' ? section.nameAr : section.nameEn
   const Icon  = SECTION_ICONS[section.icon] ?? FolderOpen
-
-  /* Delete goes through an inline confirm (✓/✕ in place of the trash icon) —
-     same pattern used for News Feed deletion elsewhere in the app, rather
-     than a separate confirmation modal. Confirming schedules a 10s-undoable
-     delete at the parent rather than removing anything immediately here. */
-  const [confirming, setConfirming] = useState(false)
 
   const handleClick = useCallback(() => onSelect(section.id), [onSelect, section.id])
   const handleEditClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     onEdit(section)
   }, [onEdit, section])
+  const handleCopyClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onCopy(section)
+  }, [onCopy, section])
+  const handleMoveClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onMove(section)
+  }, [onMove, section])
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete(section)
+  }, [onDelete, section])
 
   const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (!active) e.currentTarget.style.background = 'var(--hover-bg)'
@@ -456,19 +469,6 @@ const SectionTab = memo(function SectionTab({
   const handleMouseLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (!active) e.currentTarget.style.background = 'transparent'
   }, [active])
-
-  const handleDeleteIconClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    setConfirming(true)
-  }, [])
-  const handleConfirmDelete = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    onDelete(section.id)
-  }, [onDelete, section.id])
-  const handleCancelDelete = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    setConfirming(false)
-  }, [])
 
   const tabStyle = useMemo<React.CSSProperties>(() => ({
     background: active
@@ -506,7 +506,7 @@ const SectionTab = memo(function SectionTab({
         {section.itemCount}
       </span>
 
-      {/* Edit + Delete controls — admin only, revealed on hover */}
+      {/* Edit / Copy / Move / Delete controls — admin only, revealed on hover */}
       {isAdmin && (
         <span className="flex items-center gap-1 ms-0.5">
           <span
@@ -519,38 +519,35 @@ const SectionTab = memo(function SectionTab({
             <Pencil className="w-2.5 h-2.5" />
           </span>
 
-          {confirming ? (
-            <span className="flex items-center gap-1">
-              <span
-                role="button"
-                onClick={handleConfirmDelete}
-                className="w-4 h-4 rounded-full flex items-center justify-center"
-                style={{ background: '#ef444425', color: '#ef4444' }}
-                title={lang === 'ar' ? 'تأكيد الحذف' : 'Confirm delete'}
-              >
-                <Check className="w-2.5 h-2.5" />
-              </span>
-              <span
-                role="button"
-                onClick={handleCancelDelete}
-                className="w-4 h-4 rounded-full flex items-center justify-center"
-                style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)', color: 'var(--foreground-muted)' }}
-                title={lang === 'ar' ? 'إلغاء' : 'Cancel'}
-              >
-                <X className="w-2.5 h-2.5" />
-              </span>
-            </span>
-          ) : (
-            <span
-              role="button"
-              onClick={handleDeleteIconClick}
-              className="w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
-              style={{ color: '#ef4444' }}
-              title={lang === 'ar' ? 'حذف التقسيم' : 'Delete section'}
-            >
-              <Trash2 className="w-2.5 h-2.5" />
-            </span>
-          )}
+          <span
+            role="button"
+            onClick={handleCopyClick}
+            className="w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
+            style={{ color: active ? color : 'var(--foreground-muted)' }}
+            title={lang === 'ar' ? 'نسخ التقسيم' : 'Copy section'}
+          >
+            <Copy className="w-2.5 h-2.5" />
+          </span>
+
+          <span
+            role="button"
+            onClick={handleMoveClick}
+            className="w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
+            style={{ color: active ? color : 'var(--foreground-muted)' }}
+            title={lang === 'ar' ? 'نقل التقسيم' : 'Move section'}
+          >
+            <FolderInput className="w-2.5 h-2.5" />
+          </span>
+
+          <span
+            role="button"
+            onClick={handleDeleteClick}
+            className="w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
+            style={{ color: '#ef4444' }}
+            title={lang === 'ar' ? 'حذف التقسيم' : 'Delete section'}
+          >
+            <Trash2 className="w-2.5 h-2.5" />
+          </span>
         </span>
       )}
 
@@ -588,16 +585,11 @@ function SectionTabs({
   const [activeId, setActiveId]     = useState(initialSections[0]?.id ?? '')
   const [showModal, setShowModal]   = useState(false)
   const [editingSection, setEditingSection] = useState<Section | null>(null)
-
-  const { pendingDeletions, isPending, scheduleDelete, undo } = useUndoableDelete()
-
-  /* Sections mid-delete-countdown vanish from the tab row immediately — the
-     undo toast is what keeps them recoverable, not their continued presence
-     here. */
-  const visibleSections = useMemo(
-    () => sections.filter(s => !isPending(s.id)),
-    [sections, isPending]
-  )
+  /** The section currently showing the big delete-confirmation popup, if any. */
+  const [pendingDelete, setPendingDelete] = useState<Section | null>(null)
+  /** The section currently being copied/moved, with which action, if any. */
+  const [pendingCopyMove, setPendingCopyMove] = useState<{ section: Section; kind: 'copy' | 'move' } | null>(null)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   /* A useState initialiser runs ONCE. Without this sync, sections arriving after
      the first render — a different platform, or data that was still loading —
@@ -621,8 +613,8 @@ function SectionTabs({
   }, [platformId, sectionsKey])
 
   const activeSection = useMemo(
-    () => visibleSections.find(s => s.id === activeId),
-    [visibleSections, activeId]
+    () => sections.find(s => s.id === activeId),
+    [sections, activeId]
   )
 
   /* Kept in a ref so the notification effect below doesn't re-fire just because
@@ -664,26 +656,77 @@ function SectionTabs({
     setSections(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
   }, [])
 
-  /* Deleting the active section falls back to the first remaining visible one
-     — same "keep current if possible, otherwise first" rule the sync effect
-     above already uses. The section itself isn't removed from `sections` yet
-     — only hidden via `isPending` — so `undo` can bring it straight back with
-     no data loss. Only the 10s timeout's finalize callback actually removes
-     it. */
-  const handleDelete = useCallback((id: string) => {
-    const target = sections.find(s => s.id === id)
-    if (!target) return
+  /* Clicking the trash icon only opens the big confirm popup — nothing is
+     removed yet. Actual removal happens in handleConfirmDelete, and only
+     once the popup's forced countdown has finished and the person clicked
+     Confirm. */
+  const handleRequestDelete = useCallback((section: Section) => {
+    setPendingDelete(section)
+  }, [])
 
-    if (activeId === id) {
+  const handleConfirmDelete = useCallback(() => {
+    if (!pendingDelete) return
+    const id = pendingDelete.id
+    setSections(prev => prev.filter(s => s.id !== id))
+    setActiveId(prev => {
+      if (prev !== id) return prev
       const fallback = sections.find(s => s.id !== id)
-      setActiveId(fallback?.id ?? '')
+      return fallback?.id ?? ''
+    })
+    setPendingDelete(null)
+  }, [pendingDelete, sections])
+
+  const handleCancelDelete = useCallback(() => setPendingDelete(null), [])
+
+  const handleRequestCopy = useCallback((section: Section) => {
+    setPendingCopyMove({ section, kind: 'copy' })
+  }, [])
+  const handleRequestMove = useCallback((section: Section) => {
+    setPendingCopyMove({ section, kind: 'move' })
+  }, [])
+  const handleCancelCopyMove = useCallback(() => setPendingCopyMove(null), [])
+
+  /* Sections are shared mock data reused across every work in this frontend
+     milestone (no backend yet — see BACKEND NOTE at the bottom of this
+     file), so any destination work already "has" a section by this name.
+     That lines up with the merge rule that was asked for: landing on a
+     destination is always treated as a merge into its existing
+     same-named section rather than creating a duplicate.
+     - Move: the section leaves this work's local list.
+     - Copy: this work's local list is untouched (the section stays here too).
+     Either way there's nowhere local to actually add itemCount to on the
+     destination side (it's a different page's component state), so the
+     toast is the confirmation of record until the backend replaces this
+     whole branch with one server action. */
+  const handleConfirmSectionDestination = useCallback((dest: DestinationResult) => {
+    if (!pendingCopyMove) return
+    const { section, kind } = pendingCopyMove
+    const destWork = WORKS_LOOKUP.get(dest.workId)
+    const destWorkName = destWork ? (lang === 'ar' ? destWork.nameAr : destWork.nameEn) : ''
+    const sectionName = lang === 'ar' ? section.nameAr : section.nameEn
+
+    if (kind === 'move') {
+      setSections(prev => prev.filter(s => s.id !== section.id))
+      setActiveId(prev => {
+        if (prev !== section.id) return prev
+        const fallback = sections.find(s => s.id !== section.id)
+        return fallback?.id ?? ''
+      })
     }
 
-    const label = lang === 'ar' ? target.nameAr : target.nameEn
-    scheduleDelete(id, label, () => {
-      setSections(prev => prev.filter(s => s.id !== id))
-    })
-  }, [sections, activeId, lang, scheduleDelete])
+    setToastMessage(
+      kind === 'move'
+        ? (lang === 'ar'
+            ? `تم نقل "${sectionName}" ودمجه مع تقسيم بنفس الاسم في "${destWorkName}"`
+            : `Moved "${sectionName}" — merged into the matching section in "${destWorkName}"`)
+        : (lang === 'ar'
+            ? `تم نسخ "${sectionName}" ودمجه مع تقسيم بنفس الاسم في "${destWorkName}"`
+            : `Copied "${sectionName}" — merged into the matching section in "${destWorkName}"`)
+    )
+    setPendingCopyMove(null)
+  }, [pendingCopyMove, sections, lang])
+
+  const handleToastDone = useCallback(() => setToastMessage(null), [])
 
   const handleOpenModal = useCallback(() => { setEditingSection(null); setShowModal(true) }, [])
   const handleCloseModal = useCallback(() => { setShowModal(false); setEditingSection(null) }, [])
@@ -718,7 +761,7 @@ function SectionTabs({
           style={{ scrollbarWidth: 'none' }}
         >
 
-          {visibleSections.map(s => (
+          {sections.map(s => (
             <SectionTab
               key={s.id}
               section={s}
@@ -729,7 +772,9 @@ function SectionTabs({
               isAdmin={isAdmin}
               onSelect={handleSelect}
               onEdit={handleOpenEdit}
-              onDelete={handleDelete}
+              onCopy={handleRequestCopy}
+              onMove={handleRequestMove}
+              onDelete={handleRequestDelete}
             />
           ))}
 
@@ -791,9 +836,69 @@ function SectionTabs({
         )}
       </AnimatePresence>
 
-      <UndoToastHost deletions={pendingDeletions} onUndo={undo} color={color} />
+      <AnimatePresence>
+        {pendingDelete && (
+          <DeleteConfirmModal
+            label={lang === 'ar' ? pendingDelete.nameAr : pendingDelete.nameEn}
+            message={lang === 'ar'
+              ? 'سيتم حذف هذا التقسيم نهائيًا مع كل العناصر والملفات بداخله. هذا الإجراء لا يمكن التراجع عنه.'
+              : 'This section and everything inside it — items and files — will be permanently deleted. This cannot be undone.'}
+            onConfirm={handleConfirmDelete}
+            onCancel={handleCancelDelete}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingCopyMove && (
+          <DestinationPicker
+            color={color}
+            targetLevel="work"
+            actionKind={pendingCopyMove.kind}
+            sourceLabel={lang === 'ar'
+              ? `التقسيم: ${pendingCopyMove.section.nameAr}`
+              : `Section: ${pendingCopyMove.section.nameEn}`}
+            onConfirm={handleConfirmSectionDestination}
+            onCancel={handleCancelCopyMove}
+          />
+        )}
+      </AnimatePresence>
+
+      <ActionToast message={toastMessage} color={color} onDone={handleToastDone} />
     </>
   )
 }
 
 export default memo(SectionTabs)
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BACKEND NOTE — section copy/move persistence
+   ═══════════════════════════════════════════════════════════════════════════
+   `sections` here is local component state seeded from a single shared
+   `INITIAL_SECTIONS` mock array — every work currently renders the "same"
+   sections rather than each work owning its own scoped list. That's why
+   Move/Copy can only really mutate this work's local list (the section
+   leaves on Move, stays on Copy) and why the destination side is always
+   described as "merged" — there's no per-work section table yet for a
+   destination to actually receive anything into.
+
+   Once sections are scoped per work in the database, this whole flow
+   collapses to one Server Action, e.g.:
+
+     moveSection(sectionId, fromWorkId, toWorkId)
+       -> if a section with the same name already exists in toWorkId:
+            merge (sum item counts, reparent this section's items to the
+            existing one, delete the now-empty source section)
+          else:
+            simple reparent (update the section's work_id)
+
+     copySection(sectionId, toWorkId) -> same merge-or-create logic, but
+       inserts new item rows (with new ids) instead of reparenting existing
+       ones, since the source must stay intact.
+
+   The merge behavior implemented here (by name, case-sensitive on nameEn)
+   matches what was asked for — revisit whether that should be
+   locale-aware/normalized (see useSmartSearch.ts's `normalizeSearchText`)
+   once this is real data, so "Designs" and "designs" don't create two
+   sections that a case-sensitive merge would treat as distinct.
+   ═══════════════════════════════════════════════════════════════════════════ */
