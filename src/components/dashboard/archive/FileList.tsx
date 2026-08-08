@@ -1,51 +1,36 @@
-//src\components\dashboard\archive\FileList.tsx
+// src/components/dashboard/archive/FileList.tsx
 "use client"
 
 import { useState, useCallback, useMemo, useRef, memo } from 'react'
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
 import {
-  Plus, X, ExternalLink, Search, SlidersHorizontal, Upload,
-  ChevronRight, FolderOpen, Pencil, Trash2, FolderSymlink, CheckSquare, Square,
+  Plus, X, ExternalLink, Search, SlidersHorizontal,
+  Pencil, Trash2, FolderSymlink, CheckSquare, Square,
 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
-import { useRouter } from 'next/navigation'
-import type { ArchiveItem, FileType } from '@/components/dashboard/archive/SectionGrid'
 import ViewToggle, { type ViewMode } from '@/components/dashboard/archive/ViewToggle'
 import { useSmartSearch } from '@/lib/useSmartSearch'
 import { useSelection } from '@/lib/useSelection'
+import { useArchiveViewMode } from '@/lib/useArchiveViewMode'
 import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
 import SelectionToolbar from '@/components/dashboard/archive/SelectionToolbar'
 import DestinationPicker, { type DestinationResult } from '@/components/dashboard/archive/DestinationPicker'
 import ActionToast from '@/components/dashboard/archive/ActionToast'
+import {
+  addFileAction,
+  updateFileAction,
+  deleteFileAction,
+  updateItemDriveUrlAction,
+  moveFilesAction,
+  copyFilesAction,
+  type FileDbRow,
+  type FileActionPayload,
+  type FileTypeRow,
+} from '@/app/(dashboard)/archive/actions'
 
-/* ── Types ── */
-export interface ArchiveFile {
-  id:       string
-  itemId:   string
-  nameEn:   string
-  nameAr:   string
-  /** Single-file Drive link — distinct from the item's whole-folder link
-      shown at the top of this page. */
-  driveUrl: string
-  tag?:     string
-}
-
-/**
- * Deterministic mock seed per item, so refreshing the page doesn't reshuffle
- * file names. Replace with a real fetch keyed by `item.id` once wired up.
- */
-function seedFilesForItem(item: ArchiveItem): ArchiveFile[] {
-  const count = 3 + (item.id.charCodeAt(0) % 3) // 3–5 files, varies a bit per item
-  return Array.from({ length: count }, (_, i) => ({
-    id:       `${item.id}-f${i + 1}`,
-    itemId:   item.id,
-    nameEn:   `${item.nameEn} — File ${i + 1}`,
-    nameAr:   `${item.nameAr} — ملف ${i + 1}`,
-    driveUrl: item.driveUrl,
-    tag:      item.tag,
-  }))
-}
+export type ArchiveFile = FileDbRow
+export type FileType    = FileTypeRow
 
 // ─── Module-level constants ───────────────────────────────────────────────
 const TEXT_MAIN  = "var(--foreground)";
@@ -89,8 +74,13 @@ const FolderLinkModal = memo(function FolderLinkModal({
 
   const isValid = url.trim().length > 0
 
+  const isDraggingFromBackdrop = useRef(false)
+  const handleBackdropMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    isDraggingFromBackdrop.current = e.target === e.currentTarget
+  }, [])
   const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onClose()
+    if (isDraggingFromBackdrop.current && e.target === e.currentTarget) onClose()
+    isDraggingFromBackdrop.current = false
   }, [onClose])
 
   const handleSave = useCallback(() => {
@@ -123,6 +113,7 @@ const FolderLinkModal = memo(function FolderLinkModal({
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={MODAL_BACKDROP_STYLE}
+      onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
     >
       <m.div
@@ -189,7 +180,7 @@ const FileFormModal = memo(function FileFormModal({
   /** Present → editing; absent → creating. */
   editingFile: ArchiveFile | null
   onClose:     () => void
-  onSubmit:    (file: Omit<ArchiveFile, 'itemId'>) => void
+  onSubmit:    (payload: FileActionPayload) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -236,17 +227,21 @@ const FileFormModal = memo(function FileFormModal({
   const handleSubmit = useCallback(() => {
     if (!isValid) return
     onSubmit({
-      id:       editingFile?.id ?? Date.now().toString(),
       nameEn:   nameEn.trim(),
       nameAr:   nameAr.trim(),
       driveUrl: driveUrl.trim(),
       tag:      tag || undefined,
     })
     onClose()
-  }, [isValid, editingFile, nameEn, nameAr, driveUrl, tag, onSubmit, onClose])
+  }, [isValid, nameEn, nameAr, driveUrl, tag, onSubmit, onClose])
 
+  const isDraggingFromBackdrop2 = useRef(false)
+  const handleBackdropMouseDown2 = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    isDraggingFromBackdrop2.current = e.target === e.currentTarget
+  }, [])
   const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onClose()
+    if (isDraggingFromBackdrop2.current && e.target === e.currentTarget) onClose()
+    isDraggingFromBackdrop2.current = false
   }, [onClose])
 
   const handleTagToggle = useCallback((key: string) => setTag(prev => prev === key ? '' : key), [])
@@ -263,6 +258,7 @@ const FileFormModal = memo(function FileFormModal({
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={MODAL_BACKDROP_STYLE}
+      onMouseDown={handleBackdropMouseDown2}
       onClick={handleBackdropClick}
     >
       <m.div
@@ -357,10 +353,10 @@ const FileFormModal = memo(function FileFormModal({
 
 /* ── Single file card (Grid mode) ── */
 const FileCard = memo(function FileCard({
-  file, color, index, fileTypeColor, isAdmin, onEdit, onDelete,
+  file, color, index, fileTypeColor, canManage, onEdit, onDelete,
   selectionActive, isSelected, onStartDrag, onDragOver,
 }: {
-  file: ArchiveFile; color: string; index: number; fileTypeColor: string; isAdmin: boolean
+  file: ArchiveFile; color: string; index: number; fileTypeColor: string; canManage: boolean
   onEdit: (file: ArchiveFile) => void
   onDelete: (file: ArchiveFile) => void
   selectionActive: boolean
@@ -379,12 +375,12 @@ const FileCard = memo(function FileCard({
     if (!selectionActive) window.open(file.driveUrl, '_blank', 'noopener,noreferrer')
   }, [selectionActive, file.driveUrl])
   const handleMouseDown = useCallback(() => {
-    if (selectionActive) onStartDrag(file.id)
-  }, [selectionActive, onStartDrag, file.id])
+    if (selectionActive) onStartDrag(file.dbId)
+  }, [selectionActive, onStartDrag, file.dbId])
   const handleMouseEnter = useCallback(() => {
     setHovered(true)
-    if (selectionActive) onDragOver(file.id)
-  }, [selectionActive, onDragOver, file.id])
+    if (selectionActive) onDragOver(file.dbId)
+  }, [selectionActive, onDragOver, file.dbId])
   const handleMouseLeave = useCallback(() => setHovered(false), [])
   const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(file) }, [onEdit, file])
   const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(file) }, [onDelete, file])
@@ -426,8 +422,8 @@ const FileCard = memo(function FileCard({
           </div>
         )}
 
-        {isAdmin && !selectionActive && (
-          <div className="absolute top-2" style={{ [isRTL ? 'right' : 'left']: '8px' }}>
+        {canManage && !selectionActive && (
+          <div className="absolute top-2 z-20" style={{ [isRTL ? 'right' : 'left']: '8px' }}>
             <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1">
               <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center"
                 style={{ background: 'rgba(8,15,18,0.5)', color: '#ffffff', backdropFilter: 'blur(6px)' }}>
@@ -443,7 +439,7 @@ const FileCard = memo(function FileCard({
 
         {selectionActive && (
           <div
-            className="absolute top-2 w-6 h-6 rounded-lg flex items-center justify-center"
+            className="absolute top-2 z-20 w-6 h-6 rounded-lg flex items-center justify-center"
             style={{
               [isRTL ? 'right' : 'left']: '8px',
               background: isSelected ? color : 'rgba(8,15,18,0.5)',
@@ -480,10 +476,10 @@ const FileCard = memo(function FileCard({
 
 /* ── Single file row (List mode) ── */
 const FileListRow = memo(function FileListRow({
-  file, color, index, fileTypeColor, isAdmin, onEdit, onDelete,
+  file, color, index, fileTypeColor, canManage, onEdit, onDelete,
   selectionActive, isSelected, onStartDrag, onDragOver,
 }: {
-  file: ArchiveFile; color: string; index: number; fileTypeColor: string; isAdmin: boolean
+  file: ArchiveFile; color: string; index: number; fileTypeColor: string; canManage: boolean
   onEdit: (file: ArchiveFile) => void
   onDelete: (file: ArchiveFile) => void
   selectionActive: boolean
@@ -502,12 +498,12 @@ const FileListRow = memo(function FileListRow({
     if (!selectionActive) window.open(file.driveUrl, '_blank', 'noopener,noreferrer')
   }, [selectionActive, file.driveUrl])
   const handleMouseDown = useCallback(() => {
-    if (selectionActive) onStartDrag(file.id)
-  }, [selectionActive, onStartDrag, file.id])
+    if (selectionActive) onStartDrag(file.dbId)
+  }, [selectionActive, onStartDrag, file.dbId])
   const handleMouseEnter = useCallback(() => {
     setHovered(true)
-    if (selectionActive) onDragOver(file.id)
-  }, [selectionActive, onDragOver, file.id])
+    if (selectionActive) onDragOver(file.dbId)
+  }, [selectionActive, onDragOver, file.dbId])
   const handleMouseLeave = useCallback(() => setHovered(false), [])
   const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(file) }, [onEdit, file])
   const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(file) }, [onDelete, file])
@@ -549,7 +545,7 @@ const FileListRow = memo(function FileListRow({
 
       {file.tag && <span className="shrink-0 px-2 py-0.5 rounded-full text-[9px] font-black" style={tagBadgeStyle}>{file.tag}</span>}
 
-      {isAdmin && !selectionActive && (
+      {canManage && !selectionActive && (
         <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1 shrink-0">
           <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ color: TEXT_MUTED }}>
             <Pencil className="w-3 h-3" />
@@ -567,25 +563,39 @@ const FileListRow = memo(function FileListRow({
 
 /* ── FileList (the page body) ── */
 function FileList({
-  item,
+  itemId,
+  workId,
+  itemDriveUrl,
   color        = '#458482',
-  fileTypes,
-  isAdmin      = true,
+  initialFiles,
+  initialFileTypes,
+  canManage    = false,
+  canDelete    = false,
+  initialViewMode = 'grid',
 }: {
-  item:       ArchiveItem
-  color?:     string
-  fileTypes:  FileType[]
-  isAdmin?:   boolean
+  /** uuid العنصر الأب */
+  itemId:      string
+  /** uuid العمل — لازم لكل أكشنز الإضافة/التعديل (حل صلاحية Manage Archive) */
+  workId:      string
+  itemDriveUrl: string
+  color?:      string
+  initialFiles:     ArchiveFile[]
+  initialFileTypes: FileType[]
+  canManage?:  boolean
+  canDelete?:  boolean
+  /** تفضيل Grid/List محفوظ بالبروفايل — جاي من Server Component. */
+  initialViewMode?: ViewMode
 }) {
   const { lang, isRTL } = useLang()
   const { theme }       = useTheme()
   const isDark          = theme === 'dark'
 
-  const [files, setFiles]         = useState<ArchiveFile[]>(() => seedFilesForItem(item))
-  const [folderUrl, setFolderUrl] = useState(item.driveUrl)
+  const [files, setFiles]         = useState<ArchiveFile[]>(initialFiles)
+  const [fileTypes]               = useState<FileType[]>(initialFileTypes)
+  const [folderUrl, setFolderUrl] = useState(itemDriveUrl)
   const [showFolderLinkModal, setShowFolderLinkModal] = useState(false)
   const [search, setSearch]       = useState('')
-  const [viewMode, setViewMode]   = useState<ViewMode>('grid') // TEMPORARY — see ViewToggle.tsx BACKEND NOTE
+  const [viewMode, setViewMode] = useArchiveViewMode(initialViewMode)
   const [showModal, setShowModal] = useState(false)
   const [editingFile, setEditingFile] = useState<ArchiveFile | null>(null)
   /** The file currently showing the big delete-confirmation popup, if any. */
@@ -596,8 +606,6 @@ function FileList({
   const [copyMoveKind, setCopyMoveKind] = useState<'copy' | 'move'>('copy')
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
-  const visibleFiles = files
-
   const fileTypeColorMap = useMemo(() => {
     const map = new Map<string, string>()
     for (const ft of fileTypes) map.set(ft.key, ft.color)
@@ -606,7 +614,7 @@ function FileList({
   const getFileTypeColor = useCallback((tag?: string) => (tag && fileTypeColorMap.get(tag)) || color, [fileTypeColorMap, color])
 
   const getFileSearchFields = useCallback((f: ArchiveFile) => [f.nameEn, f.nameAr, f.tag], [])
-  const filteredFiles = useSmartSearch(visibleFiles, search, getFileSearchFields)
+  const filteredFiles = useSmartSearch(files, search, getFileSearchFields)
 
   const tx = useMemo(() => ({
     search:      lang === 'ar' ? 'ابحث عن ملف...'      : 'Search files...',
@@ -614,35 +622,77 @@ function FileList({
     empty:       lang === 'ar' ? 'لا توجد ملفات بعد'    : 'No files yet',
     noResults:   lang === 'ar' ? 'لا توجد نتائج'        : 'No results found',
     openFolder:  lang === 'ar' ? 'فتح مجلد الدرايف الكامل' : 'Open Full Drive Folder',
-    itemLabel:   lang === 'ar' ? 'عنصر'                 : 'Item',
     select:      lang === 'ar' ? 'تحديد'                 : 'Select',
   }), [lang])
-
-  const name = lang === 'ar' ? item.nameAr : item.nameEn
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value), [])
   const handleOpenAddModal = useCallback(() => { setEditingFile(null); setShowModal(true) }, [])
   const handleOpenEditModal = useCallback((file: ArchiveFile) => { setEditingFile(file); setShowModal(true) }, [])
   const handleCloseModal = useCallback(() => setShowModal(false), [])
 
-  const handleSubmitFile = useCallback((f: Omit<ArchiveFile, 'itemId'>) => {
-    setFiles(prev => {
-      const exists = prev.some(x => x.id === f.id)
-      if (exists) return prev.map(x => x.id === f.id ? { ...x, ...f } : x)
-      return [...prev, { ...f, itemId: item.id }]
-    })
-  }, [item.id])
+  /** Optimistic insert بـid مؤقت، ثم استبداله بالصف الحقيقي من السيرفر. */
+  const handleAddFile = useCallback(async (payload: FileActionPayload) => {
+    const tempId = `temp-${Date.now()}`
+    const optimistic: ArchiveFile = {
+      dbId: tempId, id: tempId, itemId,
+      nameEn: payload.nameEn, nameAr: payload.nameAr,
+      driveUrl: payload.driveUrl, tag: payload.tag,
+    }
+    setFiles(prev => [...prev, optimistic])
+
+    try {
+      const real = await addFileAction(itemId, workId, payload)
+      setFiles(prev => prev.map(f => f.dbId === tempId ? real : f))
+    } catch {
+      setFiles(prev => prev.filter(f => f.dbId !== tempId))
+    }
+  }, [itemId, workId])
+
+  const handleSaveFile = useCallback(async (dbId: string, updates: FileActionPayload) => {
+    let previous: ArchiveFile | undefined
+    setFiles(prev => prev.map(f => {
+      if (f.dbId !== dbId) return f
+      previous = f
+      return { ...f, ...updates }
+    }))
+
+    try {
+      await updateFileAction(dbId, workId, updates)
+    } catch {
+      if (previous) setFiles(prev => prev.map(f => f.dbId === dbId ? previous! : f))
+    }
+  }, [workId])
+
+  const handleSubmitFile = useCallback((payload: FileActionPayload) => {
+    if (editingFile) {
+      handleSaveFile(editingFile.dbId, payload)
+    } else {
+      handleAddFile(payload)
+    }
+  }, [editingFile, handleSaveFile, handleAddFile])
 
   const handleDeleteFile = useCallback((file: ArchiveFile) => {
     setPendingDelete(file)
   }, [])
 
-  const handleConfirmDeleteFile = useCallback(() => {
+  const handleConfirmDeleteFile = useCallback(async () => {
     if (!pendingDelete) return
-    const id = pendingDelete.id
-    setFiles(prev => prev.filter(f => f.id !== id))
+    const target = pendingDelete
+    const targetIndex = files.findIndex(f => f.dbId === target.dbId)
+
+    setFiles(prev => prev.filter(f => f.dbId !== target.dbId))
     setPendingDelete(null)
-  }, [pendingDelete])
+
+    try {
+      await deleteFileAction(target.dbId)
+    } catch {
+      setFiles(prev => {
+        const next = [...prev]
+        next.splice(targetIndex, 0, target)
+        return next
+      })
+    }
+  }, [pendingDelete, files])
 
   const handleCancelDeleteFile = useCallback(() => setPendingDelete(null), [])
 
@@ -652,35 +702,45 @@ function FileList({
 
   const selectedFilesLabel = useMemo(() => {
     const n = selection.selectedCount
-    return lang === 'ar'
-      ? `${n} ملف من "${name}"`
-      : `${n} file${n === 1 ? '' : 's'} from "${name}"`
-  }, [selection.selectedCount, lang, name])
+    return lang === 'ar' ? `${n} ملف محدد` : `${n} file${n === 1 ? '' : 's'} selected`
+  }, [selection.selectedCount, lang])
 
-  /* Every FileList instance only knows about its own item's files (each item
-     page mounts fresh from `seedFilesForItem`, there's no shared client-side
-     store yet — see BACKEND NOTE at the bottom of this file). So there's
-     nowhere local to actually place files landing on a different item; Move
-     still removes them from here (they're "leaving"), Copy leaves this list
-     untouched, and either way the toast is the confirmation of record until
-     the backend replaces this with a real server action. */
-  const handleConfirmDestination = useCallback((dest: DestinationResult) => {
-    const selectedIds = selection.selectedIds
-    const n = selectedIds.size
+  /** التنفيذ الفعلي — move_files/copy_files RPCs. بالـmove: الملفات
+      بتغادر صفحة العنصر الحالي فورًا (مش تابعة له بعد). بالـcopy: تضل
+      هون، والنسخة صارت تابعة لعنصر تاني. */
+  const handleConfirmDestination = useCallback(async (dest: DestinationResult) => {
+    if (!dest.itemId) return
+    const selectedIds = Array.from(selection.selectedIds)
+    const n = selectedIds.length
+    const movedFiles = files.filter(f => selection.selectedIds.has(f.dbId))
 
     if (copyMoveKind === 'move') {
-      setFiles(prev => prev.filter(f => !selectedIds.has(f.id)))
+      setFiles(prev => prev.filter(f => !selection.selectedIds.has(f.dbId)))
     }
 
-    setToastMessage(
-      copyMoveKind === 'move'
-        ? (lang === 'ar' ? `تم نقل ${n} ملف` : `Moved ${n} file${n === 1 ? '' : 's'}`)
-        : (lang === 'ar' ? `تم نسخ ${n} ملف` : `Copied ${n} file${n === 1 ? '' : 's'}`)
-    )
+    try {
+      if (copyMoveKind === 'move') {
+        await moveFilesAction(selectedIds, dest.itemId)
+      } else {
+        await copyFilesAction(selectedIds, dest.itemId)
+      }
+      setToastMessage(
+        copyMoveKind === 'move'
+          ? (lang === 'ar' ? `تم نقل ${n} ملف` : `Moved ${n} file${n === 1 ? '' : 's'}`)
+          : (lang === 'ar' ? `تم نسخ ${n} ملف` : `Copied ${n} file${n === 1 ? '' : 's'}`)
+      )
+    } catch {
+      if (copyMoveKind === 'move') {
+        setFiles(prev => [...prev, ...movedFiles])
+      }
+      setToastMessage(
+        lang === 'ar' ? 'فشلت العملية — تأكد من صلاحياتك بالوجهة' : 'Action failed — check your permissions at the destination'
+      )
+    }
 
     setShowDestPicker(false)
     selection.disable()
-  }, [selection, copyMoveKind, lang])
+  }, [selection, copyMoveKind, lang, files])
 
   const handleToastDone = useCallback(() => setToastMessage(null), [])
 
@@ -690,7 +750,17 @@ function FileList({
 
   const handleOpenFolderLinkModal = useCallback(() => setShowFolderLinkModal(true), [])
   const handleCloseFolderLinkModal = useCallback(() => setShowFolderLinkModal(false), [])
-  const handleSaveFolderLink = useCallback((url: string) => setFolderUrl(url), [])
+
+  /** Optimistic + rollback، بس على drive_url تبع الـitem بس (مش كل حقوله). */
+  const handleSaveFolderLink = useCallback(async (url: string) => {
+    const previous = folderUrl
+    setFolderUrl(url)
+    try {
+      await updateItemDriveUrlAction(itemId, workId, url)
+    } catch {
+      setFolderUrl(previous)
+    }
+  }, [folderUrl, itemId, workId])
 
   const searchIconStyle = useMemo<React.CSSProperties>(() => ({ [isRTL ? 'right' : 'left']: '12px', color: TEXT_MUTED }), [isRTL])
   const searchInputStyle = useMemo<React.CSSProperties>(() => ({
@@ -714,9 +784,7 @@ function FileList({
     <LazyMotion features={domAnimation}>
       <div dir={isRTL ? 'rtl' : 'ltr'} className="select-none">
 
-        {/* Full-folder link — always at the top of this page, per spec.
-            Wrapped in a div rather than a single button so the "open" click
-            target and the "edit" click target don't fight each other. */}
+        {/* Full-folder link — always at the top of this page, per spec. */}
         <div className="flex items-center gap-2 mb-5">
           <button
             onClick={handleOpenFullFolder}
@@ -735,7 +803,7 @@ function FileList({
             <ExternalLink className="w-4 h-4 shrink-0" />
           </button>
 
-          {isAdmin && (
+          {canManage && (
             <button
               onClick={handleOpenFolderLinkModal}
               className="w-[52px] h-[52px] rounded-2xl flex items-center justify-center shrink-0"
@@ -764,7 +832,7 @@ function FileList({
                 className="w-full py-2 rounded-xl text-[12px] outline-none" style={searchInputStyle} />
             </div>
             <ViewToggle value={viewMode} onChange={setViewMode} />
-            {isAdmin && filteredFiles.length > 0 && (
+            {canManage && filteredFiles.length > 0 && (
               <button onClick={selection.enable}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
                 style={{
@@ -778,7 +846,7 @@ function FileList({
                 {tx.select}
               </button>
             )}
-            {isAdmin && (
+            {canManage && (
               <button onClick={handleOpenAddModal}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0" style={addBtnStyle}>
                 <Plus className="w-3 h-3" />
@@ -795,18 +863,18 @@ function FileList({
               <m.div key={search + 'grid'} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {filteredFiles.map((f, i) => (
-                  <FileCard key={f.id} file={f} color={color} index={i} fileTypeColor={getFileTypeColor(f.tag)}
-                    isAdmin={isAdmin} onEdit={handleOpenEditModal} onDelete={handleDeleteFile}
-                    selectionActive={selection.active} isSelected={selection.isSelected(f.id)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
+                  <FileCard key={f.dbId} file={f} color={color} index={i} fileTypeColor={getFileTypeColor(f.tag)}
+                    canManage={canManage} onEdit={handleOpenEditModal} onDelete={handleDeleteFile}
+                    selectionActive={selection.active} isSelected={selection.isSelected(f.dbId)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
                 ))}
               </m.div>
             ) : (
               <m.div key={search + 'list'} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
                 className="rounded-xl overflow-hidden" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
                 {filteredFiles.map((f, i) => (
-                  <FileListRow key={f.id} file={f} color={color} index={i} fileTypeColor={getFileTypeColor(f.tag)}
-                    isAdmin={isAdmin} onEdit={handleOpenEditModal} onDelete={handleDeleteFile}
-                    selectionActive={selection.active} isSelected={selection.isSelected(f.id)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
+                  <FileListRow key={f.dbId} file={f} color={color} index={i} fileTypeColor={getFileTypeColor(f.tag)}
+                    canManage={canManage} onEdit={handleOpenEditModal} onDelete={handleDeleteFile}
+                    selectionActive={selection.active} isSelected={selection.isSelected(f.dbId)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
                 ))}
               </m.div>
             )

@@ -139,6 +139,160 @@ export type Database = {
           },
         ]
       }
+      file_types: {
+        Row: {
+          color: string
+          created_at: string
+          created_by: string | null
+          key: string
+        }
+        Insert: {
+          color: string
+          created_at?: string
+          created_by?: string | null
+          key: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "file_types_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      files: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          drive_url: string
+          file_type: string | null
+          id: string
+          item_id: string
+          name_ar: string
+          name_en: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          drive_url: string
+          file_type?: string | null
+          id?: string
+          item_id: string
+          name_ar: string
+          name_en: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          drive_url?: string
+          file_type?: string | null
+          id?: string
+          item_id?: string
+          name_ar?: string
+          name_en?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "files_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "files_file_type_fkey"
+            columns: ["file_type"]
+            isOneToOne: false
+            referencedRelation: "file_types"
+            referencedColumns: ["key"]
+          },
+          {
+            foreignKeyName: "files_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      items: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description_ar: string | null
+          description_en: string | null
+          drive_url: string | null
+          id: string
+          name_ar: string
+          name_en: string
+          section_id: string
+          tag: string | null
+          thumbnail_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description_ar?: string | null
+          description_en?: string | null
+          drive_url?: string | null
+          id?: string
+          name_ar: string
+          name_en: string
+          section_id: string
+          tag?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description_ar?: string | null
+          description_en?: string | null
+          drive_url?: string | null
+          id?: string
+          name_ar?: string
+          name_en?: string
+          section_id?: string
+          tag?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "items_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "items_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "items_tag_fkey"
+            columns: ["tag"]
+            isOneToOne: false
+            referencedRelation: "file_types"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
       member_notes: {
         Row: {
           color: string
@@ -438,25 +592,34 @@ export type Database = {
         Row: {
           color: string
           created_at: string
+          description_ar: string | null
+          description_en: string | null
           id: string
           name_ar: string
           name_en: string
+          slug: string
           thumbnail_url: string | null
         }
         Insert: {
           color?: string
           created_at?: string
+          description_ar?: string | null
+          description_en?: string | null
           id?: string
           name_ar: string
           name_en: string
+          slug: string
           thumbnail_url?: string | null
         }
         Update: {
           color?: string
           created_at?: string
+          description_ar?: string | null
+          description_en?: string | null
           id?: string
           name_ar?: string
           name_en?: string
+          slug?: string
           thumbnail_url?: string | null
         }
         Relationships: []
@@ -499,6 +662,7 @@ export type Database = {
           access_role: Database["public"]["Enums"]["access_role"]
           approved_at: string | null
           approved_by: string | null
+          archive_view_mode: string
           avatar_url: string | null
           color: string
           created_at: string
@@ -527,6 +691,7 @@ export type Database = {
           access_role?: Database["public"]["Enums"]["access_role"]
           approved_at?: string | null
           approved_by?: string | null
+          archive_view_mode?: string
           avatar_url?: string | null
           color?: string
           created_at?: string
@@ -555,6 +720,7 @@ export type Database = {
           access_role?: Database["public"]["Enums"]["access_role"]
           approved_at?: string | null
           approved_by?: string | null
+          archive_view_mode?: string
           avatar_url?: string | null
           color?: string
           created_at?: string
@@ -580,6 +746,60 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      sections: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description_ar: string | null
+          description_en: string | null
+          icon: string
+          id: string
+          name_ar: string
+          name_en: string
+          updated_at: string
+          work_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description_ar?: string | null
+          description_en?: string | null
+          icon?: string
+          id?: string
+          name_ar: string
+          name_en: string
+          updated_at?: string
+          work_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description_ar?: string | null
+          description_en?: string | null
+          icon?: string
+          id?: string
+          name_ar?: string
+          name_en?: string
+          updated_at?: string
+          work_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sections_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sections_work_id_fkey"
+            columns: ["work_id"]
+            isOneToOne: false
+            referencedRelation: "works"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       signup_attempts: {
         Row: {
@@ -698,13 +918,94 @@ export type Database = {
           },
         ]
       }
+      works: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description_ar: string | null
+          description_en: string | null
+          id: string
+          image_url: string | null
+          name_ar: string
+          name_en: string
+          platform_id: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description_ar?: string | null
+          description_en?: string | null
+          id?: string
+          image_url?: string | null
+          name_ar: string
+          name_en: string
+          platform_id: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description_ar?: string | null
+          description_en?: string | null
+          id?: string
+          image_url?: string | null
+          name_ar?: string
+          name_en?: string
+          platform_id?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "works_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "works_platform_id_fkey"
+            columns: ["platform_id"]
+            isOneToOne: false
+            referencedRelation: "platforms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      add_file_type: {
+        Args: { p_color: string; p_key: string }
+        Returns: {
+          color: string
+          created_at: string
+          created_by: string | null
+          key: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "file_types"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      can_copy_move_archive: {
+        Args: { p_platform_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      can_delete_archive: { Args: { p_user_id: string }; Returns: boolean }
       can_edit_identity: {
         Args: { actor: string; target: string }
+        Returns: boolean
+      }
+      can_manage_archive: {
+        Args: { p_platform_id: string; p_user_id: string }
         Returns: boolean
       }
       can_manage_member: {
@@ -716,6 +1017,66 @@ export type Database = {
         Returns: boolean
       }
       complete_email_change: { Args: { p_user_id: string }; Returns: boolean }
+      copy_files: {
+        Args: { p_file_ids: string[]; p_to_item_id: string }
+        Returns: {
+          created_at: string
+          created_by: string | null
+          drive_url: string
+          file_type: string | null
+          id: string
+          item_id: string
+          name_ar: string
+          name_en: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "files"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      copy_items: {
+        Args: { p_item_ids: string[]; p_to_section_id: string }
+        Returns: {
+          created_at: string
+          created_by: string | null
+          description_ar: string | null
+          description_en: string | null
+          drive_url: string | null
+          id: string
+          name_ar: string
+          name_en: string
+          section_id: string
+          tag: string | null
+          thumbnail_url: string | null
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "items"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      copy_section: {
+        Args: { p_section_id: string; p_to_work_id: string }
+        Returns: undefined
+      }
+      delete_file: { Args: { p_file_id: string }; Returns: undefined }
+      delete_item: { Args: { p_item_id: string }; Returns: undefined }
+      delete_platform: { Args: { p_platform_id: string }; Returns: undefined }
+      delete_section: { Args: { p_section_id: string }; Returns: undefined }
+      delete_work: { Args: { p_work_id: string }; Returns: undefined }
+      get_all_platform_stats: {
+        Args: never
+        Returns: {
+          files_count: number
+          folders_count: number
+          platform_id: string
+        }[]
+      }
       get_calendar_tasks: {
         Args: { p_end: string; p_member_ids: string[]; p_start: string }
         Returns: {
@@ -798,6 +1159,13 @@ export type Database = {
           type: string
         }[]
       }
+      get_platform_stats: {
+        Args: { p_platform_id: string }
+        Returns: {
+          files_count: number
+          folders_count: number
+        }[]
+      }
       get_studio_pulse_stats: {
         Args: never
         Returns: {
@@ -826,6 +1194,13 @@ export type Database = {
           progress: number
         }[]
       }
+      get_work_stats: {
+        Args: { p_work_id: string }
+        Returns: {
+          files_count: number
+          sections_count: number
+        }[]
+      }
       has_admin_capability: { Args: { p_key: string }; Returns: boolean }
       has_permission: {
         Args: { perm_key: string; uid: string }
@@ -837,7 +1212,23 @@ export type Database = {
       is_chief: { Args: { uid: string }; Returns: boolean }
       is_developer: { Args: { uid?: string }; Returns: boolean }
       is_effectively_suspended: { Args: { uid: string }; Returns: boolean }
+      is_platform_member: {
+        Args: { p_platform_id: string; p_user_id: string }
+        Returns: boolean
+      }
       mark_note_seen: { Args: { p_note_id: string }; Returns: undefined }
+      move_files: {
+        Args: { p_file_ids: string[]; p_to_item_id: string }
+        Returns: undefined
+      }
+      move_items: {
+        Args: { p_item_ids: string[]; p_to_section_id: string }
+        Returns: undefined
+      }
+      move_section: {
+        Args: { p_section_id: string; p_to_work_id: string }
+        Returns: undefined
+      }
       notify_permitted: {
         Args: {
           p_actor: string
@@ -872,6 +1263,7 @@ export type Database = {
         Args: { p_key: string; p_resolver: string }
         Returns: number
       }
+      set_archive_view_mode: { Args: { p_mode: string }; Returns: undefined }
       stamp_password_change: { Args: { p_user_id: string }; Returns: undefined }
       toggle_post_like: {
         Args: { p_post_id: number }

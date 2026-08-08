@@ -1,45 +1,98 @@
-"use client"
+// src/app/(dashboard)/archive/[platformId]/page.tsx
+import { notFound } from 'next/navigation'
+import PlatformHero from '@/components/dashboard/archive/PlatformHero'
+import WorksGrid     from '@/components/dashboard/archive/WorksGrid'
+import { requireArchiveActor, canManageArchivePlatform, canDeleteArchive } from '@/app/(dashboard)/archive/guards'
+import type { WorkRow } from '@/app/(dashboard)/archive/actions'
 
-import { useParams } from 'next/navigation'
-import PlatformHero  from '@/components/dashboard/archive/PlatformHero'
-import WorksGrid      from '@/components/dashboard/archive/WorksGrid'
-import { PLATFORMS } from '@/components/dashboard/archive/PlatformGrid'
+export default async function PlatformPage({
+  params,
+}: {
+  params: Promise<{ platformId: string }>
+}) {
+  const { platformId: platformSlug } = await params
+  const { supabase, actor } = await requireArchiveActor()
 
-export default function PlatformPage() {
-  const params     = useParams()
-  const platformId = params.platformId as string
+  const { data: platformData, error: platformError } = await supabase
+    .from('platforms')
+    .select('id, slug, name_en, name_ar, description_en, description_ar, color, thumbnail_url')
+    .eq('slug', platformSlug)
+    .maybeSingle()
 
-  // Find platform data from mock (replace with API call later)
-  const platform = PLATFORMS.find(
-    p => p.nameEn.toLowerCase().replace(/\s+/g, '-') === platformId || p.id === platformId
+  if (platformError) throw new Error(platformError.message)
+  if (!platformData) notFound()
+
+  const [
+    { data: worksData, error: worksError },
+    { data: platformStats },
+    canManage,
+    { data: profileData },
+  ] = await Promise.all([
+    supabase
+      .from('works')
+      .select('id, slug, platform_id, name_en, name_ar, description_en, description_ar, image_url')
+      .eq('platform_id', platformData.id)
+      .order('created_at', { ascending: true }),
+    supabase.rpc('get_platform_stats', { p_platform_id: platformData.id }),
+    canManageArchivePlatform(supabase, actor, platformData.id),
+    supabase.from('profiles').select('archive_view_mode').eq('id', actor.id).maybeSingle(),
+  ])
+
+  if (worksError) throw new Error(worksError.message)
+
+  // إحصائيات كل Work لحاله (sections/files) — استدعاء واحد لكل عمل، متوازي
+  const workStatsEntries = await Promise.all(
+    (worksData ?? []).map(async w => {
+      const { data } = await supabase.rpc('get_work_stats', { p_work_id: w.id })
+      return [w.id, data?.[0] ?? { sections_count: 0, files_count: 0 }] as const
+    })
   )
+  const workStatsMap = new Map(workStatsEntries)
 
-  if (!platform) {
-    return (
-      <div className="max-w-6xl mx-auto flex items-center justify-center py-32">
-        <p className="text-sm" style={{ color: 'var(--foreground-muted)' }}>
-          Platform not found
-        </p>
-      </div>
-    )
+  const works: WorkRow[] = (worksData ?? []).map(w => {
+    const stats = workStatsMap.get(w.id) ?? { sections_count: 0, files_count: 0 }
+    return {
+      dbId:          w.id,
+      id:            w.slug,
+      platformId:    w.platform_id,
+      nameEn:        w.name_en,
+      nameAr:        w.name_ar,
+      description:   w.description_en ?? '',
+      descriptionAr: w.description_ar ?? '',
+      thumbnail:     w.image_url ?? undefined,
+      sectionCount:  stats.sections_count,
+      fileCount:     stats.files_count,
+    }
+  })
+
+  const platform = {
+    dbId:          platformData.id,
+    id:            platformData.slug,
+    nameEn:        platformData.name_en,
+    nameAr:        platformData.name_ar,
+    description:   platformData.description_en ?? '',
+    descriptionAr: platformData.description_ar ?? '',
+    thumbnail:     platformData.thumbnail_url ?? undefined,
+    color:         platformData.color,
+    folderCount:   platformStats?.[0]?.folders_count ?? 0,
+    fileCount:     platformStats?.[0]?.files_count ?? 0,
+    locked:        false, // وصلنا هون أصلاً يعني ما كان مقفول (أو Chief/Developer)
+    canEdit:       canManage,
   }
-
-  const platformSlug = platform.nameEn.toLowerCase().replace(/\s+/g, '-')
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-
-      {/* Hero — same PlatformHero as before */}
       <PlatformHero platform={platform} />
 
-      {/* Works — new middle level, replaces sections here */}
       <WorksGrid
-        platformId={platform.id}
-        platformSlug={platformSlug}
-        color={platform.color}
-        isAdmin={true}
+        platformId={platformData.id}
+        platformSlug={platformData.slug}
+        color={platformData.color}
+        initialWorks={works}
+        canCreate={canManage}
+        canDelete={canDeleteArchive(actor)}
+        initialViewMode={(profileData?.archive_view_mode as 'grid' | 'list') ?? 'grid'}
       />
-
     </div>
   )
 }

@@ -3,99 +3,28 @@
 
 import { useState, useRef, useMemo, useCallback, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderOpen, ChevronRight, Layers, Plus, X, Upload, Pipette, Lock, Pencil } from 'lucide-react'
+import { FolderOpen, ChevronRight, Layers, Plus, X, Upload, Pipette, Lock, Pencil, Trash2 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import { useRouter } from 'next/navigation'
+import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
+import {
+  addPlatformAction,
+  updatePlatformAction,
+  deletePlatformAction,
+  uploadArchiveImageAction,
+  type PlatformRow,
+  type PlatformActionPayload,
+} from '@/app/(dashboard)/archive/actions'
 
-/* ── Types ── */
-export interface Platform {
-  id:            string
-  nameEn:        string
-  nameAr:        string
-  description:   string
-  descriptionAr: string
-  thumbnail?:    string
-  color:         string
-  folderCount:   number
-  fileCount:     number
-  /**
-   * TEMPORARY stand-in for real membership. Once wired to the backend, this
-   * should stop being a static per-platform flag and instead be computed per
-   * *current user* from `platform_team_members` (is this user's id in that
-   * platform's member list?). Chief Admin / Developer always bypass this
-   * regardless of membership — reflected here by the `isAdmin` prop already
-   * short-circuiting the lock in PlatformCard below.
-   */
-  locked?:       boolean
-}
+/**
+ * Platform هون هو PlatformRow القادم من الباك اند (page.tsx Server Component)
+ * — بديل عن نوع Platform القديم من archiveMockData. البنية نفسها بالضبط
+ * (id = slug للراوتينج) بس مضاف عليها dbId (uuid حقيقي للتحديث/الحذف)
+ * وcanEdit (محسوب سيرفر-سايد لكل منصة، مش boolean عام).
+ */
+export type Platform = PlatformRow
 
-/* ── Mock data ── */
-export const PLATFORMS: Platform[] = [
-  {
-    id: 'jowhar',  nameEn: 'Jowhar',        nameAr: 'جوهر',
-    description:   'Educational content and published course materials.',
-    descriptionAr: 'محتوى تعليمي ومواد دورات منشورة لمنصة رواق.',
-    thumbnail:     '/platforms/jowhar.png',
-    color: '#769171',  folderCount: 12,  fileCount: 38,
-  },
-  {
-    id: 'alwaqee', nameEn: 'Alwaqee',       nameAr: 'الواقع',
-    description:   'Platform resources, published content and media archives.',
-    descriptionAr: 'موارد المنصة والمحتوى المنشور وأرشيف الوسائط.',
-    thumbnail:     '/platforms/alwaqee.png',
-    color: '#5ba4a0',  folderCount: 3,  fileCount: 27,
-  },
-  {
-    id: 'vision',  nameEn: 'Vision Studio', nameAr: 'فيجن ستوديو',
-    description:   '3D renders, concept art, and production-ready visual assets.',
-    descriptionAr: 'نماذج ثلاثية الأبعاد وفن مفاهيمي وأصول بصرية جاهزة للإنتاج.',
-    color: '#a855f7',  folderCount: 6,  fileCount: 124,
-  },
-  {
-    id: 'motion',  nameEn: 'Motion Lab',    nameAr: 'موشن لاب',
-    description:   'Animation files, After Effects projects, and VFX deliverables.',
-    descriptionAr: 'ملفات حركة ومشاريع أفتر إفكتس وتسليمات المؤثرات البصرية.',
-    color: '#f59e0b',  folderCount: 5,  fileCount: 87,
-  },
-  {
-    id: 'brand',   nameEn: 'Brand Hub',     nameAr: 'براند هاب',
-    description:   'Brand guidelines, logos, typography kits, and identity assets.',
-    descriptionAr: 'إرشادات العلامة التجارية والشعارات وأطقم الخطوط.',
-    color: '#ef4444',  folderCount: 3,  fileCount: 52,
-  },
-  {
-    id: 'social',  nameEn: 'Social Media',  nameAr: 'سوشال ميديا',
-    description:   'Published posts, stories, reels, and social content archives.',
-    descriptionAr: 'منشورات وقصص وريلز وأرشيف محتوى وسائل التواصل الاجتماعي.',
-    color: '#3b82f6',  folderCount: 7,  fileCount: 210,
-  },
-  {
-    id: 'audio',   nameEn: 'Audio Vault',   nameAr: 'مخزن الصوتيات',
-    description:   'Sound design, music tracks, voice-over recordings, and SFX.',
-    descriptionAr: 'تصميم صوتي ومسارات موسيقية وتسجيلات صوتية ومؤثرات.',
-    color: '#06b6d4',  folderCount: 4,  fileCount: 63,
-  },
-  {
-    id: 'docs',    nameEn: 'Documentation', nameAr: 'التوثيق',
-    description:   'Project briefs, scripts, storyboards, and production documents.',
-    descriptionAr: 'موجزات المشروع والنصوص ولوحات القصة ووثائق الإنتاج.',
-    color: '#10b981',  folderCount: 5,  fileCount: 91,
-  },
-  {
-    id: 'renders', nameEn: 'Final Renders',  nameAr: 'النتائج النهائية',
-    description:   'Exported and approved final outputs ready for delivery.',
-    descriptionAr: 'المخرجات النهائية المُصدَّرة والمعتمدة الجاهزة للتسليم.',
-    color: '#f97316',  folderCount: 3,  fileCount: 44,
-  },
-  {
-    id: 'raw',     nameEn: 'Raw Footage',    nameAr: 'اللقطات الخام',
-    description:   'Unedited camera footage, raw files, and original source material.',
-    descriptionAr: 'لقطات الكاميرا غير المحررة والملفات الخام والمصدر الأصلي.',
-    color: '#8b5cf6',  folderCount: 6,  fileCount: 178,
-    locked: true, // demo only — see the `locked` field note above
-  },
-]
 
 /* ── EyeDropper type ── */
 declare global {
@@ -159,8 +88,8 @@ const AddPlatformModal = memo(function AddPlatformModal({
   /** Present → editing an existing platform; absent → creating one. */
   editingPlatform?: Platform | null
   onClose: () => void
-  onAdd:   (p: Platform) => void
-  onSave:  (id: string, updates: Omit<Platform, 'id' | 'folderCount' | 'fileCount' | 'locked'>) => void
+  onAdd:   (payload: PlatformActionPayload) => void
+  onSave:  (dbId: string, updates: PlatformActionPayload) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -206,8 +135,8 @@ const AddPlatformModal = memo(function AddPlatformModal({
   }, [])
 
   const handleSubmit = useCallback(() => {
-    if (!nameEn.trim() || !nameAr.trim()) return
-    const payload = {
+    if (!nameEn.trim() || !nameAr.trim() || uploading) return
+    const payload: PlatformActionPayload = {
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),
@@ -216,10 +145,9 @@ const AddPlatformModal = memo(function AddPlatformModal({
       thumbnail:     thumbnailUrl.trim() || undefined,
     }
     if (isEditing && editingPlatform) {
-      onSave(editingPlatform.id, payload)
+      onSave(editingPlatform.dbId, payload)
     } else {
-      const slug = nameEn.toLowerCase().replace(/\s+/g, '-')
-      onAdd({ id: slug, ...payload, folderCount: 0, fileCount: 0 })
+      onAdd(payload)
     }
     onClose()
   }, [nameEn, nameAr, description, descriptionAr, color, thumbnailUrl, isEditing, editingPlatform, onAdd, onSave, onClose])
@@ -231,20 +159,46 @@ const AddPlatformModal = memo(function AddPlatformModal({
     if (eyedropperSupported) e.currentTarget.style.background = 'rgba(69,132,130,0.15)'
   }, [eyedropperSupported])
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      const url = URL.createObjectURL(file)
-      setThumbnailUrl(url)
+    e.target.value = ''
+    if (!file) return
+
+    setUploadError('')
+
+    // معاينة فورية بـobject URL مؤقت لحد ما يخلص الرفع الحقيقي
+    const previewUrl = URL.createObjectURL(file)
+    setThumbnailUrl(previewUrl)
+    setUploading(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('folder', 'platforms')
+      const realUrl = await uploadArchiveImageAction(formData)
+      setThumbnailUrl(realUrl)
+    } catch {
+      setThumbnailUrl('')
+      setUploadError(
+        lang === 'ar'
+          ? 'فشل رفع الصورة — تأكد إنها أقل من 2MB وبصيغة صورة صحيحة'
+          : 'Upload failed — make sure it is under 2MB and a valid image'
+      )
+    } finally {
+      setUploading(false)
+      URL.revokeObjectURL(previewUrl)
     }
-  }, [])
+  }, [lang])
 
   const handleColorHexChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value
     if (/^#[0-9A-Fa-f]{0,6}$/.test(v)) setColor(v)
   }, [])
 
-  const handleRemoveThumbnail = useCallback(() => setThumbnailUrl(''), [])
+  const handleRemoveThumbnail = useCallback(() => { setThumbnailUrl(''); setUploadError('') }, [])
 
   const inputStyle = useMemo(() => ({
     background:  isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
@@ -280,11 +234,22 @@ const AddPlatformModal = memo(function AddPlatformModal({
   }), [eyedropperSupported])
 
   const addBtnStyle = useMemo(() => ({
-    background: (!nameEn.trim() || !nameAr.trim()) ? 'var(--hover-bg)' : 'linear-gradient(135deg, #458482, #5ea8a4)',
-    color:      (!nameEn.trim() || !nameAr.trim()) ? 'var(--foreground-muted)' : '#ffffff',
-    cursor:     (!nameEn.trim() || !nameAr.trim()) ? 'not-allowed' : 'pointer',
+    background: (!nameEn.trim() || !nameAr.trim() || uploading) ? 'var(--hover-bg)' : 'linear-gradient(135deg, #458482, #5ea8a4)',
+    color:      (!nameEn.trim() || !nameAr.trim() || uploading) ? 'var(--foreground-muted)' : '#ffffff',
+    cursor:     (!nameEn.trim() || !nameAr.trim() || uploading) ? 'not-allowed' : 'pointer',
     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-  }), [nameEn, nameAr, lang])
+  }), [nameEn, nameAr, lang, uploading])
+  const isDraggingFromBackdrop = useRef(false)
+  const handleBackdropMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    isDraggingFromBackdrop.current = e.target === e.currentTarget
+  }, [])
+  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // بنسكّر بس إذا الـmousedown والـclick الاثنين صاروا فعليًا على طبقة
+    // الخلفية — مش لو المستخدم كان عم يحدد نص جوا المودال وانسحبت الفارة
+    // برا بالغلط (هيك بيصير click على الخلفية بس المقصد كان تحديد نص).
+    if (isDraggingFromBackdrop.current && e.target === e.currentTarget) onClose()
+    isDraggingFromBackdrop.current = false
+  }, [onClose])
 
   return (
     <motion.div
@@ -293,7 +258,8 @@ const AddPlatformModal = memo(function AddPlatformModal({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none"
       style={MODAL_OVERLAY_STYLE}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
     >
       <motion.div
         initial={{ scale: 0.92, opacity: 0, y: 20 }}
@@ -374,6 +340,8 @@ const AddPlatformModal = memo(function AddPlatformModal({
                 onChange={e => setNameEn(e.target.value)}
                 placeholder="e.g. Ruwwad"
                 style={inputStyle}
+                disabled={isEditing}
+                title={isEditing ? (lang === 'ar' ? 'الاسم الإنجليزي والرابط لا يتغيران بعد الإنشاء' : 'English name / slug cannot change after creation') : undefined}
               />
               <span className="text-[9px] mt-1 block" style={{ color: 'var(--foreground-muted)' }}>
                 {tx.nameEnHint}
@@ -426,13 +394,16 @@ const AddPlatformModal = memo(function AddPlatformModal({
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition-all shrink-0"
-                style={UPLOAD_BTN_STYLE}
+                style={{ ...UPLOAD_BTN_STYLE, opacity: uploading ? 0.6 : 1, cursor: uploading ? 'not-allowed' : 'pointer' }}
                 onMouseEnter={handleUploadBtnEnter}
                 onMouseLeave={handleUploadBtnLeave}
               >
                 <Upload className="w-3.5 h-3.5" />
-                {lang === 'ar' ? 'اختر صورة' : 'Choose File'}
+                {uploading
+                  ? (lang === 'ar' ? 'جاري الرفع...' : 'Uploading...')
+                  : (lang === 'ar' ? 'اختر صورة' : 'Choose File')}
               </button>
             </div>
             <input
@@ -442,15 +413,20 @@ const AddPlatformModal = memo(function AddPlatformModal({
               className="hidden"
               onChange={handleFileChange}
             />
+            {uploadError && (
+              <p className="text-[9px] mt-1" style={{ color: '#ef4444' }}>{uploadError}</p>
+            )}
             {thumbnailUrl && (
               <div className="mt-2 flex items-center gap-2">
-                <img src={thumbnailUrl} alt="preview" className="w-10 h-10 rounded-lg object-cover" style={{ border: '1px solid rgba(255,255,255,0.1)' }} />
+                <img src={thumbnailUrl} alt="preview" className="w-10 h-10 rounded-lg object-cover" style={{ border: '1px solid rgba(255,255,255,0.1)', opacity: uploading ? 0.5 : 1 }} />
                 <span className="text-[9px]" style={{ color: 'var(--foreground-muted)' }}>
-                  {lang === 'ar' ? 'معاينة الصورة' : 'Image preview'}
+                  {uploading ? (lang === 'ar' ? 'جاري الرفع...' : 'Uploading...') : (lang === 'ar' ? 'معاينة الصورة' : 'Image preview')}
                 </span>
-                <button onClick={handleRemoveThumbnail} className="text-[9px]" style={{ color: '#ef4444', cursor: 'pointer' }}>
-                  {lang === 'ar' ? 'حذف' : 'Remove'}
-                </button>
+                {!uploading && (
+                  <button onClick={handleRemoveThumbnail} className="text-[9px]" style={{ color: '#ef4444', cursor: 'pointer' }}>
+                    {lang === 'ar' ? 'حذف' : 'Remove'}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -527,7 +503,7 @@ const AddPlatformModal = memo(function AddPlatformModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!nameEn.trim() || !nameAr.trim()}
+            disabled={!nameEn.trim() || !nameAr.trim() || uploading}
             className="px-4 py-2 rounded-lg text-[11px] font-bold transition-all"
             style={addBtnStyle}
           >
@@ -561,11 +537,14 @@ const OpenButton = memo(function OpenButton({ label, color }: { label: string; c
 })
 
 /* ── Single card ── */
-const PlatformCard = memo(function PlatformCard({ platform, index, isAdmin, onEdit }: {
+const PlatformCard = memo(function PlatformCard({ platform, index, canDeleteGlobal, onEdit, onDelete }: {
   platform: Platform
   index:    number
-  isAdmin:  boolean
+  /** Delete is account-level (Chief Admin / Developer), never platform-scoped —
+      see BACKEND NOTE at the bottom of the file. */
+  canDeleteGlobal: boolean
   onEdit:   (platform: Platform) => void
+  onDelete: (platform: Platform) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -576,15 +555,10 @@ const PlatformCard = memo(function PlatformCard({ platform, index, isAdmin, onEd
   const name = lang === 'ar' ? platform.nameAr        : platform.nameEn
   const desc = lang === 'ar' ? platform.descriptionAr : platform.description
 
-  /* Chief Admin / Developer (isAdmin) always bypass the lock — membership
-     restrictions are for regular members browsing the archive, not for the
-     people managing it. See the `locked` field note on the Platform type. */
-  const isLocked = !!platform.locked && !isAdmin
-
-  const slug = useMemo(
-    () => platform.nameEn.toLowerCase().replace(/\s+/g, '-'),
-    [platform.nameEn]
-  )
+  /** محسوبة سيرفر-سايد بالكامل (عضوية + Manage Archive معًا) — Chief/Developer
+      بيتخطوا دايمًا لأن guards.ts بيرجّع true لهم بغض النظر عن العضوية. */
+  const canEdit  = platform.canEdit
+  const isLocked = platform.locked
 
   const tx = useMemo(() => ({
     folders:      lang === 'ar' ? 'مجلد'       : 'folders',
@@ -605,12 +579,16 @@ const PlatformCard = memo(function PlatformCard({ platform, index, isAdmin, onEd
   const handleMouseLeave = useCallback(() => setHovered(false), [])
   const handleClick = useCallback(() => {
     if (isLocked) return
-    router.push(`/archive/${slug}`)
-  }, [isLocked, router, slug])
+    router.push(`/archive/${platform.id}`)
+  }, [isLocked, router, platform.id])
   const handleEditClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     onEdit(platform)
   }, [onEdit, platform])
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete(platform)
+  }, [onDelete, platform])
 
   const cardStyle = useMemo<React.CSSProperties>(() => ({
     background: isDark
@@ -677,22 +655,38 @@ const PlatformCard = memo(function PlatformCard({ platform, index, isAdmin, onEd
       onClick={handleClick}
       aria-disabled={isLocked}
     >
-      {/* Edit button — admin only, never blocked by the lock (admins bypass it) */}
-      {isAdmin && (
+      {/* Edit/Delete buttons — كل واحد بصلاحيته الخاصة (canEdit لهاي المنصة
+          تحديدًا، canDeleteGlobal بمستوى الحساب) مش boolean واحد للاثنين */}
+      {(canEdit || canDeleteGlobal) && (
         <motion.div
           animate={{ opacity: hovered ? 1 : 0 }}
           transition={{ duration: 0.15 }}
-          className="absolute top-2.5 z-20"
+          className="absolute top-2.5 z-20 flex gap-1.5"
           style={{ [isRTL ? 'left' : 'right']: '10px' }}
         >
-          <button
-            onClick={handleEditClick}
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: 'rgba(8,15,18,0.55)', color: '#ffffff', backdropFilter: 'blur(6px)' }}
-            title={lang === 'ar' ? 'تعديل المنصة' : 'Edit platform'}
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
+          {canEdit && (
+            <button
+              onClick={handleEditClick}
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: 'rgba(8,15,18,0.55)', color: '#ffffff', backdropFilter: 'blur(6px)' }}
+              title={lang === 'ar' ? 'تعديل المنصة' : 'Edit platform'}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Delete — دايمًا محصور بـcanDeleteGlobal بس (Chief Admin / Developer).
+              انظر BACKEND NOTE. */}
+          {canDeleteGlobal && (
+            <button
+              onClick={handleDeleteClick}
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: 'rgba(8,15,18,0.55)', color: '#ff8080', backdropFilter: 'blur(6px)' }}
+              title={lang === 'ar' ? 'حذف المنصة' : 'Delete platform'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </motion.div>
       )}
       {/* ── Square thumbnail ── */}
@@ -810,11 +804,13 @@ const PlatformCard = memo(function PlatformCard({ platform, index, isAdmin, onEd
 
 /* ── Grid ── */
 function PlatformGrid({
-  initialPlatforms = PLATFORMS,
-  isAdmin          = true,   // ← بتربطه بالباك اند بعدين
+  initialPlatforms,
+  canCreate  = false,   // ← محسوبة سيرفر-سايد بـpage.tsx (archive.manage)
+  canDelete  = false,   // ← محسوبة سيرفر-سايد بـpage.tsx (Chief Admin / Developer بس)
 }: {
-  initialPlatforms?: Platform[]
-  isAdmin?:          boolean
+  initialPlatforms: Platform[]
+  canCreate?: boolean
+  canDelete?: boolean
 }) {
   const { lang, isRTL }           = useLang()
   const { theme }                 = useTheme()
@@ -822,14 +818,40 @@ function PlatformGrid({
   const [platforms, setPlatforms] = useState<Platform[]>(initialPlatforms)
   const [showModal, setShowModal] = useState(false)
   const [editingPlatform, setEditingPlatform] = useState<Platform | null>(null)
+  /** The platform currently showing the big delete-confirmation popup, if any. */
+  const [pendingDelete, setPendingDelete] = useState<Platform | null>(null)
 
   const tx = useMemo(() => ({
     title:       lang === 'ar' ? 'المنصات'       : 'Platforms',
     addPlatform: lang === 'ar' ? 'إضافة منصة'    : 'Add Platform',
   }), [lang])
 
-  const handleAdd = useCallback((p: Platform) => {
-    setPlatforms(prev => [...prev, p])
+  /** Optimistic insert بـid مؤقت، ثم استبداله بالصف الحقيقي من السيرفر.
+      لو فشل الطلب، بنشيل الصف المؤقت (rollback). */
+  const handleAdd = useCallback(async (payload: import('@/app/(dashboard)/archive/actions').PlatformActionPayload) => {
+    const tempId = `temp-${Date.now()}`
+    const optimistic: Platform = {
+      dbId: tempId,
+      id: payload.nameEn.toLowerCase().replace(/\s+/g, '-'),
+      nameEn: payload.nameEn,
+      nameAr: payload.nameAr,
+      description: payload.description,
+      descriptionAr: payload.descriptionAr,
+      color: payload.color,
+      thumbnail: payload.thumbnail,
+      folderCount: 0,
+      fileCount: 0,
+      locked: false,
+      canEdit: true,
+    }
+    setPlatforms(prev => [...prev, optimistic])
+
+    try {
+      const real = await addPlatformAction(payload)
+      setPlatforms(prev => prev.map(p => p.dbId === tempId ? real : p))
+    } catch {
+      setPlatforms(prev => prev.filter(p => p.dbId !== tempId))
+    }
   }, [])
 
   const handleOpenEdit = useCallback((platform: Platform) => {
@@ -837,12 +859,50 @@ function PlatformGrid({
     setShowModal(true)
   }, [])
 
-  const handleSaveEdit = useCallback((id: string, updates: Omit<Platform, 'id' | 'folderCount' | 'fileCount' | 'locked'>) => {
-    setPlatforms(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
+  /** Optimistic update فورًا، مع rollback للقيم القديمة لو فشل السيرفر. */
+  const handleSaveEdit = useCallback(async (dbId: string, updates: import('@/app/(dashboard)/archive/actions').PlatformActionPayload) => {
+    let previous: Platform | undefined
+    setPlatforms(prev => prev.map(p => {
+      if (p.dbId !== dbId) return p
+      previous = p
+      return { ...p, ...updates }
+    }))
+
+    try {
+      await updatePlatformAction(dbId, updates)
+    } catch {
+      if (previous) setPlatforms(prev => prev.map(p => p.dbId === dbId ? previous! : p))
+    }
   }, [])
 
   const handleOpenModal = useCallback(() => { setEditingPlatform(null); setShowModal(true) }, [])
   const handleCloseModal = useCallback(() => { setShowModal(false); setEditingPlatform(null) }, [])
+
+  const handleRequestDelete = useCallback((platform: Platform) => {
+    setPendingDelete(platform)
+  }, [])
+
+  /** Optimistic remove فورًا، rollback (إعادة الإدراج بمكانه) لو فشل السيرفر. */
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDelete) return
+    const target = pendingDelete
+    const targetIndex = platforms.findIndex(p => p.dbId === target.dbId)
+
+    setPlatforms(prev => prev.filter(p => p.dbId !== target.dbId))
+    setPendingDelete(null)
+
+    try {
+      await deletePlatformAction(target.dbId)
+    } catch {
+      setPlatforms(prev => {
+        const next = [...prev]
+        next.splice(targetIndex, 0, target)
+        return next
+      })
+    }
+  }, [pendingDelete, platforms])
+
+  const handleCancelDelete = useCallback(() => setPendingDelete(null), [])
 
   const handleAddBtnEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.style.filter = 'brightness(1.08)'
@@ -881,8 +941,8 @@ function PlatformGrid({
           {platforms.length}
         </span>
 
-        {/* Add button — admin only */}
-        {isAdmin && (
+        {/* Add button — Manage Archive فقط (بدون شرط عضوية، ما فيه منصة بعد) */}
+        {canCreate && (
           <motion.button
             onClick={handleOpenModal}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold"
@@ -906,11 +966,11 @@ function PlatformGrid({
       {/* Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {platforms.map((p, i) => (
-          <PlatformCard key={p.id} platform={p} index={i} isAdmin={isAdmin} onEdit={handleOpenEdit} />
+          <PlatformCard key={p.dbId} platform={p} index={i} canDeleteGlobal={canDelete} onEdit={handleOpenEdit} onDelete={handleRequestDelete} />
         ))}
 
-        {/* Add card — admin only */}
-        {isAdmin && (
+        {/* Add card — نفس شرط زر الإضافة بالأعلى */}
+        {canCreate && (
           <motion.button
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
@@ -950,8 +1010,38 @@ function PlatformGrid({
           />
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingDelete && (
+          <DeleteConfirmModal
+            label={lang === 'ar' ? pendingDelete.nameAr : pendingDelete.nameEn}
+            message={lang === 'ar'
+              ? 'سيتم حذف هذه المنصة نهائيًا مع كل الأعمال والتقسيمات والعناصر والملفات بداخلها. هذا الإجراء لا يمكن التراجع عنه.'
+              : 'This platform and everything inside it — works, sections, items, and files — will be permanently deleted. This cannot be undone.'}
+            onConfirm={handleConfirmDelete}
+            onCancel={handleCancelDelete}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
 export default memo(PlatformGrid)
+
+/* ══════════════════════════════════════════════════════════════════════
+   BACKEND NOTE (ربط فعلي — تم)
+   ══════════════════════════════════════════════════════════════════════
+   - البيانات جايّة من page.tsx (Server Component) عبر initialPlatforms،
+     مش من archiveMockData.ts القديم — هاد الأخير بقى بلا استخدام لمستوى
+     Platform تحديدًا (لسا مستخدم لباقي المستويات لحد ما نربطها).
+   - isAdmin (القديم) انقسم لصلاحيتين منفصلتين حقيقيتين:
+       canCreate → صلاحية إضافة منصة جديدة (archive.manage بس، سيرفر-سايد)
+       platform.canEdit → لكل منصة لحالها (عضوية + archive.manage معًا)
+     هاد أدق من boolean واحد للشبكة كلها، ومطابق للقرار المحسوم بالتوثيق.
+   - canDelete ضل زي ما هو (boolean عام)، لأن الحذف مش مرتبط بعضوية منصة
+     أصلاً — بس Chief Admin/Developer، بغض النظر عن أي منصة.
+   - رفع الصور (thumbnailUrl) لسا مؤقت بـobject URL بالمتصفح — لازم Storage
+     فعلي (bucket archive-platforms، حد 2MB) قبل الإنتاج. شايف ملاحظة داخل
+     AddPlatformModal.
+*/

@@ -1,87 +1,43 @@
-//src\components\dashboard\archive\SectionGrid.tsx
+// src/components/dashboard/archive/SectionGrid.tsx
 "use client"
 
 import { useState, useCallback, useMemo, useRef, memo } from "react"
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
-import { Plus, X, ExternalLink, Search, SlidersHorizontal, Upload, Pipette, ChevronRight, Pencil, Trash2, CheckSquare, Square } from 'lucide-react'
+import { Plus, X, Search, SlidersHorizontal, Upload, ChevronRight, Pencil, Trash2, CheckSquare, Square } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import { useRouter } from 'next/navigation'
-import type { Section } from '@/components/dashboard/archive/SectionTabs'
-import { INITIAL_SECTIONS } from '@/components/dashboard/archive/SectionTabs'
 import ViewToggle, { type ViewMode } from '@/components/dashboard/archive/ViewToggle'
 import { useSmartSearch } from '@/lib/useSmartSearch'
 import { useSelection } from '@/lib/useSelection'
+import { useArchiveViewMode } from '@/lib/useArchiveViewMode'
 import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
 import SelectionToolbar from '@/components/dashboard/archive/SelectionToolbar'
 import DestinationPicker, { type DestinationResult } from '@/components/dashboard/archive/DestinationPicker'
 import ActionToast from '@/components/dashboard/archive/ActionToast'
+import type { Section } from '@/components/dashboard/archive/SectionTabs'
+import {
+  addItemAction,
+  updateItemAction,
+  deleteItemAction,
+  addFileTypeAction,
+  uploadArchiveImageAction,
+  moveItemsAction,
+  copyItemsAction,
+  type ItemRow,
+  type ItemActionPayload,
+  type FileTypeRow,
+} from '@/app/(dashboard)/archive/actions'
 
-/* ── Types ── */
-export interface ArchiveItem {
-  id:          string
-  sectionId:   string
-  nameEn:      string
-  nameAr:      string
-  description:   string
-  descriptionAr: string
-  /**
-   * Image source for the card.
-   *
-   * While there is no backend this holds a data URL produced by FileReader, which
-   * is fine for previewing but must NOT be persisted — data URLs bloat every row
-   * and every response. See the BACKEND NOTE at the bottom of this file.
-   */
-  thumbnail?:  string
-  /**
-   * Drive URL for the whole item's folder. Shown at the top of the file-list
-   * page (the level below this one), not opened directly from the card
-   * anymore — clicking a card now drills into that file-list page instead.
-   */
-  driveUrl:    string
-  tag?:        string   // key into `fileTypes`, e.g. "AE" | "PNG" | "MP4" | "PDF"
-}
-
-/* ── File type registry ── */
-export interface FileType {
-  key:   string
-  color: string
-}
-
-/**
- * Starting set — mirrors the old hardcoded TAG_COLORS, but is now data the
- * admin can extend from the Add Item form (new extension + a chosen color).
- * See BACKEND NOTE: this needs a real `file_types` table so additions persist
- * for everyone, not just this browser tab.
- */
-export const DEFAULT_FILE_TYPES: FileType[] = [
-  { key: 'AE',    color: '#9d6bff' },
-  { key: 'PNG',   color: '#10b981' },
-  { key: 'MP4',   color: '#ef4444' },
-  { key: 'PDF',   color: '#f59e0b' },
-  { key: 'BLEND', color: '#f97316' },
-]
-
-/* ── Mock items ── */
-export const INITIAL_ITEMS: ArchiveItem[] = [
-  { id: '1', sectionId: 'published', nameEn: 'Post #1',   nameAr: 'منشور 1',  description: 'Instagram carousel — product launch',       descriptionAr: 'كاروسيل إنستغرام — إطلاق المنتج',       driveUrl: 'https://drive.google.com', tag: 'PNG' },
-  { id: '2', sectionId: 'published', nameEn: 'Post #2',   nameAr: 'منشور 2',  description: 'Twitter thread graphics pack',               descriptionAr: 'حزمة رسومات سلسلة تويتر',               driveUrl: 'https://drive.google.com', tag: 'PNG' },
-  { id: '3', sectionId: 'published', nameEn: 'Post #3',   nameAr: 'منشور 3',  description: 'LinkedIn cover image series',                descriptionAr: 'سلسلة صور غلاف لينكدإن',                driveUrl: 'https://drive.google.com', tag: 'PNG' },
-  { id: '4', sectionId: 'published', nameEn: 'Post #4',   nameAr: 'منشور 4',  description: 'Ramadan campaign visual set',                descriptionAr: 'مجموعة بصريات حملة رمضان',              driveUrl: 'https://drive.google.com', tag: 'PNG' },
-  { id: '5', sectionId: 'videos',    nameEn: 'Video #1',  nameAr: 'فيديو 1',  description: 'Brand intro animation 30s',                  descriptionAr: 'انيميشن تعريف العلامة التجارية 30 ثانية', driveUrl: 'https://drive.google.com', tag: 'MP4' },
-  { id: '6', sectionId: 'videos',    nameEn: 'Video #2',  nameAr: 'فيديو 2',  description: 'Product demo reel',                          descriptionAr: 'ريل عرض المنتج',                         driveUrl: 'https://drive.google.com', tag: 'MP4' },
-  { id: '7', sectionId: 'designs',   nameEn: 'Design #1', nameAr: 'تصميم 1',  description: 'Motion graphics project file',               descriptionAr: 'ملف مشروع موشن جرافيك',                 driveUrl: 'https://drive.google.com', tag: 'AE'  },
-  { id: '8', sectionId: 'designs',   nameEn: 'Design #2', nameAr: 'تصميم 2',  description: 'Logo animation source file',                 descriptionAr: 'ملف مصدر انيميشن الشعار',               driveUrl: 'https://drive.google.com', tag: 'AE'  },
-  { id: '9', sectionId: 'documents', nameEn: 'Brief #1',  nameAr: 'موجز 1',   description: 'Q1 campaign creative brief',                 descriptionAr: 'الموجز الإبداعي لحملة الربع الأول',      driveUrl: 'https://drive.google.com', tag: 'PDF' },
-]
+export type ArchiveItem = ItemRow
+export type FileType    = FileTypeRow
 
 // ─── Module-level constants (zero per-render allocation) ───────────────────────
 const TEXT_MAIN  = "var(--foreground)";
-const INITIAL_SECTIONS_LOOKUP = new Map<string, Section>(INITIAL_SECTIONS.map(s => [s.id, s]));
 const TEXT_MUTED = "var(--foreground-muted)";
 
 /** Rejected before reading, so a huge file never gets turned into a data URL. */
-const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024; // 2MB — موحّد لكل مستويات الأرشيف
 
 /** A curated starting palette for "add a new file type" — avoids the admin
     landing on a muddy or unreadable color, while still letting them pick
@@ -217,7 +173,6 @@ const NewFileTypeComposer = memo(function NewFileTypeComposer({
 
 /* ── Add Item Modal ── */
 const AddItemModal = memo(function AddItemModal({
-  sectionId,
   color,
   fileTypes,
   editingItem,
@@ -226,14 +181,13 @@ const AddItemModal = memo(function AddItemModal({
   onSave,
   onCreateFileType,
 }: {
-  sectionId: string
   color:     string
   fileTypes: FileType[]
   /** Present → editing an existing item; absent → creating one. */
   editingItem?: ArchiveItem | null
   onClose:   () => void
-  onAdd:     (item: ArchiveItem) => void
-  onSave:    (id: string, updates: Omit<ArchiveItem, 'id' | 'sectionId'>) => void
+  onAdd:     (payload: ItemActionPayload) => void
+  onSave:    (dbId: string, updates: ItemActionPayload) => void
   onCreateFileType: (ft: FileType) => void
 }) {
   const { theme }       = useTheme()
@@ -251,6 +205,7 @@ const AddItemModal = memo(function AddItemModal({
   const [thumbnailPath,  setThumbnailPath]  = useState('')
   const [thumbnailData,  setThumbnailData]  = useState(editingItem?.thumbnail ?? '')
   const [thumbnailError, setThumbnailError] = useState('')
+  const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const tx = useMemo(() => ({
@@ -267,7 +222,7 @@ const AddItemModal = memo(function AddItemModal({
     choose:   lang === 'ar' ? 'اختر ملف'             : 'Choose File',
     remove:   lang === 'ar' ? 'إزالة الصورة'         : 'Remove image',
     errType:  lang === 'ar' ? 'الملف المختار ليس صورة' : 'The selected file is not an image',
-    errSize:  lang === 'ar' ? 'حجم الصورة يتجاوز 5 ميجابايت' : 'Image exceeds the 5 MB limit',
+    errSize:  lang === 'ar' ? 'حجم الصورة يتجاوز 2 ميجابايت' : 'Image exceeds the 2 MB limit',
     errRead:  lang === 'ar' ? 'تعذّرت قراءة الملف'   : 'Could not read the file',
     tagLabel: lang === 'ar' ? 'نوع الملف'            : 'File Type',
     addType:  lang === 'ar' ? 'إضافة نوع جديد'       : 'Add new type',
@@ -374,8 +329,8 @@ const AddItemModal = memo(function AddItemModal({
   }), [lang]);
 
   const isAddDisabled = useMemo(
-    () => !nameEn.trim() || !nameAr.trim() || !driveUrl.trim(),
-    [nameEn, nameAr, driveUrl],
+    () => !nameEn.trim() || !nameAr.trim() || !driveUrl.trim() || uploading,
+    [nameEn, nameAr, driveUrl, uploading],
   );
 
   const addButtonStyle = useMemo<React.CSSProperties>(() => ({
@@ -398,8 +353,13 @@ const AddItemModal = memo(function AddItemModal({
     setTag(prev => prev === t ? '' : t);
   }, []);
 
+  const isDraggingFromBackdrop = useRef(false);
+  const handleBackdropMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    isDraggingFromBackdrop.current = e.target === e.currentTarget;
+  }, []);
   const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onClose();
+    if (isDraggingFromBackdrop.current && e.target === e.currentTarget) onClose();
+    isDraggingFromBackdrop.current = false;
   }, [onClose]);
 
   const handleOpenTypeComposer = useCallback(() => setAddingType(true), []);
@@ -431,12 +391,22 @@ const AddItemModal = memo(function AddItemModal({
       return;
     }
 
+    setThumbnailPath(file.name);
+    setThumbnailData(URL.createObjectURL(file)); // معاينة فورية لحد ما يخلص الرفع
+    setUploading(true);
+
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setThumbnailData(dataUrl);
-      setThumbnailPath(file.name);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('folder', 'items');
+      const realUrl = await uploadArchiveImageAction(formData);
+      setThumbnailData(realUrl);
     } catch {
+      setThumbnailData('');
+      setThumbnailPath('');
       setThumbnailError(tx.errRead);
+    } finally {
+      setUploading(false);
     }
   }, [tx.errType, tx.errSize, tx.errRead]);
 
@@ -448,7 +418,7 @@ const AddItemModal = memo(function AddItemModal({
 
   const handleSubmit = () => {
     if (isAddDisabled) return
-    const payload = {
+    const payload: ItemActionPayload = {
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),
@@ -458,9 +428,9 @@ const AddItemModal = memo(function AddItemModal({
       tag:           tag.trim().toUpperCase() || undefined,
     }
     if (isEditing && editingItem) {
-      onSave(editingItem.id, payload)
+      onSave(editingItem.dbId, payload)
     } else {
-      onAdd({ id: Date.now().toString(), sectionId, ...payload })
+      onAdd(payload)
     }
     onClose()
   }
@@ -472,6 +442,7 @@ const AddItemModal = memo(function AddItemModal({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={MODAL_BACKDROP_STYLE}
+      onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
     >
       <m.div
@@ -555,11 +526,12 @@ const AddItemModal = memo(function AddItemModal({
               <button
                 type="button"
                 onClick={handleChooseFile}
+                disabled={uploading}
                 className="flex items-center gap-1.5 shrink-0"
-                style={chooseFileButtonStyle}
+                style={{ ...chooseFileButtonStyle, opacity: uploading ? 0.6 : 1, cursor: uploading ? 'not-allowed' : 'pointer' }}
               >
                 <Upload className="w-3 h-3" />
-                {tx.choose}
+                {uploading ? (lang === 'ar' ? 'جاري الرفع...' : 'Uploading...') : tx.choose}
               </button>
             </div>
 
@@ -597,7 +569,7 @@ const AddItemModal = memo(function AddItemModal({
             )}
           </div>
 
-          {/* File type — now a live, extensible registry */}
+          {/* File type — live, extensible registry (persisted via addFileTypeAction) */}
           <div>
             <label style={labelStyle}>{tx.tagLabel}</label>
             <div className="flex gap-2 flex-wrap items-center">
@@ -646,10 +618,10 @@ const AddItemModal = memo(function AddItemModal({
 
 /* ── Single item card (Grid mode) ── */
 const ItemCard = memo(function ItemCard({
-  item, color, index, fileTypeColor, isAdmin, onOpen, onEdit, onDelete,
+  item, color, index, fileTypeColor, canManage, onOpen, onEdit, onDelete,
   selectionActive, isSelected, onStartDrag, onDragOver,
 }: {
-  item: ArchiveItem; color: string; index: number; fileTypeColor: string; isAdmin: boolean
+  item: ArchiveItem; color: string; index: number; fileTypeColor: string; canManage: boolean
   onOpen: (item: ArchiveItem) => void
   onEdit: (item: ArchiveItem) => void
   onDelete: (item: ArchiveItem) => void
@@ -668,20 +640,16 @@ const ItemCard = memo(function ItemCard({
   const name = lang === 'ar' ? item.nameAr        : item.nameEn
   const desc = lang === 'ar' ? item.descriptionAr : item.description
 
-  /* Selecting happens on mousedown (not click) so a press-and-drag across
-     several cards works — see useSelection.ts. A plain click still opens the
-     item when selection mode is off; while it's on, mousedown already did
-     the toggling, so click intentionally does nothing further. */
   const handleClick = useCallback(() => {
     if (!selectionActive) onOpen(item)
   }, [selectionActive, onOpen, item]);
   const handleMouseDown = useCallback(() => {
-    if (selectionActive) onStartDrag(item.id)
-  }, [selectionActive, onStartDrag, item.id]);
+    if (selectionActive) onStartDrag(item.dbId)
+  }, [selectionActive, onStartDrag, item.dbId]);
   const handleMouseEnter = useCallback(() => {
     setHovered(true)
-    if (selectionActive) onDragOver(item.id)
-  }, [selectionActive, onDragOver, item.id]);
+    if (selectionActive) onDragOver(item.dbId)
+  }, [selectionActive, onDragOver, item.dbId]);
   const handleMouseLeave = useCallback(() => setHovered(false), []);
   const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(item) }, [onEdit, item]);
   const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(item) }, [onDelete, item]);
@@ -774,8 +742,8 @@ const ItemCard = memo(function ItemCard({
           </div>
         )}
 
-        {isAdmin && !selectionActive && (
-          <div className="absolute top-2" style={{ [isRTL ? 'right' : 'left']: '8px' }}>
+        {canManage && !selectionActive && (
+          <div className="absolute top-2 z-20" style={{ [isRTL ? 'right' : 'left']: '8px' }}>
             <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1">
               <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center"
                 style={{ background: 'rgba(8,15,18,0.5)', color: '#ffffff', backdropFilter: 'blur(6px)' }}>
@@ -791,7 +759,7 @@ const ItemCard = memo(function ItemCard({
 
         {selectionActive && (
           <div
-            className="absolute top-2 w-6 h-6 rounded-lg flex items-center justify-center"
+            className="absolute top-2 z-20 w-6 h-6 rounded-lg flex items-center justify-center"
             style={{
               [isRTL ? 'right' : 'left']: '8px',
               background: isSelected ? color : 'rgba(8,15,18,0.5)',
@@ -843,10 +811,10 @@ const ItemCard = memo(function ItemCard({
 
 /* ── Single item row (List mode) ── */
 const ItemListRow = memo(function ItemListRow({
-  item, color, index, fileTypeColor, isAdmin, onOpen, onEdit, onDelete,
+  item, color, index, fileTypeColor, canManage, onOpen, onEdit, onDelete,
   selectionActive, isSelected, onStartDrag, onDragOver,
 }: {
-  item: ArchiveItem; color: string; index: number; fileTypeColor: string; isAdmin: boolean
+  item: ArchiveItem; color: string; index: number; fileTypeColor: string; canManage: boolean
   onOpen: (item: ArchiveItem) => void
   onEdit: (item: ArchiveItem) => void
   onDelete: (item: ArchiveItem) => void
@@ -866,12 +834,12 @@ const ItemListRow = memo(function ItemListRow({
     if (!selectionActive) onOpen(item)
   }, [selectionActive, onOpen, item]);
   const handleMouseDown = useCallback(() => {
-    if (selectionActive) onStartDrag(item.id)
-  }, [selectionActive, onStartDrag, item.id]);
+    if (selectionActive) onStartDrag(item.dbId)
+  }, [selectionActive, onStartDrag, item.dbId]);
   const handleMouseEnter = useCallback(() => {
     setHovered(true)
-    if (selectionActive) onDragOver(item.id)
-  }, [selectionActive, onDragOver, item.id]);
+    if (selectionActive) onDragOver(item.dbId)
+  }, [selectionActive, onDragOver, item.dbId]);
   const handleMouseLeave = useCallback(() => setHovered(false), []);
   const handleEditClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onEdit(item) }, [onEdit, item]);
   const handleDeleteClick = useCallback((e: React.MouseEvent) => { e.stopPropagation(); onDelete(item) }, [onDelete, item]);
@@ -934,7 +902,7 @@ const ItemListRow = memo(function ItemListRow({
         </span>
       )}
 
-      {isAdmin && !selectionActive && (
+      {canManage && !selectionActive && (
         <m.div animate={{ opacity: hovered ? 1 : 0 }} transition={{ duration: 0.15 }} className="flex gap-1 shrink-0">
           <button onClick={handleEditClick} className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ color: TEXT_MUTED }}>
             <Pencil className="w-3 h-3" />
@@ -953,32 +921,48 @@ const ItemListRow = memo(function ItemListRow({
 /* ── SectionGrid ── */
 function SectionGrid({
   activeSection,
-  color        = '#458482',
-  isAdmin      = true,
+  color         = '#458482',
+  canManage     = false,
+  canDelete     = false,
   platformSlug,
   workId,
+  workSlug,
+  initialItems,
+  initialFileTypes,
+  onItemCountChange,
+  initialViewMode = 'grid',
 }: {
   activeSection: Section
   color?:        string
-  isAdmin?:      boolean
+  canManage?:    boolean
+  canDelete?:    boolean
   /** Needed to build the route to the file-list page one level down. */
   platformSlug:  string
+  /** uuid العمل الأب — لازم لكل أكشنز الإضافة/التعديل (حل صلاحية Manage Archive) */
   workId:        string
+  /** الـslug الجميل تبع العمل — لازم للراوت (مش workId اليوزد uuid) */
+  workSlug:      string
+  initialItems:      ArchiveItem[]
+  initialFileTypes:  FileType[]
+  /** بيتنادى لما عنصر ينضاف (+1) أو ينحذف (-1) فعليًا — تزامن العداد
+      بتبويب SectionTabs (كومبوننت منفصل، ما بشوف items مباشرة). */
+  onItemCountChange?: (sectionId: string, delta: number) => void
+  /** تفضيل Grid/List محفوظ بالبروفايل — جاي من Server Component. */
+  initialViewMode?: ViewMode
 }) {
   const { lang, isRTL }       = useLang()
   const { theme }             = useTheme()
   const router                = useRouter()
   const isDark                = theme === 'dark'
-  const [items, setItems]     = useState<ArchiveItem[]>(INITIAL_ITEMS)
-  const [fileTypes, setFileTypes] = useState<FileType[]>(DEFAULT_FILE_TYPES)
+  const [items, setItems]     = useState<ArchiveItem[]>(initialItems)
+  const [fileTypes, setFileTypes] = useState<FileType[]>(initialFileTypes)
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState<ArchiveItem | null>(null)
   /** The item currently showing the big delete-confirmation popup, if any. */
   const [pendingDelete, setPendingDelete] = useState<ArchiveItem | null>(null)
   const [search, setSearch]   = useState('')
 
-  // TEMPORARY — not persisted cross-device yet, see BACKEND NOTE in ViewToggle.tsx
-  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [viewMode, setViewMode] = useArchiveViewMode(initialViewMode)
 
   const selection = useSelection()
   const [showDestPicker, setShowDestPicker] = useState(false)
@@ -997,8 +981,8 @@ function SectionGrid({
   )
 
   const itemsInSection = useMemo(
-    () => items.filter(i => i.sectionId === activeSection.id),
-    [items, activeSection.id]
+    () => items.filter(i => i.sectionId === activeSection.dbId),
+    [items, activeSection.dbId]
   )
 
   const getItemSearchFields = useCallback(
@@ -1018,28 +1002,76 @@ function SectionGrid({
   const handleOpenModal  = useCallback(() => { setEditingItem(null); setShowModal(true) }, [])
   const handleOpenEditModal = useCallback((item: ArchiveItem) => { setEditingItem(item); setShowModal(true) }, [])
   const handleCloseModal = useCallback(() => { setShowModal(false); setEditingItem(null) }, [])
-  const handleAddItem    = useCallback((item: ArchiveItem) => {
-    setItems(prev => [...prev, item])
-  }, [])
-  const handleSaveItem = useCallback((id: string, updates: Omit<ArchiveItem, 'id' | 'sectionId'>) => {
-    setItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i))
-  }, [])
-  const handleCreateFileType = useCallback((ft: FileType) => {
+
+  /** Optimistic insert بـid مؤقت، ثم استبداله بالصف الحقيقي من السيرفر. */
+  const handleAddItem = useCallback(async (payload: ItemActionPayload) => {
+    const tempId = `temp-${Date.now()}`
+    const optimistic: ArchiveItem = {
+      dbId: tempId, id: tempId, sectionId: activeSection.dbId,
+      nameEn: payload.nameEn, nameAr: payload.nameAr,
+      description: payload.description, descriptionAr: payload.descriptionAr,
+      driveUrl: payload.driveUrl, thumbnail: payload.thumbnail, tag: payload.tag,
+    }
+    setItems(prev => [...prev, optimistic])
+
+    try {
+      const real = await addItemAction(activeSection.dbId, workId, payload)
+      setItems(prev => prev.map(i => i.dbId === tempId ? real : i))
+      onItemCountChange?.(activeSection.dbId, 1)
+    } catch {
+      setItems(prev => prev.filter(i => i.dbId !== tempId))
+    }
+  }, [activeSection.dbId, workId, onItemCountChange])
+
+  const handleSaveItem = useCallback(async (dbId: string, updates: ItemActionPayload) => {
+    let previous: ArchiveItem | undefined
+    setItems(prev => prev.map(i => {
+      if (i.dbId !== dbId) return i
+      previous = i
+      return { ...i, ...updates }
+    }))
+
+    try {
+      await updateItemAction(dbId, workId, updates)
+    } catch {
+      if (previous) setItems(prev => prev.map(i => i.dbId === dbId ? previous! : i))
+    }
+  }, [workId])
+
+  /** جديد بجلسة (مش موجود بالـfileTypes بعد) → نحفظه فعليًا عبر الـRPC،
+      وإلا (موجود أصلاً بمكان تاني بالتطبيق) منضيفه محليًا بس. */
+  const handleCreateFileType = useCallback(async (ft: FileType) => {
     setFileTypes(prev => prev.some(t => t.key === ft.key) ? prev : [...prev, ft])
+    try {
+      await addFileTypeAction(ft.key, ft.color)
+    } catch {
+      // النوع موجود أصلاً أو فشل الحفظ — يضل مستخدم بهاي الجلسة على الأقل
+    }
   }, [])
 
-  /* Trash click only opens the big confirm popup — the item stays in the
-     grid until the person explicitly confirms after the forced countdown. */
   const handleRequestDeleteItem = useCallback((item: ArchiveItem) => {
     setPendingDelete(item)
   }, [])
 
-  const handleConfirmDeleteItem = useCallback(() => {
+  const handleConfirmDeleteItem = useCallback(async () => {
     if (!pendingDelete) return
-    const id = pendingDelete.id
-    setItems(prev => prev.filter(i => i.id !== id))
+    const target = pendingDelete
+    const targetIndex = items.findIndex(i => i.dbId === target.dbId)
+
+    setItems(prev => prev.filter(i => i.dbId !== target.dbId))
     setPendingDelete(null)
-  }, [pendingDelete])
+
+    try {
+      await deleteItemAction(target.dbId)
+      onItemCountChange?.(target.sectionId, -1)
+    } catch {
+      setItems(prev => {
+        const next = [...prev]
+        next.splice(targetIndex, 0, target)
+        return next
+      })
+    }
+  }, [pendingDelete, items, onItemCountChange])
 
   const handleCancelDeleteItem = useCallback(() => setPendingDelete(null), [])
 
@@ -1055,42 +1087,49 @@ function SectionGrid({
       : `${n} item${n === 1 ? '' : 's'} from "${sectionName}"`
   }, [selection.selectedCount, lang, activeSection])
 
-  /* Items only exist scoped to sections within the SAME work in this
-     component's local state (there's no shared client-side store yet — see
-     BACKEND NOTE at the bottom of this file). So a destination inside this
-     work is a real, working move/copy; anywhere else just confirms visually,
-     since there's nowhere local to actually place it. Wiring the backend
-     later replaces this whole branch with a single server action call. */
-  const handleConfirmDestination = useCallback((dest: DestinationResult) => {
-    const selectedIds = selection.selectedIds
-    const destSection = INITIAL_SECTIONS_LOOKUP.get(dest.sectionId ?? '')
-    const destName = destSection ? (lang === 'ar' ? destSection.nameAr : destSection.nameEn) : ''
+  /** التنفيذ الفعلي — move_items/copy_items RPCs. بالـmove: العناصر
+      بتغادر هالقسم فورًا (عداد القسم الحالي بينزل)، والوجهة بتاخدها لو
+      كانت جوا نفس العمل (ما بنقدر نحدّث تبويب بعمل تاني من هون). بالـcopy:
+      العناصر تضل هون، وبس بيتزاد عداد الوجهة لو كانت بنفس العمل. */
+  const handleConfirmDestination = useCallback(async (dest: DestinationResult) => {
+    if (!dest.sectionId) return
+    const selectedIds = Array.from(selection.selectedIds)
+    const n = selectedIds.length
+    const movedItems = items.filter(i => selection.selectedIds.has(i.dbId))
+    const destSectionId = dest.sectionId
 
-    if (dest.workId === workId && dest.sectionId) {
-      if (copyMoveKind === 'move') {
-        setItems(prev => prev.map(i => selectedIds.has(i.id) ? { ...i, sectionId: dest.sectionId! } : i))
-      } else {
-        setItems(prev => [
-          ...prev,
-          ...prev.filter(i => selectedIds.has(i.id)).map(i => ({
-            ...i,
-            id: `${i.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            sectionId: dest.sectionId!,
-          })),
-        ])
-      }
+    if (copyMoveKind === 'move') {
+      setItems(prev => prev.filter(i => !selection.selectedIds.has(i.dbId)))
+      onItemCountChange?.(activeSection.dbId, -n)
+      onItemCountChange?.(destSectionId, n)
     }
 
-    const n = selectedIds.size
-    setToastMessage(
-      copyMoveKind === 'move'
-        ? (lang === 'ar' ? `تم نقل ${n} عنصر إلى "${destName}"` : `Moved ${n} item${n === 1 ? '' : 's'} to "${destName}"`)
-        : (lang === 'ar' ? `تم نسخ ${n} عنصر إلى "${destName}"` : `Copied ${n} item${n === 1 ? '' : 's'} to "${destName}"`)
-    )
+    try {
+      if (copyMoveKind === 'move') {
+        await moveItemsAction(selectedIds, destSectionId)
+      } else {
+        await copyItemsAction(selectedIds, destSectionId)
+        onItemCountChange?.(destSectionId, n)
+      }
+      setToastMessage(
+        copyMoveKind === 'move'
+          ? (lang === 'ar' ? `تم نقل ${n} عنصر` : `Moved ${n} item${n === 1 ? '' : 's'}`)
+          : (lang === 'ar' ? `تم نسخ ${n} عنصر` : `Copied ${n} item${n === 1 ? '' : 's'}`)
+      )
+    } catch {
+      if (copyMoveKind === 'move') {
+        setItems(prev => [...prev, ...movedItems])
+        onItemCountChange?.(activeSection.dbId, n)
+        onItemCountChange?.(destSectionId, -n)
+      }
+      setToastMessage(
+        lang === 'ar' ? 'فشلت العملية — تأكد من صلاحياتك بالوجهة' : 'Action failed — check your permissions at the destination'
+      )
+    }
 
     setShowDestPicker(false)
     selection.disable()
-  }, [selection, workId, copyMoveKind, lang])
+  }, [selection, copyMoveKind, lang, items, activeSection.dbId, onItemCountChange])
 
   const handleToastDone = useCallback(() => setToastMessage(null), [])
 
@@ -1098,8 +1137,8 @@ function SectionGrid({
      jumping straight to Drive — the Drive folder link lives at the top of
      that page instead. See FileList.tsx (built separately) for that route. */
   const handleOpenItem = useCallback((item: ArchiveItem) => {
-    router.push(`/archive/${platformSlug}/${workId}/${activeSection.id}/${item.id}`)
-  }, [router, platformSlug, workId, activeSection.id])
+    router.push(`/archive/${platformSlug}/${workSlug}/${activeSection.dbId}/${item.dbId}`)
+  }, [router, platformSlug, workSlug, activeSection.dbId])
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setSearch(e.target.value)
@@ -1195,8 +1234,8 @@ function SectionGrid({
 
           <ViewToggle value={viewMode} onChange={setViewMode} />
 
-          {/* Select mode toggle — admin only, needs at least one item to matter */}
-          {isAdmin && sectionItems.length > 0 && (
+          {/* Select mode toggle — needs Manage Archive + at least one item */}
+          {canManage && sectionItems.length > 0 && (
             <button
               onClick={selection.enable}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
@@ -1212,8 +1251,8 @@ function SectionGrid({
             </button>
           )}
 
-          {/* Add item — admin */}
-          {isAdmin && (
+          {/* Add item */}
+          {canManage && (
             <button
               onClick={handleOpenModal}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold shrink-0"
@@ -1233,7 +1272,7 @@ function SectionGrid({
         {sectionItems.length > 0 ? (
           viewMode === 'grid' ? (
             <m.div
-              key={activeSection.id + search + 'grid'}
+              key={activeSection.dbId + search + 'grid'}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -1241,13 +1280,13 @@ function SectionGrid({
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
             >
               {sectionItems.map((item, i) => (
-                <ItemCard key={item.id} item={item} color={color} index={i}
-                  fileTypeColor={getFileTypeColor(item.tag)} isAdmin={isAdmin}
+                <ItemCard key={item.dbId} item={item} color={color} index={i}
+                  fileTypeColor={getFileTypeColor(item.tag)} canManage={canManage}
                   onOpen={handleOpenItem} onEdit={handleOpenEditModal} onDelete={handleRequestDeleteItem}
-                  selectionActive={selection.active} isSelected={selection.isSelected(item.id)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
+                  selectionActive={selection.active} isSelected={selection.isSelected(item.dbId)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
               ))}
 
-              {isAdmin && !search && !selection.active && (
+              {canManage && !search && !selection.active && (
                 <m.button
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1272,7 +1311,7 @@ function SectionGrid({
             </m.div>
           ) : (
             <m.div
-              key={activeSection.id + search + 'list'}
+              key={activeSection.dbId + search + 'list'}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -1281,10 +1320,10 @@ function SectionGrid({
               style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}
             >
               {sectionItems.map((item, i) => (
-                <ItemListRow key={item.id} item={item} color={color} index={i}
-                  fileTypeColor={getFileTypeColor(item.tag)} isAdmin={isAdmin}
+                <ItemListRow key={item.dbId} item={item} color={color} index={i}
+                  fileTypeColor={getFileTypeColor(item.tag)} canManage={canManage}
                   onOpen={handleOpenItem} onEdit={handleOpenEditModal} onDelete={handleRequestDeleteItem}
-                  selectionActive={selection.active} isSelected={selection.isSelected(item.id)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
+                  selectionActive={selection.active} isSelected={selection.isSelected(item.dbId)} onStartDrag={selection.startDrag} onDragOver={selection.dragOver} />
               ))}
             </m.div>
           )
@@ -1311,7 +1350,6 @@ function SectionGrid({
       <AnimatePresence>
         {showModal && (
           <AddItemModal
-            sectionId={activeSection.id}
             color={color}
             fileTypes={fileTypes}
             editingItem={editingItem}
@@ -1343,7 +1381,7 @@ function SectionGrid({
             targetLevel="section"
             actionKind={copyMoveKind}
             sourceLabel={selectedItemsLabel}
-            excludeSectionId={activeSection.id}
+            excludeSectionId={activeSection.dbId}
             onConfirm={handleConfirmDestination}
             onCancel={handleCancelDestPicker}
           />
@@ -1357,51 +1395,3 @@ function SectionGrid({
 }
 
 export default memo(SectionGrid)
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   BACKEND NOTE — item thumbnails
-   ═══════════════════════════════════════════════════════════════════════════
-   The picker currently converts the chosen image to a data URL via FileReader so
-   it can be previewed and stored in component state. That is a stand-in ONLY.
-
-   Never persist the data URL. Base64 inflates the image by roughly a third, and
-   it would then be embedded in every row and every list response — the archive
-   grid fetches many items at once, so this degrades quickly.
-
-   On wiring up, upload the File to Supabase Storage and store the returned public
-   URL (or object path) in `archive_items.thumbnail`:
-
-     const path = `archive/${sectionId}/${crypto.randomUUID()}-${file.name}`
-     const { error } = await supabase.storage.from('archive').upload(path, file)
-     const { data } = supabase.storage.from('archive').getPublicUrl(path)
-
-   Keep the client-side checks that already exist here (image MIME type, 5 MB
-   limit) as a first line of defence, but enforce both again server side — a
-   client check only stops honest mistakes. Storage bucket policies should also
-   restrict uploads to users holding the archive-management permission, matching
-   the single "Manage Archive" permission the Archive page is built around.
-
-   Deleting an item must delete its stored object too, otherwise the bucket fills
-   with orphans that nothing references.
-   ═══════════════════════════════════════════════════════════════════════════
-
-   BACKEND NOTE — file types registry
-   ═══════════════════════════════════════════════════════════════════════════
-   `fileTypes` currently lives in this component's state (`DEFAULT_FILE_TYPES`
-   plus whatever gets added in-session), so a type an admin creates disappears
-   on refresh and is invisible to every other admin. The plan doc calls for
-   this to be permanent and shared, which means a real table:
-
-     create table file_types (
-       key        text primary key,        -- e.g. 'PSD', stored upper-case
-       color      text not null,           -- hex, e.g. '#458482'
-       created_by uuid references profiles(id),
-       created_at timestamptz not null default now()
-     );
-
-   Load it once per page (or globally, since it's small and rarely changes)
-   instead of re-fetching per section. Creating a new type from the Add Item
-   modal should insert here — guard against a duplicate `key` with an
-   `on conflict do nothing` or a friendly "this type already exists" message
-   rather than a raw constraint error.
-   ═══════════════════════════════════════════════════════════════════════════ */

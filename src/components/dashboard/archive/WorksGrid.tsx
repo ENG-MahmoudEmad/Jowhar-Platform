@@ -1,48 +1,29 @@
+// src/components/dashboard/archive/WorksGrid.tsx
 "use client"
 
 import { useState, useRef, useMemo, useCallback, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderOpen, ChevronRight, Briefcase, Plus, X, Upload, Lock, Search, FileStack } from 'lucide-react'
+import { FolderOpen, ChevronRight, Briefcase, Plus, X, Upload, Lock, Search, FileStack, Pencil, Trash2 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import { useRouter } from 'next/navigation'
 import ViewToggle, { type ViewMode } from '@/components/dashboard/archive/ViewToggle'
 import { useSmartSearch } from '@/lib/useSmartSearch'
+import { useArchiveViewMode } from '@/lib/useArchiveViewMode'
+import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
+import {
+  addWorkAction,
+  updateWorkAction,
+  deleteWorkAction,
+  uploadArchiveImageAction,
+  type WorkRow,
+  type WorkActionPayload,
+} from '@/app/(dashboard)/archive/actions'
 
-/* ── Types ── */
-export interface Work {
-  id:            string
-  platformId:    string
-  nameEn:        string
-  nameAr:        string
-  description:   string
-  descriptionAr: string
-  thumbnail?:    string
-  sectionCount:  number
-  fileCount:     number
-}
+/** Work هون هو WorkRow القادم من الباك اند (page.tsx) — بديل عن Work
+    القديم من archiveMockData. */
+export type Work = WorkRow
 
-/* ── Mock data (replace with API later — scoped per platformId) ── */
-export const WORKS: Work[] = [
-  {
-    id: 'film-1', platformId: 'jowhar', nameEn: 'The First Film', nameAr: 'الفلم الأول',
-    description:   'Short animated film — first production of the season.',
-    descriptionAr: 'فيلم أنيميشن قصير — أول إنتاج بالموسم.',
-    sectionCount: 3, fileCount: 18,
-  },
-  {
-    id: 'film-2', platformId: 'jowhar', nameEn: 'The Second Film', nameAr: 'الفلم الثاني',
-    description:   'Second production, currently in post-production.',
-    descriptionAr: 'الإنتاج الثاني، حاليًا بمرحلة ما بعد الإنتاج.',
-    sectionCount: 3, fileCount: 24,
-  },
-  {
-    id: 'film-3', platformId: 'jowhar', nameEn: 'The Third Film', nameAr: 'الفلم الثالث',
-    description:   'Third production — early storyboard stage.',
-    descriptionAr: 'الإنتاج الثالث — مرحلة اللوحة القصصية المبكرة.',
-    sectionCount: 2, fileCount: 7,
-  },
-]
 
 /* ── Static style/handler constants (zero re-creation per render) ── */
 const MODAL_OVERLAY_STYLE: React.CSSProperties = {
@@ -83,29 +64,34 @@ const handleOpenBtnLeave = (e: React.MouseEvent<HTMLDivElement>) => {
 
 /* ── Add Work Modal ── */
 const AddWorkModal = memo(function AddWorkModal({
-  platformId,
   color,
+  editingWork,
   onClose,
   onAdd,
+  onSave,
 }: {
-  platformId: string
   color:      string
+  /** Present → editing an existing work; absent → creating one. */
+  editingWork?: Work | null
   onClose:    () => void
-  onAdd:      (w: Work) => void
+  onAdd:      (payload: WorkActionPayload) => void
+  onSave:     (dbId: string, updates: WorkActionPayload) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
   const isDark          = theme === 'dark'
   const fileInputRef    = useRef<HTMLInputElement>(null)
+  const isEditing        = !!editingWork
 
-  const [nameEn,        setNameEn]        = useState('')
-  const [nameAr,        setNameAr]        = useState('')
-  const [description,   setDescription]   = useState('')
-  const [descriptionAr, setDescriptionAr] = useState('')
-  const [thumbnailUrl,  setThumbnailUrl]  = useState('')
+  const [nameEn,        setNameEn]        = useState(editingWork?.nameEn ?? '')
+  const [nameAr,        setNameAr]        = useState(editingWork?.nameAr ?? '')
+  const [description,   setDescription]   = useState(editingWork?.description ?? '')
+  const [descriptionAr, setDescriptionAr] = useState(editingWork?.descriptionAr ?? '')
+  const [thumbnailUrl,  setThumbnailUrl]  = useState(editingWork?.thumbnail ?? '')
 
   const tx = useMemo(() => ({
-    title:      lang === 'ar' ? 'إضافة عمل جديد'        : 'Add New Work',
+    titleAdd:   lang === 'ar' ? 'إضافة عمل جديد'        : 'Add New Work',
+    titleEdit:  lang === 'ar' ? 'تعديل العمل'           : 'Edit Work',
     nameEn:     lang === 'ar' ? 'الاسم بالإنجليزي'       : 'English Name',
     nameAr:     lang === 'ar' ? 'الاسم بالعربي'          : 'Arabic Name',
     descEn:     lang === 'ar' ? 'الوصف بالإنجليزي'       : 'English Description',
@@ -114,38 +100,71 @@ const AddWorkModal = memo(function AddWorkModal({
     choose:     lang === 'ar' ? 'اختر صورة'              : 'Choose File',
     remove:     lang === 'ar' ? 'حذف'                    : 'Remove',
     add:        lang === 'ar' ? 'إضافة العمل'            : 'Add Work',
+    save:       lang === 'ar' ? 'حفظ التعديلات'          : 'Save Changes',
     cancel:     lang === 'ar' ? 'إلغاء'                  : 'Cancel',
     preview:    lang === 'ar' ? 'معاينة'                 : 'Preview',
   }), [lang])
 
   const isValid = !!(nameEn.trim() && nameAr.trim())
 
-  const handleAdd = useCallback(() => {
-    if (!isValid) return
-    const slug = nameEn.toLowerCase().trim().replace(/\s+/g, '-')
-    onAdd({
-      id:            slug,
-      platformId,
+  const handleSubmit = useCallback(() => {
+    if (!isValid || uploading) return
+    const payload: WorkActionPayload = {
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),
       descriptionAr: descriptionAr.trim(),
       thumbnail:     thumbnailUrl.trim() || undefined,
-      sectionCount:  0,
-      fileCount:     0,
-    })
+    }
+    if (isEditing && editingWork) {
+      onSave(editingWork.dbId, payload)
+    } else {
+      onAdd(payload)
+    }
     onClose()
-  }, [isValid, nameEn, nameAr, description, descriptionAr, thumbnailUrl, platformId, onAdd, onClose])
+  }, [isValid, isEditing, editingWork, nameEn, nameAr, description, descriptionAr, thumbnailUrl, onAdd, onSave, onClose])
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) setThumbnailUrl(URL.createObjectURL(file))
-  }, [])
+    e.target.value = ''
+    if (!file) return
 
-  const handleRemoveThumbnail = useCallback(() => setThumbnailUrl(''), [])
+    setUploadError('')
+    const previewUrl = URL.createObjectURL(file)
+    setThumbnailUrl(previewUrl)
+    setUploading(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('folder', 'works')
+      const realUrl = await uploadArchiveImageAction(formData)
+      setThumbnailUrl(realUrl)
+    } catch {
+      setThumbnailUrl('')
+      setUploadError(
+        lang === 'ar'
+          ? 'فشل رفع الصورة — تأكد إنها أقل من 2MB وبصيغة صورة صحيحة'
+          : 'Upload failed — make sure it is under 2MB and a valid image'
+      )
+    } finally {
+      setUploading(false)
+      URL.revokeObjectURL(previewUrl)
+    }
+  }, [lang])
+
+  const handleRemoveThumbnail = useCallback(() => { setThumbnailUrl(''); setUploadError('') }, [])
   const handleChooseFile = useCallback(() => fileInputRef.current?.click(), [])
+  const isDraggingFromBackdrop = useRef(false)
+  const handleBackdropMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    isDraggingFromBackdrop.current = e.target === e.currentTarget
+  }, [])
   const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onClose()
+    if (isDraggingFromBackdrop.current && e.target === e.currentTarget) onClose()
+    isDraggingFromBackdrop.current = false
   }, [onClose])
 
   const inputStyle = useMemo<React.CSSProperties>(() => ({
@@ -180,11 +199,11 @@ const AddWorkModal = memo(function AddWorkModal({
   }), [color])
 
   const addBtnStyle = useMemo<React.CSSProperties>(() => ({
-    background: !isValid ? 'var(--hover-bg)' : `linear-gradient(135deg, ${color}, ${color}cc)`,
-    color:      !isValid ? 'var(--foreground-muted)' : '#ffffff',
-    cursor:     !isValid ? 'not-allowed' : 'pointer',
+    background: (!isValid || uploading) ? 'var(--hover-bg)' : `linear-gradient(135deg, ${color}, ${color}cc)`,
+    color:      (!isValid || uploading) ? 'var(--foreground-muted)' : '#ffffff',
+    cursor:     (!isValid || uploading) ? 'not-allowed' : 'pointer',
     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-  }), [isValid, color, lang])
+  }), [isValid, color, lang, uploading])
 
   const iconWrapStyle = useMemo<React.CSSProperties>(() => ({
     background: `linear-gradient(135deg, ${color}, ${color}99)`,
@@ -197,6 +216,7 @@ const AddWorkModal = memo(function AddWorkModal({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none"
       style={MODAL_OVERLAY_STYLE}
+      onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
     >
       <motion.div
@@ -219,13 +239,13 @@ const AddWorkModal = memo(function AddWorkModal({
           style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={iconWrapStyle}>
-              <Plus className="w-4 h-4 text-white" />
+              {isEditing ? <Pencil className="w-3.5 h-3.5 text-white" /> : <Plus className="w-4 h-4 text-white" />}
             </div>
             <h2 className="text-sm font-black" style={{
               color: 'var(--foreground)',
               fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)',
             }}>
-              {tx.title}
+              {isEditing ? tx.titleEdit : tx.titleAdd}
             </h2>
           </div>
           <button onClick={onClose}
@@ -267,7 +287,14 @@ const AddWorkModal = memo(function AddWorkModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={labelStyle}>{tx.nameEn}</label>
-              <input value={nameEn} onChange={e => setNameEn(e.target.value)} placeholder="e.g. The First Film" style={inputStyle} />
+              <input
+                value={nameEn}
+                onChange={e => setNameEn(e.target.value)}
+                placeholder="e.g. The First Film"
+                style={inputStyle}
+                disabled={isEditing}
+                title={isEditing ? (lang === 'ar' ? 'الاسم الإنجليزي والرابط لا يتغيران بعد الإنشاء' : 'English name / slug cannot change after creation') : undefined}
+              />
             </div>
             <div>
               <label style={labelStyle}>{tx.nameAr}</label>
@@ -294,22 +321,28 @@ const AddWorkModal = memo(function AddWorkModal({
               <input value={thumbnailUrl} onChange={e => setThumbnailUrl(e.target.value)}
                 placeholder="/works/film-1.png" style={{ ...inputStyle, flex: 1 }} />
               <button onClick={handleChooseFile}
+                disabled={uploading}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition-all shrink-0"
-                style={uploadBtnStyle}
+                style={{ ...uploadBtnStyle, opacity: uploading ? 0.6 : 1, cursor: uploading ? 'not-allowed' : 'pointer' }}
                 onMouseEnter={handleUploadBtnEnter}
                 onMouseLeave={handleUploadBtnLeave}
               >
                 <Upload className="w-3.5 h-3.5" />
-                {tx.choose}
+                {uploading ? (lang === 'ar' ? 'جاري الرفع...' : 'Uploading...') : tx.choose}
               </button>
             </div>
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+            {uploadError && (
+              <p className="text-[9px] mt-1" style={{ color: '#ef4444' }}>{uploadError}</p>
+            )}
             {thumbnailUrl && (
               <div className="mt-2 flex items-center gap-2">
-                <img src={thumbnailUrl} alt="preview" className="w-10 h-10 rounded-lg object-cover" style={{ border: '1px solid rgba(255,255,255,0.1)' }} />
-                <button onClick={handleRemoveThumbnail} className="text-[9px]" style={{ color: '#ef4444', cursor: 'pointer' }}>
-                  {tx.remove}
-                </button>
+                <img src={thumbnailUrl} alt="preview" className="w-10 h-10 rounded-lg object-cover" style={{ border: '1px solid rgba(255,255,255,0.1)', opacity: uploading ? 0.5 : 1 }} />
+                {!uploading && (
+                  <button onClick={handleRemoveThumbnail} className="text-[9px]" style={{ color: '#ef4444', cursor: 'pointer' }}>
+                    {tx.remove}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -324,11 +357,11 @@ const AddWorkModal = memo(function AddWorkModal({
           >
             {tx.cancel}
           </button>
-          <button onClick={handleAdd} disabled={!isValid}
+          <button onClick={handleSubmit} disabled={!isValid || uploading}
             className="px-4 py-2 rounded-lg text-[11px] font-bold transition-all"
             style={addBtnStyle}
           >
-            {tx.add}
+            {isEditing ? tx.save : tx.add}
           </button>
         </div>
       </motion.div>
@@ -359,12 +392,16 @@ const OpenButton = memo(function OpenButton({ label, color }: { label: string; c
 
 /* ── Single work card ── */
 const WorkCard = memo(function WorkCard({
-  work, color, index, platformSlug,
+  work, color, index, platformSlug, canManage, canDelete, onEdit, onDelete,
 }: {
   work:         Work
   color:        string
   index:        number
   platformSlug: string
+  canManage:    boolean
+  canDelete:    boolean
+  onEdit:       (work: Work) => void
+  onDelete:     (work: Work) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -392,6 +429,14 @@ const WorkCard = memo(function WorkCard({
     () => router.push(`/archive/${platformSlug}/${work.id}`),
     [router, platformSlug, work.id]
   )
+  const handleEditClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onEdit(work)
+  }, [onEdit, work])
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete(work)
+  }, [onDelete, work])
 
   const cardStyle = useMemo<React.CSSProperties>(() => ({
     background: isDark
@@ -441,6 +486,39 @@ const WorkCard = memo(function WorkCard({
       onMouseLeave={handleMouseLeave}
       onClick={handleClick}
     >
+      {(canManage || canDelete) && (
+        <motion.div
+          animate={{ opacity: hovered ? 1 : 0 }}
+          transition={{ duration: 0.15 }}
+          className="absolute top-2.5 z-20 flex gap-1.5"
+          style={{ [isRTL ? 'left' : 'right']: '10px' }}
+        >
+          {canManage && (
+            <button
+              onClick={handleEditClick}
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: 'rgba(8,15,18,0.55)', color: '#ffffff', backdropFilter: 'blur(6px)' }}
+              title={lang === 'ar' ? 'تعديل العمل' : 'Edit work'}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Delete — gated by canDelete (Chief Admin / Developer only), نفس
+              القاعدة بكل مكان تاني بالأرشيف. */}
+          {canDelete && (
+            <button
+              onClick={handleDeleteClick}
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: 'rgba(8,15,18,0.55)', color: '#ff8080', backdropFilter: 'blur(6px)' }}
+              title={lang === 'ar' ? 'حذف العمل' : 'Delete work'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </motion.div>
+      )}
+
       <div className="relative w-full overflow-hidden" style={thumbBgStyle}>
         <div className="absolute inset-0" style={radialStyle} />
 
@@ -617,33 +695,33 @@ const WorkListRow = memo(function WorkListRow({
 function WorksGrid({
   platformId,
   platformSlug,
-  color          = '#458482',
+  color         = '#458482',
   initialWorks,
-  isAdmin        = true,
+  canCreate     = false,   // ← محسوبة سيرفر-سايد (عضوية + archive.manage لهاي المنصة)
+  canDelete     = false,   // ← محسوبة سيرفر-سايد (Chief Admin / Developer بس)
+  initialViewMode = 'grid',
 }: {
-  platformId:     string
-  platformSlug:   string
-  color?:         string
-  initialWorks?:  Work[]
-  isAdmin?:       boolean
+  platformId:    string   // uuid المنصة الأب
+  platformSlug:  string
+  color?:        string
+  initialWorks:  Work[]
+  canCreate?:    boolean
+  canDelete?:    boolean
+  /** تفضيل Grid/List محفوظ بالبروفايل — جاي من Server Component. */
+  initialViewMode?: ViewMode
 }) {
   const { lang, isRTL } = useLang()
   const { theme }       = useTheme()
   const isDark          = theme === 'dark'
 
-  const seedWorks = useMemo(
-    () => initialWorks ?? WORKS.filter(w => w.platformId === platformId),
-    [initialWorks, platformId]
-  )
-
-  const [works, setWorks]         = useState<Work[]>(seedWorks)
+  const [works, setWorks]         = useState<Work[]>(initialWorks)
   const [showModal, setShowModal] = useState(false)
+  const [editingWork, setEditingWork] = useState<Work | null>(null)
+  /** The work currently showing the big delete-confirmation popup, if any. */
+  const [pendingDelete, setPendingDelete] = useState<Work | null>(null)
   const [search, setSearch]       = useState('')
 
-  // TEMPORARY: not persisted cross-device yet — see BACKEND NOTE at the
-  // bottom of ViewToggle.tsx. Replace with a value read from the user's
-  // profile once that column/Server Action exists.
-  const [viewMode, setViewMode]   = useState<ViewMode>('grid')
+  const [viewMode, setViewMode] = useArchiveViewMode(initialViewMode)
 
   const getWorkSearchFields = useCallback(
     (w: Work) => [w.nameEn, w.nameAr, w.description, w.descriptionAr],
@@ -659,9 +737,72 @@ function WorksGrid({
     noResults:  lang === 'ar' ? 'لا توجد نتائج'   : 'No results found',
   }), [lang])
 
-  const handleAdd = useCallback((w: Work) => setWorks(prev => [...prev, w]), [])
-  const handleOpenModal  = useCallback(() => setShowModal(true), [])
-  const handleCloseModal = useCallback(() => setShowModal(false), [])
+  /** Optimistic insert بـid مؤقت، ثم استبداله بالصف الحقيقي من السيرفر. */
+  const handleAdd = useCallback(async (payload: WorkActionPayload) => {
+    const tempId = `temp-${Date.now()}`
+    const optimistic: Work = {
+      dbId: tempId,
+      id: payload.nameEn.toLowerCase().replace(/\s+/g, '-'),
+      platformId,
+      nameEn: payload.nameEn,
+      nameAr: payload.nameAr,
+      description: payload.description,
+      descriptionAr: payload.descriptionAr,
+      thumbnail: payload.thumbnail,
+      sectionCount: 0,
+      fileCount: 0,
+    }
+    setWorks(prev => [...prev, optimistic])
+
+    try {
+      const real = await addWorkAction(platformId, payload)
+      setWorks(prev => prev.map(w => w.dbId === tempId ? real : w))
+    } catch {
+      setWorks(prev => prev.filter(w => w.dbId !== tempId))
+    }
+  }, [platformId])
+
+  const handleSaveEdit = useCallback(async (dbId: string, updates: WorkActionPayload) => {
+    let previous: Work | undefined
+    setWorks(prev => prev.map(w => {
+      if (w.dbId !== dbId) return w
+      previous = w
+      return { ...w, ...updates }
+    }))
+
+    try {
+      await updateWorkAction(dbId, platformId, updates)
+    } catch {
+      if (previous) setWorks(prev => prev.map(w => w.dbId === dbId ? previous! : w))
+    }
+  }, [platformId])
+
+  const handleOpenModal  = useCallback(() => { setEditingWork(null); setShowModal(true) }, [])
+  const handleOpenEdit   = useCallback((work: Work) => { setEditingWork(work); setShowModal(true) }, [])
+  const handleCloseModal = useCallback(() => { setShowModal(false); setEditingWork(null) }, [])
+
+  const handleRequestDelete = useCallback((work: Work) => setPendingDelete(work), [])
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDelete) return
+    const target = pendingDelete
+    const targetIndex = works.findIndex(w => w.dbId === target.dbId)
+
+    setWorks(prev => prev.filter(w => w.dbId !== target.dbId))
+    setPendingDelete(null)
+
+    try {
+      await deleteWorkAction(target.dbId, platformId)
+    } catch {
+      setWorks(prev => {
+        const next = [...prev]
+        next.splice(targetIndex, 0, target)
+        return next
+      })
+    }
+  }, [pendingDelete, works, platformId])
+
+  const handleCancelDelete = useCallback(() => setPendingDelete(null), [])
 
   const handleAddBtnEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.style.filter = 'brightness(1.08)'
@@ -723,7 +864,7 @@ function WorksGrid({
           {works.length}
         </span>
 
-        {isAdmin && (
+        {canCreate && (
           <motion.button
             onClick={handleOpenModal}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold"
@@ -762,10 +903,11 @@ function WorksGrid({
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredWorks.map((w, i) => (
-            <WorkCard key={w.id} work={w} color={color} index={i} platformSlug={platformSlug} />
+            <WorkCard key={w.dbId} work={w} color={color} index={i} platformSlug={platformSlug}
+              canManage={canCreate} canDelete={canDelete} onEdit={handleOpenEdit} onDelete={handleRequestDelete} />
           ))}
 
-          {isAdmin && !search && (
+          {canCreate && !search && (
             <motion.button
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
@@ -792,7 +934,7 @@ function WorksGrid({
       ) : (
         <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}>
           {filteredWorks.map((w, i) => (
-            <WorkListRow key={w.id} work={w} color={color} index={i} platformSlug={platformSlug} />
+            <WorkListRow key={w.dbId} work={w} color={color} index={i} platformSlug={platformSlug} />
           ))}
         </div>
       )}
@@ -800,10 +942,24 @@ function WorksGrid({
       <AnimatePresence>
         {showModal && (
           <AddWorkModal
-            platformId={platformId}
             color={color}
+            editingWork={editingWork}
             onClose={handleCloseModal}
             onAdd={handleAdd}
+            onSave={handleSaveEdit}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingDelete && (
+          <DeleteConfirmModal
+            label={lang === 'ar' ? pendingDelete.nameAr : pendingDelete.nameEn}
+            message={lang === 'ar'
+              ? 'سيتم حذف هذا العمل نهائيًا مع كل التقسيمات والعناصر والملفات بداخله. هذا الإجراء لا يمكن التراجع عنه.'
+              : 'This work and everything inside it — sections, items, and files — will be permanently deleted. This cannot be undone.'}
+            onConfirm={handleConfirmDelete}
+            onCancel={handleCancelDelete}
           />
         )}
       </AnimatePresence>

@@ -1,91 +1,33 @@
-//src\components\dashboard\archive\SectionTabs.tsx
+// src/components/dashboard/archive/SectionTabs.tsx
 "use client"
 
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Plus, X, FolderOpen, Trash2, Pencil, Copy, FolderInput,
-  Video, Image as ImageIcon, Music, FileText, Palette,
-  Film, Mic, Archive, Layers, Sparkles, Camera, PenTool,
-} from 'lucide-react'
+import { Plus, X, FolderOpen, Trash2, Pencil, Copy, FolderInput } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
 import DestinationPicker, { type DestinationResult } from '@/components/dashboard/archive/DestinationPicker'
 import ActionToast from '@/components/dashboard/archive/ActionToast'
-import { WORKS } from '@/components/dashboard/archive/WorksGrid'
+import { SECTION_ICONS, type SectionIconKey } from '@/data/archiveMockData'
+import {
+  addSectionAction,
+  updateSectionAction,
+  deleteSectionAction,
+  moveSectionAction,
+  copySectionAction,
+  type SectionRow,
+  type SectionActionPayload,
+} from '@/app/(dashboard)/archive/actions'
 
-/* ── Icon library ── */
-/**
- * Curated set an admin picks from when creating a section — not an open text
- * field, so every section icon renders consistently and nothing breaks if a
- * typo'd icon name ever made it into the data. Extend this map to add more
- * choices; the *key* is what gets persisted (`Section.icon`), not the
- * component itself.
- */
-export const SECTION_ICONS = {
-  folder:  FolderOpen,
-  video:   Video,
-  image:   ImageIcon,
-  music:   Music,
-  file:    FileText,
-  palette: Palette,
-  film:    Film,
-  mic:     Mic,
-  archive: Archive,
-  layers:  Layers,
-  sparkles:Sparkles,
-  camera:  Camera,
-  pen:     PenTool,
-} as const
+export { SECTION_ICONS }
+export type { SectionIconKey }
 
-export type SectionIconKey = keyof typeof SECTION_ICONS
+/** Section هون هو SectionRow القادم من الباك اند — بديل عن Section القديم
+    من archiveMockData (يلي كانت قائمة مشتركة عالميًا، مش مقيّدة بـwork_id). */
+export type Section = SectionRow & { icon: SectionIconKey }
 
 const ICON_KEYS = Object.keys(SECTION_ICONS) as SectionIconKey[]
-const WORKS_LOOKUP = new Map(WORKS.map(w => [w.id, w]))
-
-/* ── Types ── */
-export interface Section {
-  id:          string
-  nameEn:      string
-  nameAr:      string
-  description:   string
-  descriptionAr: string
-  itemCount:   number
-  icon:        SectionIconKey
-}
-
-/* ── Mock sections (replace with API later) ── */
-export const INITIAL_SECTIONS: Section[] = [
-  {
-    id: 'published',
-    nameEn: 'Published Posts',   nameAr: 'المنشورات',
-    description: 'All published social media posts.',
-    descriptionAr: 'جميع المنشورات المنشورة على وسائل التواصل الاجتماعي.',
-    itemCount: 14, icon: 'folder',
-  },
-  {
-    id: 'videos',
-    nameEn: 'Videos',            nameAr: 'الفيديوهات',
-    description: 'Produced and published video content.',
-    descriptionAr: 'محتوى الفيديو المنتج والمنشور.',
-    itemCount: 8, icon: 'video',
-  },
-  {
-    id: 'designs',
-    nameEn: 'Designs',           nameAr: 'التصاميم',
-    description: 'Graphic design assets and deliverables.',
-    descriptionAr: 'أصول التصميم الجرافيكي والمخرجات.',
-    itemCount: 22, icon: 'palette',
-  },
-  {
-    id: 'documents',
-    nameEn: 'Documents',         nameAr: 'الوثائق',
-    description: 'Scripts, briefs, and production documents.',
-    descriptionAr: 'النصوص والموجزات ووثائق الإنتاج.',
-    itemCount: 6, icon: 'file',
-  },
-]
 
 /* ── Static style/handler constants (zero re-creation per render) ── */
 const MODAL_OVERLAY_STYLE: React.CSSProperties = {
@@ -102,24 +44,6 @@ const handleCloseBtnLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
 }
 
 const TAB_UNDERLINE_TRANSITION = { duration: 0.25, ease: [0.22, 1, 0.36, 1] as const }
-
-/**
- * Builds a URL-safe id from the English name, guaranteed not to collide with an
- * existing section. Two sections named the same would otherwise share an id,
- * which duplicates React keys and makes selecting one highlight the other.
- */
-function makeUniqueSectionId(nameEn: string, existing: Section[]): string {
-  const base =
-    nameEn.trim().toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'section'
-
-  if (!existing.some(s => s.id === base)) return base
-
-  let suffix = 2
-  while (existing.some(s => s.id === `${base}-${suffix}`)) suffix++
-  return `${base}-${suffix}`
-}
 
 /* ── Icon picker (used inside Add Section modal) ── */
 const IconPickerOption = memo(function IconPickerOption({
@@ -163,8 +87,8 @@ const AddSectionModal = memo(function AddSectionModal({
   /** Present → editing an existing section; absent → creating one. */
   editingSection?: Section | null
   onClose: () => void
-  onAdd:   (s: Omit<Section, 'id'>) => void
-  onSave:  (id: string, updates: Omit<Section, 'id'>) => void
+  onAdd:   (payload: SectionActionPayload) => void
+  onSave:  (dbId: string, updates: SectionActionPayload) => void
 }) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -214,20 +138,17 @@ const AddSectionModal = memo(function AddSectionModal({
 
   const isValid = !!(nameEn.trim() && nameAr.trim())
 
-  /* Emits a draft without an id when adding — the parent owns id generation.
-     When editing, calls onSave with the existing id instead. */
   const handleSubmit = useCallback(() => {
     if (!isValid) return
-    const payload = {
+    const payload: SectionActionPayload = {
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),
       descriptionAr: descriptionAr.trim(),
-      itemCount:     editingSection?.itemCount ?? 0,
       icon,
     }
     if (isEditing && editingSection) {
-      onSave(editingSection.id, payload)
+      onSave(editingSection.dbId, payload)
     } else {
       onAdd(payload)
     }
@@ -253,14 +174,17 @@ const AddSectionModal = memo(function AddSectionModal({
     e.currentTarget.style.filter = 'brightness(1)'
   }, [])
 
+  const isDraggingFromBackdrop = useRef(false)
+  const handleBackdropMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    isDraggingFromBackdrop.current = e.target === e.currentTarget
+  }, [])
   const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onClose()
+    if (isDraggingFromBackdrop.current && e.target === e.currentTarget) onClose()
+    isDraggingFromBackdrop.current = false
   }, [onClose])
 
   const handleSelectIcon = useCallback((key: SectionIconKey) => setIcon(key), [])
 
-  /* Escape closes the dialog — expected of any modal, and the only way out for
-     keyboard users who never reach the close button. */
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKeyDown)
@@ -274,6 +198,7 @@ const AddSectionModal = memo(function AddSectionModal({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={MODAL_OVERLAY_STYLE}
+      onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
     >
       <motion.div
@@ -422,19 +347,19 @@ const SectionTab = memo(function SectionTab({
   color,
   isDark,
   lang,
-  isAdmin,
+  canManage,
   onSelect,
   onEdit,
   onCopy,
   onMove,
   onDelete,
 }: {
-  section:  Section
-  active:   boolean
-  color:    string
-  isDark:   boolean
-  lang:     string
-  isAdmin:  boolean
+  section:   Section
+  active:    boolean
+  color:     string
+  isDark:    boolean
+  lang:      string
+  canManage: boolean
   /** Takes the id, so one stable callback serves every tab. */
   onSelect: (id: string) => void
   onEdit:   (section: Section) => void
@@ -445,7 +370,7 @@ const SectionTab = memo(function SectionTab({
   const label = lang === 'ar' ? section.nameAr : section.nameEn
   const Icon  = SECTION_ICONS[section.icon] ?? FolderOpen
 
-  const handleClick = useCallback(() => onSelect(section.id), [onSelect, section.id])
+  const handleClick = useCallback(() => onSelect(section.dbId), [onSelect, section.dbId])
   const handleEditClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     onEdit(section)
@@ -506,8 +431,10 @@ const SectionTab = memo(function SectionTab({
         {section.itemCount}
       </span>
 
-      {/* Edit / Copy / Move / Delete controls — admin only, revealed on hover */}
-      {isAdmin && (
+      {/* Edit / Copy / Move / Delete controls — canManage only, revealed on hover.
+          Delete نفسها بعدين ممكن تنعزل بـcanDelete منفصل زي باقي المستويات —
+          حاليًا موحّدة تحت canManage لأنه ما في مود صريح غيره بالتصميم الأصلي. */}
+      {canManage && (
         <span className="flex items-center gap-1 ms-0.5">
           <span
             role="button"
@@ -566,23 +493,26 @@ const SectionTab = memo(function SectionTab({
 
 /* ── SectionTabs ── */
 function SectionTabs({
-  platformId,
+  workId,
   color           = '#458482',
-  initialSections = INITIAL_SECTIONS,
-  isAdmin         = true,
+  initialSections,
+  canManage       = false,
+  canDelete       = false,
   onSectionChange,
 }: {
-  platformId:       string
+  /** uuid العمل الأب — كل الأكشنز محتاجاه لحل صلاحية Manage Archive. */
+  workId:           string
   color?:           string
-  initialSections?: Section[]
-  isAdmin?:         boolean
+  initialSections:  Section[]
+  canManage?:       boolean
+  canDelete?:       boolean
   onSectionChange?: (section: Section) => void
 }) {
   const { lang, isRTL }             = useLang()
   const { theme }                   = useTheme()
   const isDark                      = theme === 'dark'
   const [sections, setSections]     = useState<Section[]>(initialSections)
-  const [activeId, setActiveId]     = useState(initialSections[0]?.id ?? '')
+  const [activeId, setActiveId]     = useState(initialSections[0]?.dbId ?? '')
   const [showModal, setShowModal]   = useState(false)
   const [editingSection, setEditingSection] = useState<Section | null>(null)
   /** The section currently showing the big delete-confirmation popup, if any. */
@@ -591,40 +521,28 @@ function SectionTabs({
   const [pendingCopyMove, setPendingCopyMove] = useState<{ section: Section; kind: 'copy' | 'move' } | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
-  /* A useState initialiser runs ONCE. Without this sync, sections arriving after
-     the first render — a different platform, or data that was still loading —
-     were ignored forever, leaving the tab row empty until something remounted
-     the component. Keyed off the section ids rather than the array itself, since
-     a parent that builds the array inline hands us a new reference every render
-     and would otherwise loop. */
-  const sectionsKey = useMemo(
-    () => initialSections.map(s => s.id).join('|'),
-    [initialSections],
+  const activeSection = useMemo(
+    () => sections.find(s => s.dbId === activeId),
+    [sections, activeId]
+  )
+
+  /* initialSections جاي من SectionTabsClient وبيتغيّر مضمونه (خصوصًا
+     itemCount) لما SectionGrid يبلّغ بإضافة/حذف عنصر — بنزامن نسختنا
+     المحلية عليه، بس بنحافظ على activeId الحالي إذا لسا موجود. مفتاح
+     المزامنة يشمل itemCount عن قصد (مش بس الـids) عشان أي تغيير بالعداد
+     يعكس فورًا. */
+  const syncKey = useMemo(
+    () => initialSections.map(s => `${s.dbId}:${s.itemCount}`).join('|'),
+    [initialSections]
   )
 
   useEffect(() => {
     setSections(initialSections)
-    // Keep the current tab if it still exists (e.g. the list was merely refreshed),
-    // otherwise fall back to the first one.
-    setActiveId(prev =>
-      initialSections.some(s => s.id === prev) ? prev : (initialSections[0]?.id ?? '')
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platformId, sectionsKey])
+  }, [syncKey])
 
-  const activeSection = useMemo(
-    () => sections.find(s => s.id === activeId),
-    [sections, activeId]
-  )
-
-  /* Kept in a ref so the notification effect below doesn't re-fire just because
-     the parent passed a new inline function. */
   const onSectionChangeRef = useRef(onSectionChange)
   onSectionChangeRef.current = onSectionChange
 
-  /* The parent previously only learned about a section when the user clicked one,
-     so on first load it had no active section and rendered nothing. Reporting the
-     resolved section here covers the initial mount and platform switches too. */
   useEffect(() => {
     if (activeSection) onSectionChangeRef.current?.(activeSection)
   }, [activeSection])
@@ -635,45 +553,78 @@ function SectionTabs({
     tabsLabel:  lang === 'ar' ? 'تقسيمات الأرشيف' : 'Archive sections',
   }), [lang])
 
-  /* Selection only sets state; the effect above is the single place that notifies
-     the parent, so a click can't produce two notifications. */
   const handleSelect = useCallback((id: string) => {
     setActiveId(id)
   }, [])
 
-  const handleAdd = useCallback((draft: Omit<Section, 'id'>) => {
-    const id = makeUniqueSectionId(draft.nameEn, sections)
-    setSections(prev => [...prev, { ...draft, id }])
-    setActiveId(id)
-  }, [sections])
+  /** Optimistic insert بـid مؤقت، ثم استبداله بالصف الحقيقي من السيرفر. */
+  const handleAdd = useCallback(async (payload: SectionActionPayload) => {
+    const tempId = `temp-${Date.now()}`
+    const optimistic: Section = {
+      dbId: tempId, id: tempId, workId,
+      nameEn: payload.nameEn, nameAr: payload.nameAr,
+      description: payload.description, descriptionAr: payload.descriptionAr,
+      itemCount: 0, icon: payload.icon as SectionIconKey,
+    }
+    setSections(prev => [...prev, optimistic])
+    setActiveId(tempId)
+
+    try {
+      const real = await addSectionAction(workId, payload)
+      setSections(prev => prev.map(s => s.dbId === tempId ? { ...real, icon: real.icon as SectionIconKey } : s))
+      setActiveId(prev => prev === tempId ? real.dbId : prev)
+    } catch {
+      setSections(prev => prev.filter(s => s.dbId !== tempId))
+      setActiveId(prev => prev === tempId ? (sections[0]?.dbId ?? '') : prev)
+    }
+  }, [workId, sections])
 
   const handleOpenEdit = useCallback((section: Section) => {
     setEditingSection(section)
     setShowModal(true)
   }, [])
 
-  const handleSaveEdit = useCallback((id: string, updates: Omit<Section, 'id'>) => {
-    setSections(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
-  }, [])
+  const handleSaveEdit = useCallback(async (dbId: string, updates: SectionActionPayload) => {
+    let previous: Section | undefined
+    setSections(prev => prev.map(s => {
+      if (s.dbId !== dbId) return s
+      previous = s
+      return { ...s, ...updates, icon: updates.icon as SectionIconKey }
+    }))
 
-  /* Clicking the trash icon only opens the big confirm popup — nothing is
-     removed yet. Actual removal happens in handleConfirmDelete, and only
-     once the popup's forced countdown has finished and the person clicked
-     Confirm. */
+    try {
+      await updateSectionAction(dbId, workId, updates)
+    } catch {
+      if (previous) setSections(prev => prev.map(s => s.dbId === dbId ? previous! : s))
+    }
+  }, [workId])
+
   const handleRequestDelete = useCallback((section: Section) => {
     setPendingDelete(section)
   }, [])
 
-  const handleConfirmDelete = useCallback(() => {
+  const handleConfirmDelete = useCallback(async () => {
     if (!pendingDelete) return
-    const id = pendingDelete.id
-    setSections(prev => prev.filter(s => s.id !== id))
+    const target = pendingDelete
+    const targetIndex = sections.findIndex(s => s.dbId === target.dbId)
+
+    setSections(prev => prev.filter(s => s.dbId !== target.dbId))
     setActiveId(prev => {
-      if (prev !== id) return prev
-      const fallback = sections.find(s => s.id !== id)
-      return fallback?.id ?? ''
+      if (prev !== target.dbId) return prev
+      const fallback = sections.find(s => s.dbId !== target.dbId)
+      return fallback?.dbId ?? ''
     })
     setPendingDelete(null)
+
+    try {
+      await deleteSectionAction(target.dbId)
+    } catch {
+      setSections(prev => {
+        const next = [...prev]
+        next.splice(targetIndex, 0, target)
+        return next
+      })
+    }
   }, [pendingDelete, sections])
 
   const handleCancelDelete = useCallback(() => setPendingDelete(null), [])
@@ -686,43 +637,50 @@ function SectionTabs({
   }, [])
   const handleCancelCopyMove = useCallback(() => setPendingCopyMove(null), [])
 
-  /* Sections are shared mock data reused across every work in this frontend
-     milestone (no backend yet — see BACKEND NOTE at the bottom of this
-     file), so any destination work already "has" a section by this name.
-     That lines up with the merge rule that was asked for: landing on a
-     destination is always treated as a merge into its existing
-     same-named section rather than creating a duplicate.
-     - Move: the section leaves this work's local list.
-     - Copy: this work's local list is untouched (the section stays here too).
-     Either way there's nowhere local to actually add itemCount to on the
-     destination side (it's a different page's component state), so the
-     toast is the confirmation of record until the backend replaces this
-     whole branch with one server action. */
-  const handleConfirmSectionDestination = useCallback((dest: DestinationResult) => {
-    if (!pendingCopyMove) return
+  /** التنفيذ الفعلي — move_section/copy_section RPCs (بيها منطق الدمج
+      بنفس الاسم بالوجهة، جاهز بالباك اند). Optimistic: بالـmove بنشيل
+      القسم محليًا فورًا (لأنه غادر هالعمل)، بالـcopy ما بنلمس شي محليًا
+      (المصدر بيضل موجود، والنسخة صارت بعمل تاني ما إحنا واقفين فيه). */
+  const handleConfirmSectionDestination = useCallback(async (dest: DestinationResult) => {
+    if (!pendingCopyMove || !dest.workId) return
     const { section, kind } = pendingCopyMove
-    const destWork = WORKS_LOOKUP.get(dest.workId)
-    const destWorkName = destWork ? (lang === 'ar' ? destWork.nameAr : destWork.nameEn) : ''
     const sectionName = lang === 'ar' ? section.nameAr : section.nameEn
+    const sectionIndex = sections.findIndex(s => s.dbId === section.dbId)
 
     if (kind === 'move') {
-      setSections(prev => prev.filter(s => s.id !== section.id))
+      setSections(prev => prev.filter(s => s.dbId !== section.dbId))
       setActiveId(prev => {
-        if (prev !== section.id) return prev
-        const fallback = sections.find(s => s.id !== section.id)
-        return fallback?.id ?? ''
+        if (prev !== section.dbId) return prev
+        const fallback = sections.find(s => s.dbId !== section.dbId)
+        return fallback?.dbId ?? ''
       })
     }
 
-    setToastMessage(
-      kind === 'move'
-        ? (lang === 'ar'
-            ? `تم نقل "${sectionName}" ودمجه مع تقسيم بنفس الاسم في "${destWorkName}"`
-            : `Moved "${sectionName}" — merged into the matching section in "${destWorkName}"`)
-        : (lang === 'ar'
-            ? `تم نسخ "${sectionName}" ودمجه مع تقسيم بنفس الاسم في "${destWorkName}"`
-            : `Copied "${sectionName}" — merged into the matching section in "${destWorkName}"`)
-    )
+    try {
+      if (kind === 'move') {
+        await moveSectionAction(section.dbId, dest.workId)
+      } else {
+        await copySectionAction(section.dbId, dest.workId)
+      }
+      setToastMessage(
+        kind === 'move'
+          ? (lang === 'ar' ? `تم نقل "${sectionName}"` : `Moved "${sectionName}"`)
+          : (lang === 'ar' ? `تم نسخ "${sectionName}"` : `Copied "${sectionName}"`)
+      )
+    } catch {
+      // rollback — لو فشل بالسيرفر (مثلاً صلاحية copy_move ناقصة بالوجهة)
+      if (kind === 'move') {
+        setSections(prev => {
+          const next = [...prev]
+          next.splice(sectionIndex, 0, section)
+          return next
+        })
+      }
+      setToastMessage(
+        lang === 'ar' ? 'فشلت العملية — تأكد من صلاحياتك بالوجهة' : 'Action failed — check your permissions at the destination'
+      )
+    }
+
     setPendingCopyMove(null)
   }, [pendingCopyMove, sections, lang])
 
@@ -763,13 +721,13 @@ function SectionTabs({
 
           {sections.map(s => (
             <SectionTab
-              key={s.id}
+              key={s.dbId}
               section={s}
-              active={s.id === activeId}
+              active={s.dbId === activeId}
               color={color}
               isDark={isDark}
               lang={lang}
-              isAdmin={isAdmin}
+              canManage={canManage}
               onSelect={handleSelect}
               onEdit={handleOpenEdit}
               onCopy={handleRequestCopy}
@@ -779,12 +737,12 @@ function SectionTabs({
           ))}
 
           {/* Divider */}
-          {isAdmin && (
+          {canManage && (
             <div className="w-px h-5 shrink-0 mx-1" style={{ background: 'var(--divider)' }} />
           )}
 
-          {/* Add section button — admin only */}
-          {isAdmin && (
+          {/* Add section button */}
+          {canManage && (
             <button
               type="button"
               onClick={handleOpenModal}
@@ -803,7 +761,7 @@ function SectionTabs({
         <AnimatePresence mode="wait">
           {activeSection && (
             <motion.div
-              key={activeSection.id}
+              key={activeSection.dbId}
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
@@ -870,35 +828,3 @@ function SectionTabs({
 }
 
 export default memo(SectionTabs)
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   BACKEND NOTE — section copy/move persistence
-   ═══════════════════════════════════════════════════════════════════════════
-   `sections` here is local component state seeded from a single shared
-   `INITIAL_SECTIONS` mock array — every work currently renders the "same"
-   sections rather than each work owning its own scoped list. That's why
-   Move/Copy can only really mutate this work's local list (the section
-   leaves on Move, stays on Copy) and why the destination side is always
-   described as "merged" — there's no per-work section table yet for a
-   destination to actually receive anything into.
-
-   Once sections are scoped per work in the database, this whole flow
-   collapses to one Server Action, e.g.:
-
-     moveSection(sectionId, fromWorkId, toWorkId)
-       -> if a section with the same name already exists in toWorkId:
-            merge (sum item counts, reparent this section's items to the
-            existing one, delete the now-empty source section)
-          else:
-            simple reparent (update the section's work_id)
-
-     copySection(sectionId, toWorkId) -> same merge-or-create logic, but
-       inserts new item rows (with new ids) instead of reparenting existing
-       ones, since the source must stay intact.
-
-   The merge behavior implemented here (by name, case-sensitive on nameEn)
-   matches what was asked for — revisit whether that should be
-   locale-aware/normalized (see useSmartSearch.ts's `normalizeSearchText`)
-   once this is real data, so "Designs" and "designs" don't create two
-   sections that a case-sensitive merge would treat as distinct.
-   ═══════════════════════════════════════════════════════════════════════════ */
