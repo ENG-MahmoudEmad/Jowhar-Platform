@@ -59,6 +59,12 @@ function NotificationBell() {
 
     الفلتر بالكلاينت للكفاءة مش للحماية — الـ RLS بتمنع أصلاً وصول
     إشعارات غيرك حتى لو الفلتر انشال.
+
+    ⚠️ لازم نستنى الجلسة الفعلية *قبل* ما نبني القناة، مش نحاول نزامنها
+    بعد الاشتراك. لو الجلسة لسا ما اترسمت بالمتصفح (سباق شائع أول
+    تحميل)، القناة بتتصل بنجاح (SUBSCRIBED) بس بدون توكن صحيح مربوط
+    فيها — فبتوصل فاضية دايمًا حتى لو صف جديد انضاف فعليًا بالجدول.
+    بناء القناة نفسه لازم يصير *جوا* `.then()` تبع getSession()، مش قبلها.
   */
   const userId = user?.id;
   const notificationsRef = useRef(notifications);
@@ -68,61 +74,59 @@ function NotificationBell() {
     if (!userId) return;
 
     const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let active = true;
 
-    /*
-      ⚠️ لازم نزامن توكن الجلسة صراحة مع Realtime قبل الاشتراك — بدون
-      هيك، الـWebSocket ممكن يتصل بنجاح (SUBSCRIBED) بس يفشل بصمت بفحص
-      RLS الداخلي (auth.uid() = recipient_id)، فالقناة توصل فاضية دايمًا
-      حتى لو صف جديد انضاف فعليًا.
-    */
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.access_token) {
-        supabase.realtime.setAuth(session.access_token);
-      }
-    });
+      if (!active || !session?.access_token) return;
 
-    const channel = supabase
-      .channel(`notifications:${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `recipient_id=eq.${userId}`,
-        },
-        (payload) => {
-          const id = (payload.new as { id: string }).id;
-          if (notificationsRef.current.some((n) => n.id === id)) return;
+      supabase.realtime.setAuth(session.access_token);
 
-          /*
-            الصف الخام ما فيه اسم المُرسِل ولا لونه (بيجوا بـ join)،
-            فبنجيب النسخة الكاملة بدل ما نعرض إشعارًا ناقصًا.
-          */
-          void getNotification(id).then((n) => {
-            if (n) setNotifications((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'notifications',
-          filter: `recipient_id=eq.${userId}`,
-        },
-        (payload) => {
-          const row = payload.new as { id: string; is_read: boolean };
-          setNotifications((prev) =>
-            prev.map((n) => (n.id === row.id ? { ...n, isRead: row.is_read } : n))
-          );
-        }
-      )
-      // .subscribe();
-      .subscribe((status) => console.log('REALTIME:', status));
+      channel = supabase
+        .channel(`notifications:${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `recipient_id=eq.${userId}`,
+          },
+          (payload) => {
+            const id = (payload.new as { id: string }).id;
+            if (notificationsRef.current.some((n) => n.id === id)) return;
 
-    return () => { void supabase.removeChannel(channel); };
+            /*
+              الصف الخام ما فيه اسم المُرسِل ولا لونه (بيجوا بـ join)،
+              فبنجيب النسخة الكاملة بدل ما نعرض إشعارًا ناقصًا.
+            */
+            void getNotification(id).then((n) => {
+              if (n) setNotifications((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
+            });
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'notifications',
+            filter: `recipient_id=eq.${userId}`,
+          },
+          (payload) => {
+            const row = payload.new as { id: string; is_read: boolean };
+            setNotifications((prev) =>
+              prev.map((n) => (n.id === row.id ? { ...n, isRead: row.is_read } : n))
+            );
+          }
+        )
+          .subscribe();
+        });
+
+    return () => {
+      active = false;
+      if (channel) void supabase.removeChannel(channel);
+    };
   }, [userId]);
 
   /*
@@ -189,6 +193,7 @@ function NotificationBell() {
       relative على الحاوية: اللوحة بالديسكتوب موضعها نسبةً للجرس.
     */
     <div className="relative shrink-0">
+
       <button
         type="button"
         onClick={toggle}
