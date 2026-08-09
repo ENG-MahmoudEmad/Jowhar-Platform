@@ -8,7 +8,7 @@ import PersonalCalendar from '@/components/dashboard/my-tasks/PersonalCalendar';
 import MyNotes from '@/components/dashboard/my-tasks/MyNotes';
 import DirectorNotes from '@/components/dashboard/my-tasks/DirectorNotes';
 import type { Task } from '@/lib/taskStats';
-import { toggleMyTaskStatus } from './actions';
+import { submitTask, cancelSubmission } from './taskSubmissionActions';
 import {
   markDirectorNoteRead,
   addMyComment,
@@ -67,7 +67,7 @@ export default function MyTasksClient({
 }) {
   /*
     الحالة مرفوعة هون لأن Today Focus والكاليندر بيقرأوا نفس المصفوفة:
-    تعليم تاسك كمنجزة لازم ينقص عدّاد OPEN ويزيد DONE بنفس اللحظة اللي
+    تسليم تاسك لازم ينقص عدّاد OPEN ويزيد "قيد المراجعة" بنفس اللحظة اللي
     البار بيتغيّر فيها.
   */
   const [tasks, setTasks] = useState(initialTasks);
@@ -88,27 +88,58 @@ export default function MyTasksClient({
   // =========================================================
   // Tasks
   // =========================================================
+  /*
+    ⚠️ تغيير جوهري عن النسخة القديمة: هاي مش توغل open⇄done مباشر بعد
+    اليوم — العضو ما عاد يقدر يحط تاسك 'done' بنفسه أبدًا (الـ trigger
+    بالداتابيز بيرفضها لو حاول). الضغطة نفسها (checkbox بالكاليندر) بقيت
+    موجودة، بس معناها تغيّر:
+      - open            → تسليم بدون نص (pending_review). لو العضو بده
+                          يكتب نص تسليم، لازم يفتح تفاصيل التاسك
+                          (/my-tasks/[taskId]) مش من هون.
+      - pending_review   → إلغاء التسليم (يرجع open).
+      - done             → لا شي. القرار خلص، ما بينلمس من هالمسار.
+  */
   const handleToggleTask = useCallback((taskId: string) => {
     let previous: Task | undefined;
+    let action: 'submit' | 'cancel' | null = null;
 
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id !== taskId) return t;
         previous = t;
-        const nextStatus = t.status === 'done' ? 'open' : 'done';
-        return {
-          ...t,
-          status: nextStatus,
-          // نفس منطق trigger `sync_task_completed_at` بالداتابيز — معاد هون
-          // عشان عدّاد DONE يتحدث فورًا بدون انتظار الرد
-          completedAt: nextStatus === 'done' ? new Date().toISOString() : null,
-        };
+
+        if (t.status === 'open') {
+          action = 'submit';
+          return {
+            ...t,
+            status: 'pending_review',
+            submittedAt: new Date().toISOString(),
+            submittedNote: null,
+          };
+        }
+
+        if (t.status === 'pending_review') {
+          action = 'cancel';
+          return {
+            ...t,
+            status: 'open',
+            submittedAt: null,
+            submittedNote: null,
+            completedAt: null,
+          };
+        }
+
+        // done — ما في تغيير، القرار نهائي من هالمسار
+        action = null;
+        return t;
       })
     );
 
-    const nextStatus = previous?.status === 'done' ? 'open' : 'done';
+    if (!action) return;
 
-    void toggleMyTaskStatus(taskId, nextStatus).catch(() => {
+    const request = action === 'submit' ? submitTask(taskId, null) : cancelSubmission(taskId);
+
+    void request.catch(() => {
       setTasks((prev) => prev.map((t) => (t.id === taskId && previous ? previous : t)));
     });
   }, []);

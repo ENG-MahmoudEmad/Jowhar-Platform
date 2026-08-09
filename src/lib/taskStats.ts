@@ -5,31 +5,52 @@
 // count through these helpers rather than reimplementing the rules, otherwise two
 // screens can show contradictory numbers for the same data.
 
-/** الحالات المخزّنة فعليًا بالداتابيز. لا يوجد `in-progress` ولا `todo`. */
-export type TaskStatus = "open" | "done";
+/**
+ * الحالات المخزّنة فعليًا بالداتابيز.
+ * `pending_review` = العضو سلّم وبانتظار قرار الأدمن (موافقة/رفض).
+ * لا يوجد `in-progress` ولا `todo`.
+ */
+export type TaskStatus = "open" | "pending_review" | "done";
 
 export type TaskPriority = "low" | "medium" | "high";
 
 export interface Task {
   id: string;
   title: string;
+  /** وصف اختياري — يظهر بصفحة تفاصيل التاسك */
+  description: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   /** yyyy-mm-dd — بداية التاسك، بتحدد موقع البار بالـ Gantt */
   startDate: string;
   /** yyyy-mm-dd — الموعد النهائي (`end_date` بالداتابيز) */
   deadline: string;
+  createdByName: string | null;
+reviewedByName: string | null;
   /**
+
    * When the task was actually marked done — NOT the deadline.
    *
    * This is the source of truth for every "completed in period" counter:
    *   - Today Focus  → DONE card (current calendar month)
    *   - Leaderboard  → Weekly and Monthly scores
    *
+   * IMPORTANT: هذا وقت **التسليم** (submitted_at) مش وقت موافقة الأدمن —
+   * الـ trigger `sync_task_completed_at` بالداتابيز بيضبطها كده عمدًا،
+   * عشان تأخر الأدمن بالمراجعة ما يظلمش نقاط العضو بالـ Leaderboard.
+   *
    * A task whose deadline was last month but which was closed today counts
    * toward THIS month. `null` while the task is not done.
    */
   completedAt: string | null; // ISO
+  /** نص اختياري كتبه العضو وقت التسليم (أين رفع الشغل) — ≤500 حرف */
+  submittedNote: string | null;
+  /** وقت آخر تسليم — نفس قيمة completedAt لو اتوافق عليه، بس بتظل موجودة برضو لو لسا pending_review */
+  submittedAt: string | null;
+  /** آخر سبب رفض من الأدمن — بيتبدل مع كل رفض جديد، مش سجل تاريخي */
+  lastRejectionNote: string | null;
+  /** وقت ما العضو فتح/شاف سبب الرفض — null يعني لسا ما شافه (بادج تحذيري لازم يظهر) */
+  rejectionSeenAt: string | null;
 }
 
 /* ─── Date helpers ─────────────────────────────────────────────────────────── */
@@ -68,47 +89,46 @@ export function getCurrentMonthRange(now: Date): { start: Date; end: Date } {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ⚠️ "DUE" بتعني شيئين مختلفين بالمنصة — الاتنين صح بمكانهم، بس ممنوع توحيدهم:
+   ⚠️ "DUE" ضلت موجودة كمفهوم (isOverdue / countNeedsAttention) لأنها لسا
+   مستخدمة بأماكن تانية (شارة حمرا/صفرا على التاسك نفسه بالـ Gantt وكارد
+   الأدمن) — بس اتشالت من TodayFocusCounts تحديدًا (قرار: استُبدلت هناك
+   بعدّاد "قيد المراجعة"، مش محتاجينها كخانة منفصلة بهالكارت).
 
-   1. `isOverdue(task)`      → التاسك **فات موعدها** ولسا مفتوحة.
-                               هاي اللي بتتعرض كشارة حمرا/صفرا على التاسك نفسها،
-                               بكارد الأدمن وبالـ Gantt.
+   1. `isOverdue(task)`      → التاسك **فات موعدها** ولسا مفتوحة (status='open' فقط،
+                               pending_review ما بتتحسب "متأخرة" — العضو أصلاً سلّم).
 
-   2. `countNeedsAttention()` → التاسك **محتاجة انتباه**: باقي عليها ≤7 أيام
-                               أو فاتت أصلاً. هاي رقم عدّاد Today Focus.
-
-   تاسك موعدها بعد 3 أيام: محتاجة انتباه ✅ بس مش متأخرة ❌
-   توحيد الاتنين تحت اسم واحد بيكسر وحدة منهم بالتأكيد.
+   2. `countNeedsAttention()` → لسا موجودة لو احتجناها بمكان تاني مستقبلاً،
+                               بس ما عادت مستخدمة بـ Today Focus.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /** الشارة المعروضة على التاسك نفسها. */
 export function isOverdue(task: Pick<Task, "status" | "deadline">, now: Date): boolean {
-  if (task.status === "done") return false;
+  if (task.status !== "open") return false; // done أو pending_review ما بتتحسب متأخرة
   return startOfDay(parseDateOnly(task.deadline)) < startOfDay(now);
 }
 
 /* ─── Counters ─────────────────────────────────────────────────────────────── */
 
-/** OPEN — anything not finished, regardless of dates. */
+/** OPEN — لسا ما بلّش التسليم (مش pending_review ومش done). */
 export function countOpen(tasks: Task[]): number {
-  return tasks.filter((task) => task.status !== "done").length;
+  return tasks.filter((task) => task.status === "open").length;
+}
+
+/** PENDING REVIEW — العضو سلّم، بانتظار قرار الأدمن. */
+export function countPendingReview(tasks: Task[]): number {
+  return tasks.filter((task) => task.status === "pending_review").length;
 }
 
 /**
- * NEEDS ATTENTION — unfinished work due within the next `days` days, plus
- * everything already overdue. معروضة بالواجهة تحت اسم "Due".
- *
- * Note the window is a ROLLING 7 days from today, deliberately different from the
- * Leaderboard's fixed work week. The question here is "what is due soon?", so the
- * horizon must stay 7 days ahead even on a Thursday; the Leaderboard asks "who
- * performed best this week?", which needs fixed week boundaries. Do not unify them.
+ * NEEDS ATTENTION — unfinished (status='open' فقط) work due within the next
+ * `days` days, plus everything already overdue. لسا موجودة لاستخدامات تانية
+ * (شارات على التاسك نفسه)، بس مش جزء من Today Focus بعد اليوم.
  */
 export function countNeedsAttention(tasks: Task[], now: Date, days = 7): number {
   const horizon = addDays(now, days);
 
   return tasks.filter((task) => {
-    if (task.status === "done") return false;
-    // `<= horizon` covers overdue too, since past days are below the horizon.
+    if (task.status !== "open") return false;
     return startOfDay(parseDateOnly(task.deadline)) <= horizon;
   }).length;
 }
@@ -141,14 +161,14 @@ export function countDoneThisMonth(tasks: Task[], now: Date): number {
 
 export interface TodayFocusCounts {
   open: number;
-  due: number;
+  pendingReview: number;
   done: number;
 }
 
 export function getTodayFocusCounts(tasks: Task[], now: Date): TodayFocusCounts {
   return {
     open: countOpen(tasks),
-    due: countNeedsAttention(tasks, now),
+    pendingReview: countPendingReview(tasks),
     done: countDoneThisMonth(tasks, now),
   };
 }
@@ -164,9 +184,9 @@ export function getTodayFocusCounts(tasks: Task[], now: Date): TodayFocusCounts 
    عشان تعدّها محليًا ما بيتوسّع.
 
    القواعد اللي لازم السيرفر ينفّذها بالحرف:
-     OPEN → status <> 'done'
-     DUE  → status <> 'done' AND end_date <= current_date + 7
-     DONE → status = 'done' AND completed_at BETWEEN <period start> AND <period end>
+     OPEN            → status = 'open'
+     PENDING_REVIEW  → status = 'pending_review'
+     DONE            → status = 'done' AND completed_at BETWEEN <period start> AND <period end>
 
    حدود الفترة تُحسب بتوقيت الاستوديو، مش توقيت الزائر — وإلا الشهر بكارد
    DONE والشهر باللوحة بيختلفوا لبعض المستخدمين.

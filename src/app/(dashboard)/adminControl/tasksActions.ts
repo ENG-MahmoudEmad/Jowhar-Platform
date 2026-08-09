@@ -10,8 +10,13 @@ import { requireAdminActor, requireOpenableTarget, loadTarget, fullName } from '
 const CAPABILITY = 'admin.add_task';
 
 export type TaskPriority = 'low' | 'medium' | 'high';
-/** الحالة المخزّنة. `due` مشتقة بالواجهة من (open + end_date < today) وما بتتخزن. */
-export type TaskStatus = 'open' | 'done';
+/**
+ * الحالة المخزّنة.
+ * `due` مشتقة بالواجهة من (open + end_date < today) وما بتتخزن.
+ * `pending_review` = العضو سلّم، بانتظار قرار الأدمن (approveTask/rejectTask
+ * بملف my-tasks/taskSubmissionActions.ts — نفس الدوال، لا داعي لتكرارها هون).
+ */
+export type TaskStatus = 'open' | 'pending_review' | 'done';
 
 export type TaskDTO = {
   id: string;
@@ -29,6 +34,12 @@ export type TaskDTO = {
   canDelete: boolean;
   completedAt: string | null;
   createdAt: string;
+  /** نص اختياري كتبه العضو وقت التسليم */
+  submittedNote: string | null;
+  submittedAt: string | null;
+  /** آخر سبب رفض من الأدمن — يتبدل مع كل رفض جديد */
+  lastRejectionNote: string | null;
+  rejectionSeenAt: string | null;
 };
 
 export type TaskInput = {
@@ -61,19 +72,24 @@ type TaskRow = {
   created_by: string | null;
   completed_at: string | null;
   created_at: string;
+  submitted_note: string | null;
+  submitted_at: string | null;
+  last_rejection_note: string | null;
+  rejection_seen_at: string | null;
   creator: CreatorJoin;
 };
 
 const SELECT_COLUMNS = `
   id, title, description, start_date, end_date, priority, status,
   assigned_to, created_by, completed_at, created_at,
+  submitted_note, submitted_at, last_rejection_note, rejection_seen_at,
   creator:profiles!tasks_created_by_fkey (
     first_name, last_name, is_chief, is_developer, access_role
   )
 `;
 
 const SELECT_MINIMAL =
-  'id, title, description, start_date, end_date, priority, status, assigned_to, created_by, completed_at, created_at';
+  'id, title, description, start_date, end_date, priority, status, assigned_to, created_by, completed_at, created_at, submitted_note, submitted_at, last_rejection_note, rejection_seen_at';
 
 function toDTO(
   row: Omit<TaskRow, 'creator'>,
@@ -94,6 +110,10 @@ function toDTO(
     canDelete,
     completedAt: row.completed_at,
     createdAt: row.created_at,
+    submittedNote: row.submitted_note,
+    submittedAt: row.submitted_at,
+    lastRejectionNote: row.last_rejection_note,
+    rejectionSeenAt: row.rejection_seen_at,
   };
 }
 
@@ -149,6 +169,29 @@ export async function listMemberTasks(memberId: string): Promise<TaskDTO[]> {
 export async function createTask(memberId: string, values: TaskInput): Promise<TaskDTO> {
   const { supabase, actor } = await requireOpenableTarget(memberId, CAPABILITY);
 
+  /*
+    بس الشيف أدمن يقدر يكلّف نفسه تاسك — باقي الأدوار (ديفيلوبر، أدمن ثانوي)
+    ممنوعين يعطوا نفسهم تاسكات مطلقًا، حتى لو نظريًا قدروا يفتحوا صفحتهم
+    (requireOpenableTarget أوسع من هيك، بتسمح "تفتح صفك" بشكل عام).
+  */
+  if (memberId === actor.id && !actor.isChief) {
+    throw new Error('cannot_assign_task_to_self');
+  }
+
+  /*
+    الأدمن الثانوي (مش شيف أدمن ولا ديفيلوبر) بس يقدر يكلّف عضو موجود معه
+    بمنصة مشتركة — نفس مبدأ عضوية المنصة المستخدم بالأرشيف (is_platform_member)،
+    بس هون "أي منصة مشتركة" مش منصة محددة. الشيف أدمن/الديفيلوبر متجاوزين
+    (بيشوفوا الكل أصلاً، requireOpenableTarget فوق ضامنة هيك).
+  */
+  if (!actor.isChief && !actor.isDeveloper) {
+    const { data: sharesPlatform } = await supabase.rpc('shares_platform_with', {
+      p_actor_id: actor.id,
+      p_target_id: memberId,
+    });
+    if (!sharesPlatform) throw new Error('member_not_in_shared_platform');
+  }
+
   const title = values.title.trim();
   const description = values.description.trim();
 
@@ -182,28 +225,14 @@ export async function createTask(memberId: string, values: TaskInput): Promise<T
   return toDTO(data as Omit<TaskRow, 'creator'>, true, '');
 }
 
-// ===========================================================
-// تبديل حالة التاسك (open ⇄ done)
-// ===========================================================
-export async function setTaskStatus(taskId: string, status: TaskStatus) {
-  const { supabase } = await requireAdminActor();
-
-  const { data: task } = await supabase
-    .from('tasks')
-    .select('assigned_to')
-    .eq('id', taskId)
-    .single();
-
-  if (!task) throw new Error('not_found');
-
-  await requireOpenableTarget(task.assigned_to, CAPABILITY);
-
-  // completed_at بتتظبط تلقائيًا بـ trigger — ما بنبعتها من هون
-  const { error } = await supabase.from('tasks').update({ status }).eq('id', taskId);
-  if (error) throw new Error('task_update_failed');
-
-  revalidatePath('/adminControl');
-}
+/*
+  ⚠️ setTaskStatus (open⇄done يدوي من الأدمن) اتحذفت من هون بقصد.
+  القرار: 'done' ما بتصير إلا عبر تسليم العضو (submitTask) + موافقة الأدمن
+  (approveTask) — ولا حتى الأدمن يقدر يتخطى هالمسار.
+  approveTask / rejectTask موجودين بـ
+  `src/app/(dashboard)/my-tasks/taskSubmissionActions.ts` (نفس الدوال بالضبط،
+  ما في داعي نكررهم هون — استوردهم مباشرة من هناك بمكوّنات Admin Control).
+*/
 
 // ===========================================================
 // حذف تاسك

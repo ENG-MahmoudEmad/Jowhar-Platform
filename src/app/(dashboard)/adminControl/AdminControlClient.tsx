@@ -1,11 +1,12 @@
 // src/app/(dashboard)/adminControl/AdminControlClient.tsx
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { X } from 'lucide-react';
 import { useCurrentUser } from '@/context/UserContext';
 import { useScrollToHash } from '@/hooks/useScrollToHash';
+import { createClient } from '@/lib/supabase/client';
 import { canEditRoles, canManage, type Actor } from '@/lib/permissions/hierarchy';
 import MembersControl, {
   type PendingRequest,
@@ -24,6 +25,9 @@ import {
   type TaskDTO,
   type TaskInput,
 } from './tasksActions';
+// approveTask/rejectTask نفس الدوال المستخدمة بصفحة /my-tasks/[taskId] —
+// منطق واحد لقرار الأدمن بغض النظر من وين استُدعي.
+import { approveTask, rejectTask, revertApproval } from '../my-tasks/taskSubmissionActions';
 import {
   listMemberNotes,
   createNote,
@@ -44,11 +48,14 @@ export default function AdminControlClient({
   initialMembers,
   registry,
   grantedByMember,
+  initialBadgesByMember,
 }: {
   initialPending: PendingRequest[];
   initialMembers: Member[];
   registry: PermissionDef[];
   grantedByMember: Record<string, string[]>;
+  /** تاسكات قيد المراجعة + ردود ملاحظات جديدة لكل عضو — memberId → عدد (قيمة ابتدائية، بعدها Realtime بيحدّثها) */
+  initialBadgesByMember: Record<string, number>;
 }) {
   /*
     الحالة مرفوعة هون (مصدر واحد للحقيقة على مستوى الصفحة) عشان تغيير الدور
@@ -60,7 +67,53 @@ export default function AdminControlClient({
   const [pending, setPending] = useState(initialPending);
   const [members, setMembers] = useState(initialMembers);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [badgesByMember, setBadgesByMember] = useState(initialBadgesByMember);
   const { user: currentUser } = useCurrentUser();
+
+  /*
+    ⚠️ Realtime للبادجات: بدل ما نحسب delta يدويًا لكل نوع تغيير (تعقيد
+    عالي، عرضة للأخطاء — مثلاً رد جديد بجدول note_replies ما فيه member_id
+    مباشرة، لازم نرجع نربطه بـdirector_notes)، أبسط وأوثق حل إننا نعيد
+    نداء get_admin_member_badges() (نفس RPC المستخدم بالسيرفر) كل ما يصير
+    تغيير محتمل، مع debounce بسيط يمنع نداءات متكررة لو صار كم تغيير
+    بثانية وحدة (مثلاً موافقة + رفض قريبين من بعض).
+  */
+  const badgesDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshBadges = useCallback(() => {
+    if (badgesDebounceRef.current) clearTimeout(badgesDebounceRef.current);
+    badgesDebounceRef.current = setTimeout(async () => {
+      const supabase = createClient();
+      const { data } = await supabase.rpc('get_admin_member_badges');
+      const next: Record<string, number> = {};
+      for (const row of data ?? []) {
+        next[row.member_id] = row.badge_count;
+      }
+      setBadgesByMember(next);
+    }, 400);
+  }, []);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    /*
+      نسمع تغييرات على tasks (status) وnote_replies (رد جديد) — أي حدث
+      بهالجدولين ممكن يأثر على البادجات، فبنعيد الحساب كامل بدل ما نحاول
+      نحدد بدقة إذا كان التغيير يخصّ الأدمن الحالي (RLS أصلاً بتصفّي
+      الـpayload الوارد، وget_admin_member_badges بتطبّق نفس قواعد
+      الصلاحية اللي بتحكم الموافقة/الرفض).
+    */
+    const channel = supabase
+      .channel('admin-control-badges')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, refreshBadges)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'note_replies' }, refreshBadges)
+      .subscribe();
+
+    return () => {
+      if (badgesDebounceRef.current) clearTimeout(badgesDebounceRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [refreshBadges]);
 
   /*
     إشعار "رد على ملاحظة" (جهة الأدمن) بيودّي لـ
@@ -191,6 +244,10 @@ export default function AdminControlClient({
       canDelete: true,
       completedAt: null,
       createdAt: new Date().toISOString(),
+      submittedNote: null,
+      submittedAt: null,
+      lastRejectionNote: null,
+      rejectionSeenAt: null,
     };
 
     setTasks((prev) => [optimistic, ...prev]);
@@ -223,6 +280,70 @@ export default function AdminControlClient({
         next.splice(Math.max(index, 0), 0, removed);
         return next;
       });
+    });
+  }, []);
+
+  /*
+    موافقة/رفض — نفس نمط باقي الأكشنز هون بالضبط (متفائل + تراجع لو فشل).
+    approveTask/rejectTask جايين من my-tasks/taskSubmissionActions.ts —
+    نفس الدوال بالضبط اللي بتستخدمها صفحة تفاصيل التاسك تبع العضو، فقرار
+    "مين يقدر يوافق/يرفض" محسوم بمكان واحد (assertCanReview جوا الملف نفسه)
+    بغض النظر منين استُدعي.
+  */
+  const handleApprove = useCallback((taskId: string) => {
+    let previous: TaskDTO | undefined;
+
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        previous = t;
+        return { ...t, status: 'done', completedAt: t.submittedAt ?? new Date().toISOString() };
+      })
+    );
+
+    void approveTask(taskId).catch(() => {
+      setTasks((prev) => prev.map((t) => (t.id === taskId && previous ? previous : t)));
+    });
+  }, []);
+
+  const handleReject = useCallback((taskId: string, reason: string) => {
+    let previous: TaskDTO | undefined;
+
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        previous = t;
+        return {
+          ...t,
+          status: 'open',
+          completedAt: null,
+          submittedAt: null,
+          submittedNote: null,
+          lastRejectionNote: reason,
+          rejectionSeenAt: null,
+        };
+      })
+    );
+
+    void rejectTask(taskId, reason).catch(() => {
+      setTasks((prev) => prev.map((t) => (t.id === taskId && previous ? previous : t)));
+    });
+  }, []);
+
+  /** تراجع عن موافقة سابقة (done → open) — لضغطة "صح" بالغلط */
+  const handleRevertApproval = useCallback((taskId: string) => {
+    let previous: TaskDTO | undefined;
+
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        previous = t;
+        return { ...t, status: 'open', completedAt: null, submittedAt: null, submittedNote: null };
+      })
+    );
+
+    void revertApproval(taskId).catch(() => {
+      setTasks((prev) => prev.map((t) => (t.id === taskId && previous ? previous : t)));
     });
   }, []);
 
@@ -352,6 +473,7 @@ export default function AdminControlClient({
         onMembersChange={setMembers}
         selectedMemberId={selectedMemberId}
         onSelectMember={setSelectedMemberId}
+        badgesByMember={badgesByMember}
       />
 
       {selectedMember && (
@@ -383,6 +505,9 @@ export default function AdminControlClient({
               loading={tasksLoading}
               onCreate={handleCreateTask}
               onDelete={handleDeleteTask}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onRevertApproval={handleRevertApproval}
             />
             <DirectorNotes
               key={`notes-${selectedMember.id}`}

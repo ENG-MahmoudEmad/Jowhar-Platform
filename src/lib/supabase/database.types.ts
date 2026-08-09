@@ -831,9 +831,14 @@ export type Database = {
           description: string | null
           end_date: string
           id: string
+          last_rejection_note: string | null
           priority: Database["public"]["Enums"]["task_priority"]
+          rejection_seen_at: string | null
+          reviewed_by: string | null
           start_date: string
           status: Database["public"]["Enums"]["task_status"]
+          submitted_at: string | null
+          submitted_note: string | null
           title: string
           updated_at: string
         }
@@ -845,9 +850,14 @@ export type Database = {
           description?: string | null
           end_date: string
           id?: string
+          last_rejection_note?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
+          rejection_seen_at?: string | null
+          reviewed_by?: string | null
           start_date: string
           status?: Database["public"]["Enums"]["task_status"]
+          submitted_at?: string | null
+          submitted_note?: string | null
           title: string
           updated_at?: string
         }
@@ -859,9 +869,14 @@ export type Database = {
           description?: string | null
           end_date?: string
           id?: string
+          last_rejection_note?: string | null
           priority?: Database["public"]["Enums"]["task_priority"]
+          rejection_seen_at?: string | null
+          reviewed_by?: string | null
           start_date?: string
           status?: Database["public"]["Enums"]["task_status"]
+          submitted_at?: string | null
+          submitted_note?: string | null
           title?: string
           updated_at?: string
         }
@@ -876,6 +891,13 @@ export type Database = {
           {
             foreignKeyName: "tasks_created_by_fkey"
             columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tasks_reviewed_by_fkey"
+            columns: ["reviewed_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1069,6 +1091,13 @@ export type Database = {
       delete_platform: { Args: { p_platform_id: string }; Returns: undefined }
       delete_section: { Args: { p_section_id: string }; Returns: undefined }
       delete_work: { Args: { p_work_id: string }; Returns: undefined }
+      get_admin_member_badges: {
+        Args: never
+        Returns: {
+          badge_count: number
+          member_id: string
+        }[]
+      }
       get_all_platform_stats: {
         Args: never
         Returns: {
@@ -1264,6 +1293,10 @@ export type Database = {
         Returns: number
       }
       set_archive_view_mode: { Args: { p_mode: string }; Returns: undefined }
+      shares_platform_with: {
+        Args: { p_actor_id: string; p_target_id: string }
+        Returns: boolean
+      }
       stamp_password_change: { Args: { p_user_id: string }; Returns: undefined }
       toggle_post_like: {
         Args: { p_post_id: number }
@@ -1293,8 +1326,11 @@ export type Database = {
         | "email_change_approved"
         | "email_change_rejected"
         | "news_published"
+        | "task_submitted"
+        | "task_approved"
+        | "task_rejected"
       task_priority: "low" | "medium" | "high"
-      task_status: "open" | "done"
+      task_status: "open" | "done" | "pending_review"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1442,9 +1478,12 @@ export const Constants = {
         "email_change_approved",
         "email_change_rejected",
         "news_published",
+        "task_submitted",
+        "task_approved",
+        "task_rejected",
       ],
       task_priority: ["low", "medium", "high"],
-      task_status: ["open", "done"],
+      task_status: ["open", "done", "pending_review"],
     },
   },
 } as const

@@ -11,6 +11,7 @@ import { canManage, canOpen, type Actor, type Target } from '@/lib/permissions/h
 
 type Lang = 'en' | 'ar';
 type Role = 'admin' | 'member';
+type RoleFilterValue = 'all' | Role | 'unread';
 
 export type PendingRequest = {
   id: string;
@@ -69,6 +70,7 @@ const TEXT = {
     filterAll: 'All',
     filterAdmins: 'Admins',
     filterMembers: 'Members',
+    filterUnread: 'Unread',
     active: 'Active',
     suspended: 'Suspended',
     suspend: 'Suspend',
@@ -99,6 +101,7 @@ const TEXT = {
     filterAll: 'الكل',
     filterAdmins: 'الأدمن',
     filterMembers: 'الأعضاء',
+    filterUnread: 'غير مقروء',
     active: 'نشط',
     suspended: 'موقوف',
     suspend: 'إيقاف',
@@ -141,7 +144,7 @@ function getPalette(isDark: boolean): MembersControlStyle {
 // =========================================================
 // Role Filter Dropdown (custom, replaces native <select>)
 // =========================================================
-type FilterOption = { value: 'all' | Role; label: string };
+type FilterOption = { value: RoleFilterValue; label: string };
 
 const RoleFilterDropdown = memo(function RoleFilterDropdown({
   value,
@@ -150,8 +153,8 @@ const RoleFilterDropdown = memo(function RoleFilterDropdown({
   isRTL,
   copy,
 }: {
-  value: 'all' | Role;
-  onChange: (v: 'all' | Role) => void;
+  value: RoleFilterValue;
+  onChange: (v: RoleFilterValue) => void;
   lang: Lang;
   isRTL: boolean;
   copy: (typeof TEXT)[Lang];
@@ -161,6 +164,7 @@ const RoleFilterDropdown = memo(function RoleFilterDropdown({
 
   const options: FilterOption[] = [
     { value: 'all', label: copy.filterAll },
+    { value: 'unread', label: copy.filterUnread },
     { value: 'admin', label: copy.filterAdmins },
     { value: 'member', label: copy.filterMembers },
   ];
@@ -308,6 +312,7 @@ const MemberRow = memo(function MemberRow({
   isLocked,
   isEditingSuspend,
   suspendDays,
+  badgeCount,
   onSuspendDaysChange,
   onStartSuspend,
   onConfirmSuspend,
@@ -325,6 +330,8 @@ const MemberRow = memo(function MemberRow({
   isLocked: boolean;
   isEditingSuspend: boolean;
   suspendDays: number;
+  /** تاسكات قيد المراجعة + ردود ملاحظات جديدة — 0 يعني ما فيه شي يستاهل تنبيه */
+  badgeCount: number;
   onSuspendDaysChange: (v: number) => void;
   onStartSuspend: (id: string) => void;
   onConfirmSuspend: (id: string) => void;
@@ -414,6 +421,17 @@ const MemberRow = memo(function MemberRow({
           {lang === 'ar' ? member.roleLabelAr : member.roleLabel}
         </p>
       </div>
+
+      {/* بادج الإشعارات — دائرة حمرا فيها رقم، بس لو فيه شي فعلاً يستاهل تنبيه */}
+      {badgeCount > 0 && (
+        <span
+          className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-black text-white"
+          style={{ backgroundColor: '#ef4444' }}
+          aria-label={`${badgeCount}`}
+        >
+          {badgeCount > 99 ? '99+' : badgeCount}
+        </span>
+      )}
 
       <span
         className="shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wide"
@@ -516,6 +534,7 @@ function MembersControl({
   onMembersChange,
   onSelectMember,
   selectedMemberId,
+  badgesByMember,
 }: {
   /*
     الحالة مرفوعة للأب (AdminControlClient) عشان تغييرات الدور من كومبوننت
@@ -527,6 +546,8 @@ function MembersControl({
   onMembersChange: (next: Member[]) => void;
   onSelectMember?: (memberId: string) => void;
   selectedMemberId?: string | null;
+  /** تاسكات قيد المراجعة + ردود ملاحظات جديدة لكل عضو — memberId → عدد */
+  badgesByMember?: Record<string, number>;
 }) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
@@ -536,7 +557,7 @@ function MembersControl({
   const palette = useMemo(() => getPalette(isDark), [isDark]);
 
   const [query, setQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
+  const [roleFilter, setRoleFilter] = useState<RoleFilterValue>('all');
   const [suspendTargetId, setSuspendTargetId] = useState<string | null>(null);
   const [suspendDays, setSuspendDays] = useState(1);
   const [actionError, setActionError] = useState<keyof typeof TEXT.en | null>(null);
@@ -545,7 +566,12 @@ function MembersControl({
     const q = query.trim().toLowerCase();
     const matched = members.filter((m) => {
       const matchesQuery = !q || m.name.toLowerCase().includes(q);
-      const matchesRole = roleFilter === 'all' || m.role === roleFilter;
+      const matchesRole =
+        roleFilter === 'all'
+          ? true
+          : roleFilter === 'unread'
+            ? (badgesByMember?.[m.id] ?? 0) > 0
+            : m.role === roleFilter;
       return matchesQuery && matchesRole;
     });
 
@@ -572,7 +598,7 @@ function MembersControl({
       // نفس المرتبة (الفئة الرابعة) → الأقدم تسجيلاً أولاً
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
-  }, [members, query, roleFilter, currentUser?.id]);
+  }, [members, query, roleFilter, currentUser?.id, badgesByMember]);
 
   /*
     كل معالج تحت بيمشي بنفس النمط:
@@ -798,6 +824,7 @@ function MembersControl({
                     isCurrentUser={m.id === currentUser?.id}
                     isEditingSuspend={suspendTargetId === m.id}
                     suspendDays={suspendDays}
+                    badgeCount={badgesByMember?.[m.id] ?? 0}
                     onSuspendDaysChange={setSuspendDays}
                     onStartSuspend={handleStartSuspend}
                     onConfirmSuspend={handleConfirmSuspend}

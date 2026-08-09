@@ -14,6 +14,16 @@ export default async function AdminControlPage() {
   const supabase = await createClient();
   const adminClient = createAdminClient();
 
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+
+  const { data: currentProfile } = await supabase
+    .from('profiles')
+    .select('is_chief, is_developer')
+    .eq('id', currentUser?.id ?? '')
+    .maybeSingle();
+
+  const isChiefOrDev = Boolean(currentProfile?.is_chief || currentProfile?.is_developer);
+
   // ---- Pending Approvals ----
   const { data: pendingProfiles } = await supabase
     .from('profiles')
@@ -56,7 +66,42 @@ export default async function AdminControlPage() {
     .eq('status', 'active')
     .order('created_at', { ascending: true });
 
-  const members = (memberProfiles ?? []).map((m) => ({
+  /*
+    الأدمن الثانوي (مش شيف أدمن ولا ديفيلوبر) بس يشوف زملاءه اللي يشاركهم
+    منصة وحدة عالأقل — نفس قيد "المنصة المشتركة" المطبّق على تكليف
+    التاسكات وكتابة الملاحظات. الشيف أدمن/الديفيلوبر بيشوفوا الكل.
+
+    استثناء: صفوف الشيف أدمن/الديفيلوبر/نفس الشخص تضل ظاهرة دايمًا (مقفولة
+    بصريًا بـ canOpen بالواجهة أصلاً) عشان الأدمن الثانوي يعرف هرم الفريق
+    حتى لو ما يقدر يفتحهم.
+  */
+  let visibleMemberIds: Set<string> | null = null;
+  if (!isChiefOrDev && currentUser) {
+    const { data: myPlatforms } = await supabase
+      .from('platform_team_members')
+      .select('platform_id')
+      .eq('member_id', currentUser.id);
+
+    const platformIds = (myPlatforms ?? []).map((p) => p.platform_id);
+
+    if (platformIds.length > 0) {
+      const { data: teammates } = await supabase
+        .from('platform_team_members')
+        .select('member_id')
+        .in('platform_id', platformIds);
+      visibleMemberIds = new Set((teammates ?? []).map((t) => t.member_id));
+    } else {
+      visibleMemberIds = new Set();
+    }
+  }
+
+  const filteredProfiles = (memberProfiles ?? []).filter((m) => {
+    if (!visibleMemberIds) return true; // شيف أدمن/ديفيلوبر: بلا فلترة
+    if (m.is_chief || m.is_developer || m.id === currentUser?.id) return true;
+    return visibleMemberIds.has(m.id);
+  });
+
+  const members = filteredProfiles.map((m) => ({
     id: m.id,
     name: `${m.first_name ?? ''} ${m.last_name ?? ''}`.trim(),
     initials: initialsOf(m.first_name, m.last_name),
@@ -70,6 +115,13 @@ export default async function AdminControlPage() {
     suspendedUntil: m.suspended_until ?? undefined,
     createdAt: m.created_at,
   }));
+
+  // ---- بادجات الإشعارات لكل عضو (تاسكات قيد المراجعة + ردود ملاحظات جديدة) ----
+  const { data: badgeRows } = await supabase.rpc('get_admin_member_badges');
+  const badgesByMember: Record<string, number> = {};
+  for (const row of badgeRows ?? []) {
+    badgesByMember[row.member_id] = row.badge_count;
+  }
 
   // ---- Permissions Registry (مصدر واحد للحقيقة من الداتابيز) ----
   // أي صلاحية جديدة تنضاف للجدول بتظهر بالواجهة تلقائيًا بدون تعديل كود.
@@ -103,6 +155,7 @@ export default async function AdminControlPage() {
         initialMembers={members}
         registry={registry}
         grantedByMember={grantedByMember}
+        initialBadgesByMember={badgesByMember}
       />
     </div>
   );

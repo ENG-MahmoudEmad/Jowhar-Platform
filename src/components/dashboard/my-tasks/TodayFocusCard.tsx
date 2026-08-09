@@ -2,6 +2,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { LazyMotion, domAnimation, m } from "framer-motion";
 import { useLang } from "@/context/LangContext";
 import { getTodayFocusCounts, type Task } from "@/lib/taskStats";
@@ -20,15 +21,19 @@ const STAT_CARD_STYLE: React.CSSProperties = {
   border: "1px solid var(--divider)",
 };
 
+// "Due" اتشالت — استبدلناها بـ"قيد المراجعة" (pending_review)، أنسب
+// دلاليًا: العضو أصلاً سلّم شغله، مش لسا محتاج "تذكير بالموعد".
 const STAT_META = [
   { key: "open", labelEn: "Open", labelAr: "مفتوحة" },
-  { key: "due", labelEn: "Due", labelAr: "مستحقة" },
+  { key: "pendingReview", labelEn: "In Review", labelAr: "قيد المراجعة" },
   { key: "done", labelEn: "Done", labelAr: "منجزة" },
 ] as const;
 
 /* ─── Headline copy ─────────────────────────────────────────────────────────
-   Driven by the DUE count — that is the number of tasks actually needing
-   attention right now, which is what the sentence claims.
+   قبل: مبنية على عدّاد "Due" (تاسكات قربت مواعيدها). بعد إزالة مفهوم Due من
+   هالكارت، أصبحت مبنية على OPEN — أنسب بديل: "لسا مفتوحة" هي فعليًا التاسكات
+   اللي بتحتاج فعل من العضو (شغل لسا ما بلّش/ما انسلّم)، بعكس pending_review
+   اللي أصلاً بانتظار غيره.
    ───────────────────────────────────────────────────────────────────────────── */
 function getHeadline(count: number, isArabic: boolean): string {
   if (isArabic) {
@@ -78,8 +83,13 @@ const FocusStatCard = memo(function FocusStatCard({ value, label, index, isArabi
 
 function TodayFocusCard({ tasks }: { tasks: Task[] }) {
   const { lang, isRTL } = useLang();
+  const router = useRouter();
   const isArabic = lang === "ar";
   const textFont = isArabic ? "var(--font-arabic)" : "inherit";
+
+  /* نفس نمط فتح إشعار (router.push(n.href)) — الكارد كامل بوابة لصفحة
+     القائمة الكاملة (/my-tasks/list)، مش بس عرض عددّات. */
+  const handleOpenList = () => router.push("/my-tasks/list");
 
   /* Counts depend on the current date, which the server and the browser can
      disagree about. Resolving "today" only after mount keeps hydration clean —
@@ -111,7 +121,13 @@ function TodayFocusCard({ tasks }: { tasks: Task[] }) {
     <LazyMotion features={domAnimation}>
       <div
         dir={isRTL ? "rtl" : "ltr"}
-        className="min-h-[210px] rounded-2xl p-6 flex flex-col justify-between"
+        onClick={handleOpenList}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") handleOpenList();
+        }}
+        className="min-h-[210px] rounded-2xl p-6 flex flex-col justify-between cursor-pointer transition-transform hover:scale-[1.01] active:scale-[0.99]"
         style={CARD_STYLE}
       >
         <div>
@@ -132,7 +148,7 @@ function TodayFocusCard({ tasks }: { tasks: Task[] }) {
             style={headingStyle}
           >
             {counts
-              ? getHeadline(counts.due, isArabic)
+              ? getHeadline(counts.open, isArabic)
               : isArabic ? "جارٍ حساب مهامك" : "Checking your tasks"}
           </m.h2>
         </div>

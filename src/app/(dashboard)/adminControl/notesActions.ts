@@ -119,6 +119,27 @@ export async function createNote(
 ): Promise<DirectorNoteDTO> {
   const { supabase, actor } = await requireOpenableTarget(memberId, CAPABILITY);
 
+  /*
+    محدش يقدر يعطي حاله ملاحظة — بلا استثناء، حتى الشيف أدمن (بعكس
+    التاسكات اللي فيها استثناء للشيف أدمن). الملاحظة أصلاً مفهومها
+    "تقييم/توجيه من فوق"، وما إلها معنى موجهة لنفس الشخص.
+  */
+  if (memberId === actor.id) {
+    throw new Error('cannot_note_yourself');
+  }
+
+  /*
+    الأدمن الثانوي (مش شيف أدمن ولا ديفيلوبر) بس يقدر يكتب ملاحظة لعضو
+    موجود معه بمنصة مشتركة — نفس القيد المطبّق على تكليف التاسكات بالضبط.
+  */
+  if (!actor.isChief && !actor.isDeveloper) {
+    const { data: sharesPlatform } = await supabase.rpc('shares_platform_with', {
+      p_actor_id: actor.id,
+      p_target_id: memberId,
+    });
+    if (!sharesPlatform) throw new Error('member_not_in_shared_platform');
+  }
+
   const title = input.title.trim();
   const body = input.text.trim();
 
