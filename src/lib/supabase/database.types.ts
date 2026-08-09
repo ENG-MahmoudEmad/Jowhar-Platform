@@ -1109,6 +1109,14 @@ export type Database = {
           platform_id: string
         }[]
       }
+      get_all_work_stats: {
+        Args: { p_platform_id: string }
+        Returns: {
+          files_count: number
+          sections_count: number
+          work_id: string
+        }[]
+      }
       get_calendar_tasks: {
         Args: { p_end: string; p_member_ids: string[]; p_start: string }
         Returns: {

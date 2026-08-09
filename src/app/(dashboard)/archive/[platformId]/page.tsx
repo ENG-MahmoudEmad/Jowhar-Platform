@@ -25,6 +25,7 @@ export default async function PlatformPage({
   const [
     { data: worksData, error: worksError },
     { data: platformStats },
+    { data: workStatsData },
     canManage,
     { data: profileData },
   ] = await Promise.all([
@@ -34,20 +35,22 @@ export default async function PlatformPage({
       .eq('platform_id', platformData.id)
       .order('created_at', { ascending: true }),
     supabase.rpc('get_platform_stats', { p_platform_id: platformData.id }),
+    // ⚠️ كانت N+1: كنا نستدعي get_work_stats مرة لكل work عبر Promise.all
+    // (لو 15 عمل = 15 استعلام). استبدلناها باستعلام واحد مجمّع
+    // (get_all_work_stats) يرجّع صف لكل work بضربة وحدة — راجع الميجريشن.
+    supabase.rpc('get_all_work_stats', { p_platform_id: platformData.id }),
     canManageArchivePlatform(supabase, actor, platformData.id),
     supabase.from('profiles').select('archive_view_mode').eq('id', actor.id).maybeSingle(),
   ])
 
   if (worksError) throw new Error(worksError.message)
 
-  // إحصائيات كل Work لحاله (sections/files) — استدعاء واحد لكل عمل، متوازي
-  const workStatsEntries = await Promise.all(
-    (worksData ?? []).map(async w => {
-      const { data } = await supabase.rpc('get_work_stats', { p_work_id: w.id })
-      return [w.id, data?.[0] ?? { sections_count: 0, files_count: 0 }] as const
-    })
+  const workStatsMap = new Map(
+    (workStatsData ?? []).map((row) => [
+      row.work_id,
+      { sections_count: row.sections_count, files_count: row.files_count },
+    ])
   )
-  const workStatsMap = new Map(workStatsEntries)
 
   const works: WorkRow[] = (worksData ?? []).map(w => {
     const stats = workStatsMap.get(w.id) ?? { sections_count: 0, files_count: 0 }

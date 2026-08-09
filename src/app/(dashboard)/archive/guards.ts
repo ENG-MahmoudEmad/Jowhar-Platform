@@ -14,7 +14,16 @@ export async function requireArchiveActor(): Promise<{
   actor: Actor;
 }> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+
+  /*
+    ⚠️ getSession() مش getUser() هون بقصد: proxy.ts (middleware) أصلاً
+    بيستدعي getUser() الحقيقي (رحلة شبكة فعلية لسيرفر Supabase Auth) على
+    كل طلب صفحة، ويرفض أي جلسة غير صالحة قبل ما توصل هون. requireArchiveActor
+    بينستدعى بكل مستوى تصفح بالأرشيف (منصة/عمل/قسم/عنصر/ملف)، فكانت رحلة
+    شبكة مكررة بكل مستوى تنقّل — أهم مكان بالمشروع لهاد الإصلاح.
+  */
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
   if (!user) throw new Error('unauthenticated');
 
   const { data: row } = await supabase
