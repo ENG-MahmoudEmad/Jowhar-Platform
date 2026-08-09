@@ -68,6 +68,19 @@ function NotificationBell() {
     if (!userId) return;
 
     const supabase = createClient();
+
+    /*
+      ⚠️ لازم نزامن توكن الجلسة صراحة مع Realtime قبل الاشتراك — بدون
+      هيك، الـWebSocket ممكن يتصل بنجاح (SUBSCRIBED) بس يفشل بصمت بفحص
+      RLS الداخلي (auth.uid() = recipient_id)، فالقناة توصل فاضية دايمًا
+      حتى لو صف جديد انضاف فعليًا.
+    */
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.access_token) {
+        supabase.realtime.setAuth(session.access_token);
+      }
+    });
+
     const channel = supabase
       .channel(`notifications:${userId}`)
       .on(
