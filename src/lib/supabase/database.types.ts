@@ -339,6 +339,7 @@ export type Database = {
           expires_at: string | null
           id: number
           image_url: string | null
+          notified_at: string | null
           publish_at: string | null
           title_ar: string
           title_en: string
@@ -351,6 +352,7 @@ export type Database = {
           expires_at?: string | null
           id?: never
           image_url?: string | null
+          notified_at?: string | null
           publish_at?: string | null
           title_ar: string
           title_en: string
@@ -363,6 +365,7 @@ export type Database = {
           expires_at?: string | null
           id?: never
           image_url?: string | null
+          notified_at?: string | null
           publish_at?: string | null
           title_ar?: string
           title_en?: string
@@ -1258,6 +1261,19 @@ export type Database = {
         Args: { p_section_id: string; p_to_work_id: string }
         Returns: undefined
       }
+      notify_all_active: {
+        Args: {
+          p_actor: string
+          p_entity_id: string
+          p_entity_type: string
+          p_exclude?: string
+          p_href: string
+          p_subject: string
+          p_type: Database["public"]["Enums"]["notification_type"]
+        }
+        Returns: undefined
+      }
+      notify_due_news_posts: { Args: never; Returns: number }
       notify_permitted: {
         Args: {
           p_actor: string

@@ -16,7 +16,10 @@ export type NotificationType =
   | 'email_change_pending'   // طلب تغيير إيميل بانتظار الموافقة (للأدمن)
   | 'email_change_approved'  // تمت الموافقة على تغيير إيميلك
   | 'email_change_rejected'  // تم رفض تغيير إيميلك
-  | 'news_published';        // خبر جديد
+  | 'news_published'         // خبر جديد
+  | 'task_submitted'         // عضو سلّم تاسك للمراجعة (للأدمن المخوّل)
+  | 'task_approved'          // تمت الموافقة على تسليمك
+  | 'task_rejected';         // تم رفض تسليمك
 
 export interface AppNotification {
   id: string;

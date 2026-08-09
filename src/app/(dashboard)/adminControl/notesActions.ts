@@ -117,7 +117,7 @@ export async function createNote(
   memberId: string,
   input: { title: string; text: string; priority: NotePriority }
 ): Promise<DirectorNoteDTO> {
-  const { supabase, actor } = await requireOpenableTarget(memberId, CAPABILITY);
+  const { supabase, actor, target } = await requireOpenableTarget(memberId, CAPABILITY);
 
   /*
     محدش يقدر يعطي حاله ملاحظة — بلا استثناء، حتى الشيف أدمن (بعكس
@@ -126,6 +126,15 @@ export async function createNote(
   */
   if (memberId === actor.id) {
     throw new Error('cannot_note_yourself');
+  }
+
+  /*
+    محدش يقدر يكتب ملاحظة للشيف أدمن — حتى الديفيلوبر. requireOpenableTarget
+    بترجع target=null بس بحالة self (فوق)؛ هون الهدف شخص تاني فعليًا،
+    فـtarget مضمون غير null.
+  */
+  if (target?.isChief) {
+    throw new Error('cannot_note_chief');
   }
 
   /*

@@ -512,6 +512,7 @@ export default function AdminControlClient({
             <DirectorNotes
               key={`notes-${selectedMember.id}`}
               memberId={selectedMember.id}
+              targetIsChief={selectedMember.isChief}
               notes={notes}
               loading={notesLoading}
               onCreateNote={handleCreateNote}

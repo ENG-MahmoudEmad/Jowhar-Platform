@@ -5,6 +5,7 @@ import React, { memo, useCallback, useMemo } from 'react';
 import {
   ListTodo, NotebookPen, MessageSquare, UserPlus, UserCheck,
   CheckCircle2, XCircle, Mail, Newspaper, Bell,
+  Send, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
 import { relativeTime, type AppNotification, type NotificationType } from '@/lib/notifications';
@@ -29,6 +30,9 @@ const TYPE_META: Record<NotificationType, { Icon: React.ComponentType<{ size?: n
   email_change_approved:  { Icon: CheckCircle2,  color: '#10b981' },
   email_change_rejected:  { Icon: XCircle,       color: '#ef4444' },
   news_published:         { Icon: Newspaper,     color: '#3b82f6' },
+  task_submitted:         { Icon: Send,          color: '#e0a740' },
+  task_approved:          { Icon: ThumbsUp,      color: '#10b981' },
+  task_rejected:          { Icon: ThumbsDown,    color: '#ef4444' },
 };
 
 /* حارس أخير: لو نوع ما بالخريطة لأي سبب، أيقونة محايدة بدل انهيار الصفحة */
@@ -82,6 +86,12 @@ function NotificationItem({
         return isAr ? 'تم رفض طلب تغيير الإيميل' : 'Your email change was rejected';
       case 'news_published':
         return isAr ? `${actor} نشر خبراً جديداً` : `${actor} published an update`;
+      case 'task_submitted':
+        return isAr ? `${actor} سلّم مهمة للمراجعة` : `${actor} submitted a task for review`;
+      case 'task_approved':
+        return isAr ? 'تمت الموافقة على تسليمك' : 'Your submission was approved';
+      case 'task_rejected':
+        return isAr ? 'تم رفض تسليمك' : 'Your submission was rejected';
       default:
         return '';
     }

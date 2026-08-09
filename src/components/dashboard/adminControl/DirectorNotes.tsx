@@ -3,23 +3,19 @@
 
 import React, { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
-import { NotebookPen, Send, Trash2, ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, CheckCheck } from 'lucide-react';
+import { NotebookPen, Send, Trash2, ArrowLeft, ChevronLeft, ChevronRight, MessageSquare, CheckCheck, Lock } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import { useCurrentUser } from '@/context/UserContext';
 import type { DirectorNoteDTO, NoteReplyDTO, NotePriority } from '@/app/(dashboard)/adminControl/notesActions';
 
 type Lang = 'en' | 'ar';
 
-/**
- * الأنواع صارت تجي من الأكشنز (مصدر واحد بين السيرفر والواجهة).
- * الأسماء القديمة محفوظة كـ aliases عشان أي ملف تاني بيستوردها ما ينكسر.
- */
 export type NoteReply = NoteReplyDTO;
 export type DirectorNote = DirectorNoteDTO;
 
 type DirectorNotesStyle = React.CSSProperties & Record<`--dn-${string}`, string>;
 
-// ---- Layout constants ----
 const ROW_MIN_HEIGHT_PX = 64;
 const VISIBLE_ROWS = 5;
 const LIST_HEIGHT_PX = ROW_MIN_HEIGHT_PX * VISIBLE_ROWS;
@@ -39,10 +35,6 @@ const VIEW_TRANSITION = {
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
-/*
-  اللون مشتق من الأولوية مش مخزّن — فما في لون بيتناقض مع الأولوية،
-  ولا منتقي ألوان زايد بفورم المدير. نفس القيم بجهة العضو بالضبط.
-*/
 const PRIORITY_COLORS: Record<NotePriority, string> = {
   low: '#22c55e',
   medium: '#e0a740',
@@ -78,6 +70,10 @@ const TEXT = {
     newReplies: 'new',
     openThread: 'Open conversation',
     you: 'You',
+    selfLockedTitle: "You can't write yourself a note",
+    selfLockedBody: 'Director notes are guidance from above — writing one to yourself has no meaning here. No one, including the Chief Admin, can note themselves.',
+    chiefLockedTitle: "You can't write a note to the Chief Admin",
+    chiefLockedBody: 'The Chief Admin is the highest authority — no one, not even a Developer, can send them a director note.',
   },
   ar: {
     title: 'ملاحظات المدير',
@@ -105,6 +101,10 @@ const TEXT = {
     newReplies: 'جديد',
     openThread: 'فتح المحادثة',
     you: 'أنت',
+    selfLockedTitle: 'ما تقدر تكتب ملاحظة لنفسك',
+    selfLockedBody: 'ملاحظات المدير أصلاً توجيه من فوق لتحت — كتابتها لنفسك ما إلها معنى هون. محدش، حتى الشيف أدمن، يقدر يكتب ملاحظة لنفسه.',
+    chiefLockedTitle: 'ما تقدر تكتب ملاحظة للشيف أدمن',
+    chiefLockedBody: 'الشيف أدمن أعلى سلطة بالمنصة — محدش، ولا حتى الديفيلوبر، يقدر يبعتله ملاحظة مدير.',
   },
 } satisfies Record<Lang, Record<string, string>>;
 
@@ -142,10 +142,6 @@ function formatTimestamp(iso: string, lang: Lang): string {
   }).format(d);
 }
 
-/**
- * Replies from the member that arrived after the director last opened the thread.
- * Exported so the members list can show the same number without duplicating the rule.
- */
 export function countUnreadReplies(note: DirectorNote): number {
   const seenAt = note.directorLastSeenAt ? new Date(note.directorLastSeenAt).getTime() : 0;
   return note.replies.filter(
@@ -157,9 +153,6 @@ export function countUnreadRepliesForNotes(notes: DirectorNote[]): number {
   return notes.reduce((total, note) => total + countUnreadReplies(note), 0);
 }
 
-// =========================================================
-// Note Row
-// =========================================================
 const NoteRow = memo(function NoteRow({
   note,
   isLast,
@@ -225,7 +218,6 @@ const NoteRow = memo(function NoteRow({
             {formatTimestamp(note.createdAt, lang)}
           </span>
 
-          {/* إيصال القراءة — بيقول للمدير إذا العضو فتحها أصلاً */}
           {note.memberReadAt ? (
             <span
               className="flex items-center gap-1 text-[10px] font-medium"
@@ -319,9 +311,6 @@ const NoteRow = memo(function NoteRow({
   );
 });
 
-// =========================================================
-// Reply Bubble
-// =========================================================
 const ReplyBubble = memo(function ReplyBubble({
   reply,
   lang,
@@ -367,11 +356,9 @@ const ReplyBubble = memo(function ReplyBubble({
   );
 });
 
-// =========================================================
-// Main Component
-// =========================================================
 function DirectorNotes({
   memberId,
+  targetIsChief,
   notes,
   loading = false,
   onCreateNote,
@@ -381,21 +368,34 @@ function DirectorNotes({
   onUnreadChange,
 }: {
   memberId: string;
+  /** هل العضو المفتوح حاليًا هو الشيف أدمن — محدش يقدر يكتبله ملاحظة، حتى الديفيلوبر */
+  targetIsChief: boolean;
   notes: DirectorNote[];
   loading?: boolean;
-  /** الحالة مرفوعة للصفحة — الكارد بيطلب، والأب بيحدّث ويتراجع لو فشل. */
   onCreateNote: (memberId: string, input: { title: string; text: string; priority: NotePriority }) => void;
   onAddReply: (noteId: string, text: string) => void;
   onDeleteNote: (noteId: string) => void;
   onMarkSeen: (noteId: string) => void;
-  /** Lets the parent keep the members list badge in sync. */
   onUnreadChange?: (memberId: string, unreadCount: number) => void;
 }) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
+  const { user: currentUser } = useCurrentUser();
   const isDark = theme === 'dark';
   const copy = TEXT[lang as Lang];
   const palette = useMemo(() => getPalette(isDark), [isDark]);
+
+  /*
+    قفلين منفصلين:
+    1. محدش يقدر يعطي حاله ملاحظة — بلا استثناء، حتى الشيف أدمن.
+    2. محدش يقدر يكتب ملاحظة للشيف أدمن كهدف — حتى الديفيلوبر.
+    نفس القاعدتين مطبّقتين بالسيرفر (notesActions.ts) والداتابيز
+    (trigger trg_notes_no_self) — هون بس عرض بصري واضح قبل المحاولة.
+  */
+  const isSelf = currentUser?.id === memberId;
+  const isLocked = isSelf || targetIsChief;
+  const lockedTitle = isSelf ? copy.selfLockedTitle : copy.chiefLockedTitle;
+  const lockedBody = isSelf ? copy.selfLockedBody : copy.chiefLockedBody;
 
   const [titleDraft, setTitleDraft] = useState('');
   const [draft, setDraft] = useState('');
@@ -409,12 +409,6 @@ function DirectorNotes({
     [notes]
   );
 
-  /*
-    إشعار رد على ملاحظة (جهة الأدمن) بيودّي لـ
-    `/adminControl?member=<id>#note-<id>`. AdminControlClient بيختار
-    العضو من الـ query param، وهون بس بنفتح الملاحظة نفسها لما توصل.
-    الحارس بمنع إعادة الفتح لو الأدمن سكّرها يدويًا بعدين.
-  */
   const openedFromHashRef = useRef(false);
   useEffect(() => {
     if (openedFromHashRef.current) return;
@@ -470,20 +464,17 @@ function DirectorNotes({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      if (isLocked) return;
       const title = titleDraft.trim();
       const text = draft.trim();
       if (!title || !text) return;
 
-      /*
-        بعد الحفظ الملاحظة بتظهر بمكانين تانيين:
-        قسم Director Notes بصفحة My Tasks تبع العضو، وعدّاد جرس الإشعارات عنده.
-      */
       onCreateNote(memberId, { title, text, priority });
       setTitleDraft('');
       setDraft('');
       setPriority('medium');
     },
-    [titleDraft, draft, priority, onCreateNote, memberId]
+    [titleDraft, draft, priority, onCreateNote, memberId, isLocked]
   );
 
   const handleSendReply = useCallback(
@@ -501,7 +492,6 @@ function DirectorNotes({
   const handleRequestDelete = useCallback((id: string) => setDeleteTargetId(id), []);
   const handleCancelDelete = useCallback(() => setDeleteTargetId(null), []);
   const handleConfirmDelete = useCallback((id: string) => {
-    // الملاحظات ما بتتعدّل — بس تُضاف أو تُحذف نهائيًا (مع ردودها بالـ cascade)
     onDeleteNote(id);
     setDeleteTargetId(null);
     setOpenNoteId((current) => (current === id ? null : current));
@@ -509,7 +499,7 @@ function DirectorNotes({
 
   const hasPrev = openIndex > 0;
   const hasNext = openIndex >= 0 && openIndex < sortedNotes.length - 1;
-  const canSubmit = Boolean(titleDraft.trim() && draft.trim());
+  const canSubmit = Boolean(titleDraft.trim() && draft.trim()) && !isLocked;
 
   return (
     <LazyMotion features={domAnimation}>
@@ -522,7 +512,6 @@ function DirectorNotes({
         className="w-full overflow-hidden rounded-2xl"
         style={palette}
       >
-        {/* ---------- Header ---------- */}
         <div className="flex items-center gap-3 bg-[var(--dn-header-bg)] p-5 sm:p-6 border-b border-[var(--dn-divider)]">
           {openNote ? (
             <button
@@ -585,15 +574,43 @@ function DirectorNotes({
           )}
         </div>
 
-        {/* ---------- Body ---------- */}
-        {openNote ? (
+        {isLocked ? (
+          /*
+            قفل كامل على الكومبوننت — نفس أسلوب PlatformCard المقفولة
+            بالأرشيف (أيقونة قفل بالنص + عنوان + شرح، خلفية معتّمة). بعكس
+            الأرشيف، هون ظاهر دايمًا مش بس بالـhover — المستخدم لازم يفهم
+            فورًا ليش الكارد كامل معطّل، مش لما يمرّر الماوس عليه بالصدفة.
+          */
+          <div
+            className="flex flex-col items-center justify-center gap-3 p-8 text-center"
+            style={{ minHeight: `${LIST_HEIGHT_PX + 120}px`, filter: 'grayscale(0.4)' }}
+          >
+            <div
+              className="flex h-14 w-14 items-center justify-center rounded-2xl"
+              style={{ background: 'rgba(239,68,68,0.12)' }}
+            >
+              <Lock size={26} style={{ color: '#ef4444' }} aria-hidden="true" />
+            </div>
+            <p
+              className="text-sm font-black"
+              style={{ color: 'var(--dn-text-main)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+            >
+              {lockedTitle}
+            </p>
+            <p
+              className="max-w-[280px] text-[12px] leading-relaxed"
+              style={{ color: 'var(--dn-text-muted)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+            >
+              {lockedBody}
+            </p>
+          </div>
+        ) : openNote ? (
           <m.div
             key={`thread-${openNote.id}`}
             initial={{ opacity: 0, x: isRTL ? -12 : 12 }}
             animate={{ opacity: 1, x: 0 }}
             transition={VIEW_TRANSITION}
           >
-            {/* The original note, pinned above the thread */}
             <div className="border-b border-[var(--dn-divider)] p-4 sm:p-5">
               <div
                 className="rounded-xl px-3 py-2.5"
@@ -627,7 +644,6 @@ function DirectorNotes({
               </div>
             </div>
 
-            {/* Thread — same height as the notes list so the card never resizes */}
             <div
               className="bg-[var(--dn-bg)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--dn-scrollbar-thumb)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--dn-scrollbar-thumb)]"
               style={{ height: LIST_HEIGHT_PX }}
@@ -645,7 +661,6 @@ function DirectorNotes({
               )}
             </div>
 
-            {/* Director reply box */}
             <form onSubmit={handleSendReply} className="flex items-start gap-2 border-t border-[var(--dn-divider)] p-4 sm:p-5">
               <textarea
                 value={replyDraft}
@@ -672,62 +687,61 @@ function DirectorNotes({
             transition={VIEW_TRANSITION}
           >
             <form onSubmit={handleSubmit} className="flex flex-col gap-2 border-b border-[var(--dn-divider)] p-4 sm:p-5">
-              <input
-                value={titleDraft}
-                onChange={(e) => setTitleDraft(e.target.value)}
-                placeholder={copy.titlePlaceholder}
-                maxLength={120}
-                className="w-full rounded-lg border border-[var(--dn-border)] bg-[var(--dn-input-bg)] px-3 py-2 text-sm font-bold text-[var(--dn-text-main)] outline-none placeholder:font-medium placeholder:text-[var(--dn-text-muted)] focus:border-[#458482]/40"
-              />
-
-              <div className="flex items-start gap-2">
-                <textarea
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder={copy.placeholder}
-                  rows={2}
-                  className="w-full resize-none rounded-lg border border-[var(--dn-border)] bg-[var(--dn-input-bg)] px-3 py-2 text-sm font-medium text-[var(--dn-text-main)] outline-none placeholder:text-[var(--dn-text-muted)] focus:border-[#458482]/40"
+                <input
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  placeholder={copy.titlePlaceholder}
+                  maxLength={120}
+                  className="w-full rounded-lg border border-[var(--dn-border)] bg-[var(--dn-input-bg)] px-3 py-2 text-sm font-bold text-[var(--dn-text-main)] outline-none placeholder:font-medium placeholder:text-[var(--dn-text-muted)] focus:border-[#458482]/40"
                 />
-                <button
-                  type="submit"
-                  disabled={!canSubmit}
-                  aria-label={copy.send}
-                  className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#458482] p-2.5 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Send size={14} aria-hidden="true" style={{ transform: isRTL ? 'scaleX(-1)' : 'none' }} />
-                </button>
-              </div>
 
-              {/* Priority — أزرار مباشرة بدل dropdown، 3 خيارات بس */}
-              <div className="flex items-center gap-1.5">
-                <span
-                  className="me-1 text-[9px] font-black uppercase tracking-wide text-[var(--dn-text-muted)]"
-                  style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-                >
-                  {copy.priority}
-                </span>
-                {PRIORITY_ORDER.map((p) => {
-                  const active = priority === p;
-                  return (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setPriority(p)}
-                      aria-pressed={active}
-                      className="cursor-pointer rounded-full px-2.5 py-1 text-[9px] font-black transition-colors"
-                      style={{
-                        backgroundColor: active ? `${PRIORITY_COLORS[p]}26` : 'var(--dn-input-bg)',
-                        color: active ? PRIORITY_COLORS[p] : 'var(--dn-text-muted)',
-                        border: `1px solid ${active ? `${PRIORITY_COLORS[p]}59` : 'transparent'}`,
-                        fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-                      }}
-                    >
-                      {priorityLabel(p, copy)}
-                    </button>
-                  );
-                })}
-              </div>
-            </form>
+                <div className="flex items-start gap-2">
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder={copy.placeholder}
+                    rows={2}
+                    className="w-full resize-none rounded-lg border border-[var(--dn-border)] bg-[var(--dn-input-bg)] px-3 py-2 text-sm font-medium text-[var(--dn-text-main)] outline-none placeholder:text-[var(--dn-text-muted)] focus:border-[#458482]/40"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!canSubmit}
+                    aria-label={copy.send}
+                    className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[#458482] p-2.5 text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Send size={14} aria-hidden="true" style={{ transform: isRTL ? 'scaleX(-1)' : 'none' }} />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="me-1 text-[9px] font-black uppercase tracking-wide text-[var(--dn-text-muted)]"
+                    style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                  >
+                    {copy.priority}
+                  </span>
+                  {PRIORITY_ORDER.map((p) => {
+                    const active = priority === p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPriority(p)}
+                        aria-pressed={active}
+                        className="cursor-pointer rounded-full px-2.5 py-1 text-[9px] font-black transition-colors"
+                        style={{
+                          backgroundColor: active ? `${PRIORITY_COLORS[p]}26` : 'var(--dn-input-bg)',
+                          color: active ? PRIORITY_COLORS[p] : 'var(--dn-text-muted)',
+                          border: `1px solid ${active ? `${PRIORITY_COLORS[p]}59` : 'transparent'}`,
+                          fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                        }}
+                      >
+                        {priorityLabel(p, copy)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </form>
 
             <div
               className="bg-[var(--dn-bg)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--dn-scrollbar-thumb)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--dn-scrollbar-thumb)]"
