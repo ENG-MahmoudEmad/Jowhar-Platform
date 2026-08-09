@@ -25,6 +25,7 @@ function NotificationBell() {
   const { user } = useCurrentUser();
   const router = useRouter();
   const isDark = theme === 'dark';
+  const [realtimeStatus, setRealtimeStatus] = useState<string>('connecting...');
 
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -107,7 +108,7 @@ function NotificationBell() {
         }
       )
       // .subscribe();
-      .subscribe((status) => console.log('REALTIME:', status));
+      .subscribe((status) => setRealtimeStatus(status));
 
     return () => { void supabase.removeChannel(channel); };
   }, [userId]);
@@ -188,6 +189,12 @@ function NotificationBell() {
         className="relative cursor-pointer rounded-xl p-2.5 transition-colors duration-150 active:scale-95"
         style={buttonStyle}
       >
+
+        {process.env.NODE_ENV !== 'production' || true /* مؤقت للتشخيص */ && (
+  <span style={{ position: 'fixed', top: 0, left: 0, background: 'black', color: 'lime', fontSize: 10, padding: 4, zIndex: 9999 }}>
+    RT: {realtimeStatus}
+  </span>
+)}
         <Bell size={17} />
 
         {/*

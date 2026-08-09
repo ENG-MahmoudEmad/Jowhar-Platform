@@ -338,7 +338,7 @@ export default function AdminControlClient({
       prev.map((t) => {
         if (t.id !== taskId) return t;
         previous = t;
-        return { ...t, status: 'open', completedAt: null, submittedAt: null, submittedNote: null };
+        return { ...t, status: 'pending_review', completedAt: null };
       })
     );
 
