@@ -601,6 +601,7 @@ const TaskRow = memo(function TaskRow({
   return (
     <m.div
       layout
+      id={`task-${task.id}`}
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: 'auto' }}
       exit={{ opacity: 0, height: 0 }}
