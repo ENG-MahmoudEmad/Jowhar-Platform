@@ -13,7 +13,18 @@ export default async function DashboardLayout({
 }) {
   const supabase = await createClient();
 
-  const { data: { user: authUser } } = await supabase.auth.getUser();
+  /*
+    ⚠️ getSession() مش getUser() هون بقصد:
+    proxy.ts (middleware) أصلاً بيستدعي getUser() الحقيقي (رحلة شبكة
+    فعلية لسيرفر Supabase Auth) على كل طلب صفحة، ويرفض أي جلسة غير
+    صالحة قبل ما توصل هون أصلاً. فبهاي النقطة الجلسة موثوقة ومتحقق
+    منها فعليًا — إعادة استدعاء getUser() هون كانت رحلة شبكة ثانية
+    زايدة بلا داعي (نفس الفحص، مرتين). getSession() بيقرأ من الـ cookie
+    مباشرة بدون اتصال شبكة، فهاد التغيير وحده بيلغي رحلة كاملة من
+    كل انتقال صفحة بالموقع.
+  */
+  const { data: { session } } = await supabase.auth.getSession();
+  const authUser = session?.user ?? null;
 
   let initialUser: CurrentUser | null = null;
   let initialPermissions: string[] = [];

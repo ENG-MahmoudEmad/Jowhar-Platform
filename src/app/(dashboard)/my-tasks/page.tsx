@@ -9,7 +9,15 @@ const FALLBACK_COLOR = '#0d9488';
 
 export default async function MyTasksPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+
+  /*
+    ⚠️ getSession() مش getUser() هون بقصد — نفس السبب الموثّق بـ
+    layout.tsx و dashboard/page.tsx: proxy.ts أصلاً بيتحقق فعليًا من
+    الجلسة عبر الشبكة قبل ما توصل هون، فإعادة getUser() هون كانت
+    رحلة شبكة زايدة بلا داعي.
+  */
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
 
   const { data: profile } = await supabase
     .from('profiles')

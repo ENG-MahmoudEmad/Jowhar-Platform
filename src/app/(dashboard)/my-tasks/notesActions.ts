@@ -2,7 +2,6 @@
 // جهة العضو: ملاحظات المدير الموجّهة له + ملاحظاته الشخصية.
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 
 async function requireUser() {
@@ -106,6 +105,12 @@ export async function listMyDirectorNotes(): Promise<MemberDirectorNoteDTO[]> {
  * فتح الملاحظة هو اللي بيعلّمها مقروءة.
  * بيرجّع `readAt` من السيرفر لأن ساعة العضو ممكن تكون غلط، وهالقيمة
  * بتُعرض للمدير. أول قراءة نهائية — trigger بالداتابيز بيمنع الكتابة فوقها.
+ *
+ * ⚠️ ما في revalidatePath هون بقصد: MyTasksClient.tsx بيحدّث الـ state
+ * المحلي optimistically فور الاستدعاء، فأي revalidate لنفس الصفحة كان
+ * بيعمل إعادة جلب مكرر بالخلفية بلا أي فايدة بصرية — راجع القرار
+ * المعماري "Optimistic UI never uses revalidatePath where state is
+ * managed client-side".
  */
 export async function markDirectorNoteRead(noteId: string): Promise<{ readAt: string }> {
   const { supabase } = await requireUser();
@@ -137,8 +142,6 @@ export async function addMyComment(noteId: string, text: string): Promise<Member
     .single();
 
   if (error || !data) throw new Error('comment_failed');
-
-  revalidatePath('/my-tasks');
 
   return {
     id: data.id,
@@ -217,7 +220,6 @@ export async function createMyNote(input: {
 
   if (error || !data) throw new Error('note_create_failed');
 
-  revalidatePath('/my-tasks');
   return toMemberNote(data as MemberNoteRow);
 }
 
@@ -240,7 +242,6 @@ export async function updateMyNote(
 
   if (error || !data) throw new Error('note_update_failed');
 
-  revalidatePath('/my-tasks');
   return toMemberNote(data as MemberNoteRow);
 }
 
@@ -254,6 +255,4 @@ export async function deleteMyNote(noteId: string) {
     .eq('owner_id', userId);
 
   if (error) throw new Error('note_delete_failed');
-
-  revalidatePath('/my-tasks');
 }

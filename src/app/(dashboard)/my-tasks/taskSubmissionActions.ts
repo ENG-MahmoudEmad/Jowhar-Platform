@@ -8,6 +8,14 @@
 //   1. فحص صريح هون قبل أي UPDATE (رسالة خطأ واضحة للمستخدم)
 //   2. trigger `trg_tasks_guard_self_update` بالداتابيز (خط الدفاع الحقيقي
 //      اللي ما بينكسر حتى لو نسينا فحص هون)
+//
+// ⚠️ ملاحظة أداء: ما في revalidatePath('/my-tasks') ولا
+// revalidatePath(`/my-tasks/${taskId}`) بأي فنكشن هون بقصد —
+// MyTasksClient.tsx بيحدّث الـ state المحلي optimistically فور كل
+// استدعاء، فـ revalidate لنفس الصفحة كان بيعمل إعادة جلب مكرر
+// (listMyTasks + listMyDirectorNotes + listMyNotes) بالخلفية بلا أي
+// فايدة بصرية للمستخدم. revalidatePath('/adminControl') باقي لأنه
+// صفحة تانية فعليًا محتاجة تعرف بالتحديث (قائمة pending_review عندها).
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -48,9 +56,6 @@ export async function submitTask(taskId: string, note?: string | null) {
     .eq('assigned_to', userId);
 
   if (error) throw new Error('task_submit_failed');
-
-  revalidatePath('/my-tasks');
-  revalidatePath(`/my-tasks/${taskId}`);
 }
 
 /**
@@ -68,9 +73,6 @@ export async function cancelSubmission(taskId: string) {
     .eq('assigned_to', userId);
 
   if (error) throw new Error('task_cancel_submission_failed');
-
-  revalidatePath('/my-tasks');
-  revalidatePath(`/my-tasks/${taskId}`);
 }
 
 /**
@@ -116,10 +118,9 @@ export async function approveTask(taskId: string) {
 
   if (error) throw new Error('task_approve_failed');
 
-  // Admin Control بيعرض قائمة pending_review كمان — لازم يتحدث فورًا
+  // Admin Control بيعرض قائمة pending_review كمان — صفحة تانية فعليًا،
+  // مش مغطاة بالـ optimistic state تبع MyTasksClient، فلازم تتحدث فورًا
   revalidatePath('/adminControl');
-  revalidatePath('/my-tasks');
-  revalidatePath(`/my-tasks/${taskId}`);
 }
 
 /**
@@ -144,10 +145,8 @@ export async function rejectTask(taskId: string, reason: string) {
 
   if (error) throw new Error('task_reject_failed');
 
-  // Admin Control بيعرض قائمة pending_review كمان — لازم يتحدث فورًا
+  // Admin Control بيعرض قائمة pending_review كمان — صفحة تانية فعليًا
   revalidatePath('/adminControl');
-  revalidatePath('/my-tasks');
-  revalidatePath(`/my-tasks/${taskId}`);
 }
 
 /**
@@ -166,9 +165,8 @@ export async function revertApproval(taskId: string) {
 
   if (error) throw new Error('task_revert_failed');
 
+  // Admin Control بيعرض قائمة pending_review كمان — صفحة تانية فعليًا
   revalidatePath('/adminControl');
-  revalidatePath('/my-tasks');
-  revalidatePath(`/my-tasks/${taskId}`);
 }
 
 /**
@@ -186,7 +184,4 @@ export async function markRejectionSeen(taskId: string) {
     .eq('assigned_to', userId);
 
   if (error) throw new Error('mark_rejection_seen_failed');
-
-  revalidatePath('/my-tasks');
-  revalidatePath(`/my-tasks/${taskId}`);
 }

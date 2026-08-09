@@ -1,7 +1,7 @@
 "use client";
 
 import React, { memo, useMemo, useState, useCallback } from 'react';
-import { LazyMotion, domAnimation, m } from 'framer-motion';
+import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
 import { ChevronRight, Users, X } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
@@ -328,71 +328,74 @@ function TeamProgress({ members, currentUserId }: TeamProgressProps) {
         </div>
       </m.section>
 
-      {isModalOpen && (
-        <m.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={closeModal}
-        >
+      <AnimatePresence>
+        {isModalOpen && (
           <m.div
-            initial={{ opacity: 0, y: 16, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={CARD_TRANSITION}
-            dir={isRTL ? 'rtl' : 'ltr'}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="all-members-title"
-            onClick={stopPropagation}
-            className="w-full max-w-xl max-h-[85vh] overflow-hidden rounded-2xl flex flex-col"
-            style={palette}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={closeModal}
           >
-            <div className="shrink-0 flex items-center justify-between gap-4 p-5 sm:p-6 bg-[var(--team-header-bg)] border-b border-[var(--team-divider)]">
-              <h3
-                id="all-members-title"
-                className="text-sm font-bold uppercase tracking-widest text-[var(--team-text-main)]"
-                style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
-              >
-                {copy.allMembersTitle}
-              </h3>
-              <button
-                type="button"
-                onClick={closeModal}
-                aria-label={copy.close}
-                className="shrink-0 cursor-pointer rounded-lg p-1.5 text-[var(--team-text-muted)] transition-colors hover:text-[#458482]"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-[var(--team-bg)]">
-              {allMembersSorted.length === 0 ? (
-                <p
-                  className="p-6 text-center text-xs font-medium text-[var(--team-text-muted)]"
+            <m.div
+              initial={{ opacity: 0, y: 16, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 16, scale: 0.97 }}
+              transition={CARD_TRANSITION}
+              dir={isRTL ? 'rtl' : 'ltr'}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="all-members-title"
+              onClick={stopPropagation}
+              className="w-full max-w-xl max-h-[85vh] overflow-hidden rounded-2xl flex flex-col"
+              style={palette}
+            >
+              <div className="shrink-0 flex items-center justify-between gap-4 p-5 sm:p-6 bg-[var(--team-header-bg)] border-b border-[var(--team-divider)]">
+                <h3
+                  id="all-members-title"
+                  className="text-sm font-bold uppercase tracking-widest text-[var(--team-text-main)]"
                   style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
                 >
-                  {copy.empty}
-                </p>
-              ) : (
-                allMembersSorted.map((member, index) => (
-                  <TeamMemberRow
-                    key={member.id}
-                    member={member}
-                    index={index}
-                    isLast={index === allMembersSorted.length - 1}
-                    isRTL={isRTL}
-                    lang={lang}
-                    activeTasksLabel={copy.activeTasks(member.tasksCount)}
-                    isCurrentUser={member.id === currentUserId}
-                  />
-                ))
-              )}
-            </div>
+                  {copy.allMembersTitle}
+                </h3>
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  aria-label={copy.close}
+                  className="shrink-0 cursor-pointer rounded-lg p-1.5 text-[var(--team-text-muted)] transition-colors hover:text-[#458482]"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-[var(--team-bg)]">
+                {allMembersSorted.length === 0 ? (
+                  <p
+                    className="p-6 text-center text-xs font-medium text-[var(--team-text-muted)]"
+                    style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                  >
+                    {copy.empty}
+                  </p>
+                ) : (
+                  allMembersSorted.map((member, index) => (
+                    <TeamMemberRow
+                      key={member.id}
+                      member={member}
+                      index={index}
+                      isLast={index === allMembersSorted.length - 1}
+                      isRTL={isRTL}
+                      lang={lang}
+                      activeTasksLabel={copy.activeTasks(member.tasksCount)}
+                      isCurrentUser={member.id === currentUserId}
+                    />
+                  ))
+                )}
+              </div>
+            </m.div>
           </m.div>
-        </m.div>
-      )}
+        )}
+      </AnimatePresence>
     </LazyMotion>
   );
 }

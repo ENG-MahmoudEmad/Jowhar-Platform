@@ -12,7 +12,6 @@ import Leaderboard, { type LeaderEntry } from '@/components/dashboard/Leaderboar
 import { sortMembersForDisplay } from '@/lib/sortMembersForDisplay';
 import { hasCapability } from '@/app/(dashboard)/adminControl/guards';
 
-// شكل الصف الراجع من get_team_progress() بالظبط (migration 20260803120500)
 type TeamProgressRow = {
   id: string;
   name: string;
@@ -25,7 +24,6 @@ type TeamProgressRow = {
   active_tasks: number;
 };
 
-// شكل الصف الراجع من get_my_deadlines() بالظبط (migration 20260803120300)
 type DeadlineRow = {
   id: string;
   title: string;
@@ -35,10 +33,8 @@ type DeadlineRow = {
   window_seconds: number;
 };
 
-// شكل الصف الراجع من get_leaderboard() بالظبط (migration 20260803120500)
 type LeaderboardRow = {
-  rank: number; // الـ RPC نفسها بترجع 1-3 بس بسبب LIMIT 3، بس TypeScript
-                // ما بيعرف هيك من عمود int عادي — بنأكّدها يدويًا تحت.
+  rank: number;
   id: string;
   name: string;
   initials: string;
@@ -48,7 +44,6 @@ type LeaderboardRow = {
   tasks_completed: number;
 };
 
-// شكل الصف الراجع من get_calendar_tasks() بالظبط (migration 20260803120600)
 type CalendarTaskRow = {
   id: string;
   member_id: string;
@@ -58,7 +53,6 @@ type CalendarTaskRow = {
   status: string;
 };
 
-// شكل الصف الراجع من get_daily_verse() بالظبط (migration 20260803120100)
 type DailyVerseRow = {
   id: number;
   surah_number: number;
@@ -68,7 +62,6 @@ type DailyVerseRow = {
   arabic_text: string;
 };
 
-// شكل الصف الراجع من get_studio_pulse_stats() بالظبط (migration 20260803120900)
 type StudioPulseStatsRow = {
   tasks_completed_this_month: number;
   completion_rate_month_pct: number;
@@ -81,7 +74,6 @@ type StudioPulseStatsRow = {
   most_active_member_tasks_completed: number | null;
 };
 
-// شكل الاستعلام المتداخل platforms → categories → members (migration 20260803121000)
 type PlatformMemberRow = {
   id: string;
   member: {
@@ -112,7 +104,6 @@ type PlatformRow = {
   platform_team_categories: PlatformCategoryRow[];
 };
 
-// روستر الأعضاء الفعّالين — لقائمة "إضافة عضو"
 type RosterRow = {
   id: string;
   first_name: string | null;
@@ -130,14 +121,74 @@ function toISODate(date: Date): string {
 
 export default async function DashboardPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+
+  /*
+    ⚠️ getSession() مش getUser() هون بقصد: proxy.ts (middleware) أصلاً
+    بيستدعي getUser() الحقيقي (رحلة شبكة فعلية لسيرفر Supabase Auth) على
+    كل طلب صفحة، ويرفض أي جلسة غير صالحة قبل ما توصل هون. فبهاي النقطة
+    الجلسة موثوقة ومتحقق منها فعليًا — getSession() بيقرأ من الـ cookie
+    مباشرة بدون رحلة شبكة إضافية.
+  */
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
   if (!user) redirect('/login');
 
-  const { data: teamProgressRows } = await supabase.rpc('get_team_progress');
+  const today = new Date();
+  const calendarRangeStart = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
+  const calendarRangeEnd = new Date(today.getFullYear(), today.getMonth() + 2, today.getDate());
 
-  // تحويل شكل صف الداتابيز لشكل الـ props اللي الكومبوننت بيفهمه —
-  // TeamProgress ما بيعرف شي عن أسماء أعمدة Supabase.
-  const teamMembers: TeamMemberData[] = (teamProgressRows ?? []).map((row) => ({
+  // ═══════════════════════════════════════════════════════════════════
+  // BATCH 1: كل الاستعلامات المستقلة عن بعضها تنطلق بنفس اللحظة.
+  // ═══════════════════════════════════════════════════════════════════
+  const [
+    { data: teamProgressRows },
+    { data: deadlineRows },
+    { data: weeklyRows },
+    { data: monthlyRows },
+    { data: verseRows, error: verseError },
+    { data: pulseStatsRows, error: statsError },
+    { data: viewerProfile },
+    { data: platformRows },
+    { data: rosterRows },
+  ] = await Promise.all([
+    supabase.rpc('get_team_progress'),
+    supabase.rpc('get_my_deadlines'),
+    supabase.rpc('get_leaderboard', { p_period: 'weekly' }),
+    supabase.rpc('get_leaderboard', { p_period: 'monthly' }),
+    supabase.rpc('get_daily_verse'),
+    supabase.rpc('get_studio_pulse_stats'),
+    supabase
+      .from('profiles')
+      .select('is_chief, is_developer, access_role')
+      .eq('id', user.id)
+      .single(),
+    supabase
+      .from('platforms')
+      .select(`
+        id, name_en, name_ar, color, thumbnail_url,
+        platform_team_categories (
+          id, label_en, label_ar, sort_order,
+          platform_team_members (
+            id,
+            member:profiles!platform_team_members_member_id_fkey (
+              id, first_name, last_name, color, avatar_url, job_title_en, job_title_ar
+            )
+          )
+        )
+      `)
+      .order('name_en')
+      .order('sort_order', { referencedTable: 'platform_team_categories' }),
+    supabase
+      .from('profiles')
+      .select('id, first_name, last_name, color, avatar_url')
+      .eq('status', 'active')
+      .is('deleted_at', null),
+  ]);
+
+  if (verseError) console.error('get_daily_verse failed:', verseError.message);
+  if (statsError) console.error('get_studio_pulse_stats failed:', statsError.message);
+
+  const teamMembers: TeamMemberData[] = (teamProgressRows ?? []).map((row: TeamProgressRow) => ({
     id: row.id,
     name: row.name?.trim() || '—',
     initials: row.initials || '—',
@@ -149,9 +200,7 @@ export default async function DashboardPage() {
     tasksCount: row.active_tasks,
   }));
 
-  const { data: deadlineRows } = await supabase.rpc('get_my_deadlines');
-
-  const deadlines: DeadlineData[] = (deadlineRows ?? []).map((row) => ({
+  const deadlines: DeadlineData[] = (deadlineRows ?? []).map((row: DeadlineRow) => ({
     id: row.id,
     title: row.title,
     color: getPriorityColor(row.priority),
@@ -159,13 +208,8 @@ export default async function DashboardPage() {
     windowMs: row.window_seconds * 1000,
   }));
 
-  const [{ data: weeklyRows }, { data: monthlyRows }] = await Promise.all([
-    supabase.rpc('get_leaderboard', { p_period: 'weekly' }),
-    supabase.rpc('get_leaderboard', { p_period: 'monthly' }),
-  ]);
-
   const mapLeaderboardRow = (row: LeaderboardRow): LeaderEntry => ({
-    rank: row.rank as 1 | 2 | 3, // مضمونة runtime بسبب row_number() + limit 3 بالـ RPC
+    rank: row.rank as 1 | 2 | 3,
     id: row.id,
     name: row.name?.trim() || '—',
     initials: row.initials || '—',
@@ -174,48 +218,14 @@ export default async function DashboardPage() {
     score: row.score,
     tasksCompleted: row.tasks_completed,
   });
-
   const weeklyEntries: LeaderEntry[] = (weeklyRows ?? []).map(mapLeaderboardRow);
   const monthlyEntries: LeaderEntry[] = (monthlyRows ?? []).map(mapLeaderboardRow);
 
-  // ── Calendar ──────────────────────────────────────────────────────────
-  // نفس قاعدة الترتيب المستخدمة بـ Team Progress بالظبط (مستخرجة لملف
-  // مشترك) — المستخدم الحالي أول، والباقي أبجديًا، لحد 5.
   const calendarMembers: CalendarMemberData[] = sortMembersForDisplay(
     teamMembers.map((m) => ({ id: m.id, name: m.name, color: m.color, avatarUrl: m.avatarUrl, initials: m.initials })),
     user.id,
     5,
   );
-
-  // نطاق واسع مرة وحدة (شهرين قبل وبعد اليوم) — التنقل العادي قريب من
-  // اليوم ما بيحتاج ولا طلب شبكة إضافي. لو المستخدم قلّب أبعد من هيك،
-  // fetchCalendarTasksRange (Server Action) بتجيب الباقي عند الحاجة بس.
-  const today = new Date();
-  const calendarRangeStart = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
-  const calendarRangeEnd = new Date(today.getFullYear(), today.getMonth() + 2, today.getDate());
-
-  const { data: calendarTaskRows } = await supabase.rpc('get_calendar_tasks', {
-    p_member_ids: calendarMembers.map((m) => m.id),
-    p_start: toISODate(calendarRangeStart),
-    p_end: toISODate(calendarRangeEnd),
-  });
-
-  const calendarTasks: CalendarTaskData[] = (calendarTaskRows ?? []).map((row) => ({
-    id: row.id,
-    memberId: row.member_id,
-    title: row.title,
-    start: row.start_date,
-    end: row.end_date,
-  }));
-
-  // ── Studio Pulse ─────────────────────────────────────────────────────
-  const [{ data: verseRows, error: verseError }, { data: pulseStatsRows, error: statsError }] = await Promise.all([
-    supabase.rpc('get_daily_verse'),
-    supabase.rpc('get_studio_pulse_stats'),
-  ]);
-
-  if (verseError) console.error('get_daily_verse failed:', verseError.message);
-  if (statsError) console.error('get_studio_pulse_stats failed:', statsError.message);
 
   const verseRow: DailyVerseRow | undefined = verseRows?.[0];
   const verse: DailyVerseData = {
@@ -242,45 +252,7 @@ export default async function DashboardPage() {
       : null,
   };
 
-  // ── Members Card (Platforms) ────────────────────────────────────────────
-  const { data: viewerProfile } = await supabase
-    .from('profiles')
-    .select('is_chief, is_developer, access_role')
-    .eq('id', user.id)
-    .single();
-
-  const canManagePlatforms = viewerProfile
-    ? await hasCapability(
-        supabase,
-        {
-          id: user.id,
-          isDeveloper: viewerProfile.is_developer,
-          isChief: viewerProfile.is_chief,
-          accessRole: viewerProfile.access_role,
-        },
-        'platforms.manage'
-      )
-    : false;
-
-  const { data: platformRows } = await supabase
-    .from('platforms')
-    .select(`
-      id, name_en, name_ar, color, thumbnail_url,
-      platform_team_categories (
-        id, label_en, label_ar, sort_order,
-        platform_team_members (
-          id,
-          member:profiles!platform_team_members_member_id_fkey (
-            id, first_name, last_name, color, avatar_url, job_title_en, job_title_ar
-          )
-        )
-      )
-    `)
-    .order('name_en')
-    .order('sort_order', { referencedTable: 'platform_team_categories' });
-
   const memberBio = (jobTitle: string | null) => jobTitle ?? '';
-
   const platforms: PlatformData[] = (platformRows ?? []).map((row: PlatformRow) => ({
     id: row.id,
     nameEn: row.name_en,
@@ -313,12 +285,6 @@ export default async function DashboardPage() {
       })),
   }));
 
-  const { data: rosterRows } = await supabase
-    .from('profiles')
-    .select('id, first_name, last_name, color, avatar_url')
-    .eq('status', 'active')
-    .is('deleted_at', null);
-
   const roster: RosterMemberData[] = (rosterRows ?? []).map((row: RosterRow) => ({
     id: row.id,
     name: `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || '—',
@@ -327,15 +293,43 @@ export default async function DashboardPage() {
     avatarUrl: row.avatar_url,
   }));
 
+  // ═══════════════════════════════════════════════════════════════════
+  // BATCH 2: يعتمد على نتيجة BATCH 1، بس مستقل داخليًا → بنطلق مع بعض.
+  // ═══════════════════════════════════════════════════════════════════
+  const [{ data: calendarTaskRows }, canManagePlatforms] = await Promise.all([
+    supabase.rpc('get_calendar_tasks', {
+      p_member_ids: calendarMembers.map((m) => m.id),
+      p_start: toISODate(calendarRangeStart),
+      p_end: toISODate(calendarRangeEnd),
+    }),
+    viewerProfile
+      ? hasCapability(
+          supabase,
+          {
+            id: user.id,
+            isDeveloper: viewerProfile.is_developer,
+            isChief: viewerProfile.is_chief,
+            accessRole: viewerProfile.access_role,
+          },
+          'platforms.manage'
+        )
+      : Promise.resolve(false),
+  ]);
+
+  const calendarTasks: CalendarTaskData[] = (calendarTaskRows ?? []).map((row: CalendarTaskRow) => ({
+    id: row.id,
+    memberId: row.member_id,
+    title: row.title,
+    start: row.start_date,
+    end: row.end_date,
+  }));
+
   return (
     <div className="max-w-6xl mx-auto space-y-8">
-
-      {/* Team Progress */}
       <section>
         <TeamProgress members={teamMembers} currentUserId={user.id} />
       </section>
 
-      {/* Calendar + Deadline — 2/3 + 1/3 */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         <div className="lg:col-span-2 flex flex-col">
           <ProjectCalendar
@@ -350,7 +344,6 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Members + Studio Pulse — 1/3 + 2/3 */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         <div className="lg:col-span-1 flex flex-col">
           <MembersCard platforms={platforms} roster={roster} isAdmin={canManagePlatforms} />
@@ -363,7 +356,6 @@ export default async function DashboardPage() {
       <section>
         <Leaderboard weeklyEntries={weeklyEntries} monthlyEntries={monthlyEntries} />
       </section>
-
     </div>
   );
 }
