@@ -58,6 +58,19 @@ export default async function NewsPage() {
     avatarUrl: viewerProfile?.avatar_url ?? null,
   };
 
+  /*
+    تفعيل فوري لإشعارات الأخبار المجدولة يلي وصل وقتها.
+
+    ليش هون: أقصى تكرار مسموح لـ Vercel Cron بخطة Hobby هو مرة باليوم
+    بس (شوف vercel.json) — مش كافي لوحده لخبر لازم يوصل بسرعة معقولة
+    من وقته المجدول. فبنخلي فتح صفحة الأخبار نفسها "توقظ" الفحص.
+
+    fire-and-forget صراحة (بدون await): ما بدنا نأخّر عرض الصفحة
+    بانتظار نتيجة الدالة. لو فشلت لأي سبب، الـcron اليومي شبكة أمان
+    بتلتقطها بأسوأ الأحوال خلال 24 ساعة.
+  */
+  void supabase.rpc('notify_due_news_posts');
+
   const { data: feedRows } = await supabase.rpc('get_news_feed');
 
   const posts: NewsPostData[] = (feedRows as NewsFeedRow[] ?? []).map((row) => ({
