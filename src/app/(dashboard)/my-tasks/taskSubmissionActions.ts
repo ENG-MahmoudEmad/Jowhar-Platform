@@ -150,17 +150,24 @@ export async function rejectTask(taskId: string, reason: string) {
 }
 
 /**
- * تراجع الأدمن عن موافقة سابقة: done → open.
- * لحالة الضغط بالغلط على "موافقة" — الأدمن بس (نفس صلاحية approveTask)
- * يقدر يرجّع التاسك لـ open، والـ trigger بيصفّر completed_at/submitted_at/
- * submitted_note تلقائيًا (العضو لازم يسلّم من جديد لو بده).
+ * تراجع الأدمن عن موافقة سابقة: done → pending_review.
+ *
+ * ⚠️ بترجع pending_review مش open. لو الأدمن ضغط "موافقة" بالغلط،
+ * التاسك لسا مسلّمة فعليًا من العضو — الرجوع هون هو إلغاء *القرار*،
+ * مش إلغاء *التسليم نفسه*. الفرق مهم: العضو ما لازم يضطر يسلّم من
+ * جديد لشي هو أصلاً سلّمه، والأدمن (أو الشيف أدمن) لازم يقدر يعيد
+ * القرار (موافقة أو رفض) على نفس التسليم الأصلي.
+ *
+ * submitted_at/submitted_note الأصليين بيضلوا كما هم — الـ trigger
+ * `sync_task_completed_at` بميّز هالحالة (done→pending_review) عن
+ * تسليم جديد حقيقي (open→pending_review) وما بيلمسهم.
  */
 export async function revertApproval(taskId: string) {
   const { supabase } = await assertCanReview(taskId, 'done');
 
   const { error } = await supabase
     .from('tasks')
-    .update({ status: 'open' })
+    .update({ status: 'pending_review' })
     .eq('id', taskId);
 
   if (error) throw new Error('task_revert_failed');
