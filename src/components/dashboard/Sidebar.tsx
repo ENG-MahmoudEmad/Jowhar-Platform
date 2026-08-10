@@ -22,7 +22,6 @@ type MenuItem = {
   nameAr: string;
   icon: LucideIcon;
   path: string;
-  /** Hidden unless the current user holds the matching permission. */
   adminOnly?: boolean;
 };
 
@@ -37,18 +36,10 @@ const menuItems: MenuItem[] = [
 
 interface SidebarProps {
   showCollapseButton?: boolean;
-  /**
-   * Optional override. When omitted, the value comes from the authenticated
-   * user's access role (UserContext).
-   *
-   * Hiding the link is a convenience only — the route itself and every admin
-   * API must enforce the permission server side, since anyone can type the URL.
-   */
   canAccessAdminControl?: boolean;
   onSignOut?: () => void;
 }
 
-// ── Static constants — قيم ثابتة لا تتغير أبدًا ──
 const SIDEBAR_BG = 'var(--sidebar-bg)';
 const SIDEBAR_BORDER = 'var(--sidebar-border)';
 const CARD_BORDER = 'var(--card-border)';
@@ -57,15 +48,10 @@ const TEXT_IDLE = 'var(--foreground-muted)';
 const TEXT_MAIN = 'var(--foreground)';
 const HOVER_BG = 'var(--hover-bg)';
 
-/**
- * A nav item stays active on its nested routes too, so opening
- * /profile/[userId] keeps "Profile" lit instead of leaving nothing selected.
- */
 function isPathActive(pathname: string, path: string): boolean {
   return pathname === path || pathname.startsWith(`${path}/`);
 }
 
-// ── Static style objects — لا تعتمد على props/state ──
 const topGlowStyle: React.CSSProperties = {
   background: 'radial-gradient(circle,rgba(69,132,130,0.1) 0%,transparent 70%)',
   filter: 'blur(40px)',
@@ -77,29 +63,11 @@ const bottomGlowStyle: React.CSSProperties = {
 };
 
 const logoFadeTransition = { duration: 0.15 };
-
 const navIconWrapperStyle: React.CSSProperties = { width: '44px', height: '44px' };
-
-const navHoverOverlayStyle: React.CSSProperties = {
-  background: HOVER_BG,
-  transition: 'opacity 0.15s',
-};
-
+const navHoverOverlayStyle: React.CSSProperties = { background: HOVER_BG, transition: 'opacity 0.15s' };
 const actionIconWrapperStyle: React.CSSProperties = { width: '44px', height: '40px' };
+const avatarStatusDotStyle: React.CSSProperties = { borderColor: SIDEBAR_BG, boxShadow: '0 0 5px rgba(52,211,153,0.5)' };
 
-const avatarStatusDotStyle: React.CSSProperties = {
-  borderColor: SIDEBAR_BG,
-  boxShadow: '0 0 5px rgba(52,211,153,0.5)',
-};
-
-// ── Portal-rendered tooltip for the collapsed rail ──────────────────────────
-// Rendered into document.body via a portal and positioned with `fixed`
-// coordinates computed from the trigger's own bounding box. This keeps it
-// completely outside the sidebar's box model, so it can never contribute to
-// any ancestor's scrollWidth — which is what caused the mystery horizontal
-// scroll before (an `absolute` tooltip sitting outside the 72px rail, inside
-// an `overflow: visible` aside, was silently widening the page's scrollable
-// area even while invisible).
 interface RailTooltipProps {
   label: string;
   anchorRect: DOMRect;
@@ -123,18 +91,13 @@ const RailTooltip = memo(function RailTooltip({ label, anchorRect, isRTL, isDark
   } as React.CSSProperties;
 
   return createPortal(
-    <div
-      role="tooltip"
-      className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest whitespace-nowrap pointer-events-none"
-      style={style}
-    >
+    <div role="tooltip" className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest whitespace-nowrap pointer-events-none" style={style}>
       {label}
     </div>,
     document.body,
   );
 });
 
-// ── Sidebar nav item — معزول بـ memo عشان ما يعيد render إلا لو props تبعه تغيرت ──
 interface NavItemProps {
   item: MenuItem;
   isActive: boolean;
@@ -142,7 +105,6 @@ interface NavItemProps {
   isRTL: boolean;
   isDark: boolean;
   lang: 'en' | 'ar';
-  /** Unique per Sidebar instance — see the note in Sidebar(). */
   activeLayoutId: string;
 }
 
@@ -155,7 +117,7 @@ const SidebarNavItem = memo(function SidebarNavItem({
   const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null);
 
   const showTooltip = useCallback(() => {
-    if (isOpen) return; // tooltip only makes sense on the collapsed rail
+    if (isOpen) return;
     if (rowRef.current) setTooltipRect(rowRef.current.getBoundingClientRect());
   }, [isOpen]);
 
@@ -215,11 +177,7 @@ const SidebarNavItem = memo(function SidebarNavItem({
 
   return (
     <div ref={rowRef} onMouseEnter={showTooltip} onMouseLeave={hideTooltip}>
-      <Link
-        href={item.path}
-        aria-current={isActive ? 'page' : undefined}
-        className="block group/item relative"
-      >
+      <Link href={item.path} aria-current={isActive ? 'page' : undefined} className="block group/item relative">
         <div className="relative h-11 flex items-center rounded-xl overflow-hidden" style={rowStyle}>
           {isActive && (
             <motion.div
@@ -230,26 +188,17 @@ const SidebarNavItem = memo(function SidebarNavItem({
             />
           )}
           {!isActive && (
-            <div
-              className="absolute inset-0 rounded-xl opacity-0 group-hover/item:opacity-100"
-              style={navHoverOverlayStyle}
-            />
+            <div className="absolute inset-0 rounded-xl opacity-0 group-hover/item:opacity-100" style={navHoverOverlayStyle} />
           )}
 
-          {/* Icon — fixed 44×44 always */}
           <div className="relative z-10 shrink-0 flex items-center justify-center" style={navIconWrapperStyle}>
             <Icon className="group-hover/item:scale-110 transition-transform duration-150" style={iconStyle} />
           </div>
 
-          {/* Label — CSS fade */}
-          <span
-            className="text-[11px] font-bold uppercase tracking-[0.12em] whitespace-nowrap overflow-hidden z-10"
-            style={labelStyle}
-          >
+          <span className="text-[11px] font-bold uppercase tracking-[0.12em] whitespace-nowrap overflow-hidden z-10" style={labelStyle}>
             {label}
           </span>
 
-          {/* Chevron */}
           <div className="relative z-10 shrink-0 flex justify-center" style={chevronWrapperStyle}>
             <ChevronRight
               style={{ width: '14px', height: '14px', flexShrink: 0 }}
@@ -261,9 +210,6 @@ const SidebarNavItem = memo(function SidebarNavItem({
         </div>
       </Link>
 
-      {/* Tooltip when collapsed — portal + fixed positioning, see RailTooltip
-          docstring above for why this replaced the old absolute-positioned
-          version (it was silently causing horizontal page scroll). */}
       {tooltipRect && (
         <RailTooltip label={label} anchorRect={tooltipRect} isRTL={isRTL} isDark={isDark} />
       )}
@@ -281,30 +227,19 @@ function Sidebar({
   const { theme, toggleTheme } = useTheme();
   const { lang, toggleLang, isRTL } = useLang();
 
-  // بيانات المستخدم الحقيقية + تسجيل الخروج الفعلي
   const {
     user,
     signOut,
     canAccessAdminControl: ctxCanAccessAdmin,
   } = useCurrentUser();
 
-  // الـ prop تبقى override اختياري، وإلا القيمة الحقيقية من الـ context
   const canAccessAdmin = canAccessAdminControl ?? ctxCanAccessAdmin;
 
-  /**
-   * The desktop sidebar is hidden with CSS (`hidden xl:flex`), not unmounted, so
-   * while the mobile drawer is open BOTH sidebars exist in the DOM. A shared
-   * layoutId would make framer-motion treat their two active pills as one
-   * element and animate it between them. A per-instance id keeps them separate.
-   */
   const instanceId = useId();
   const activeLayoutId = `activeNav-${instanceId}`;
 
   const isDark = theme === 'dark';
-  const cardBg = useMemo(
-    () => (isDark ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.03)'),
-    [isDark],
-  );
+  const cardBg = useMemo(() => (isDark ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.03)'), [isDark]);
 
   const visibleItems = useMemo(
     () => menuItems.filter((item) => !item.adminOnly || canAccessAdmin),
@@ -315,19 +250,9 @@ function Sidebar({
     ? (isOpen ? PanelLeftOpen : PanelLeftClose)
     : (isOpen ? PanelLeftClose : PanelLeftOpen);
 
-  /**
-   * `overflow` stays visible so the collapsed-state tooltips, which sit just
-   * outside the 72px rail, are not clipped away. The decorative glows and grain
-   * that previously relied on this clipping now live in their own
-   * overflow-hidden layer further down.
-   */
   const asideStyle = useMemo<React.CSSProperties>(
     () => ({
       width: isOpen ? '288px' : '72px',
-      // flexShrink alone is not enough: a flex item can still be squeezed down to
-      // its min-content width when the row runs out of room (which is what made
-      // the rail narrow when the window shrank or DevTools opened). Pinning
-      // minWidth to the same value makes the width genuinely fixed.
       minWidth: isOpen ? '288px' : '72px',
       transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1), min-width 0.22s cubic-bezier(0.4,0,0.2,1)',
       background: SIDEBAR_BG,
@@ -339,10 +264,7 @@ function Sidebar({
     [isOpen, isRTL],
   );
 
-  const headerStyle = useMemo<React.CSSProperties>(
-    () => ({ borderBottom: `1px solid ${DIVIDER}` }),
-    [],
-  );
+  const headerStyle = useMemo<React.CSSProperties>(() => ({ borderBottom: `1px solid ${DIVIDER}` }), []);
 
   const logoUnderlineStyle = useMemo<React.CSSProperties>(
     () => ({
@@ -353,10 +275,6 @@ function Sidebar({
     [isRTL],
   );
 
-  /**
-   * الأفاتار بياخد لون العضو المخصص (Member Color) بدل التدرج الثابت،
-   * عشان يبقى نفس اللون المستخدم بباقي الواجهة (Gantt, DiamondGem...).
-   */
   const avatarStyle = useMemo<React.CSSProperties>(() => {
     const base = user?.color ?? '#0d9488';
     return {
@@ -402,11 +320,11 @@ function Sidebar({
   const [signingOut, setSigningOut] = useState(false);
 
   const handleSignOut = useCallback(async () => {
-    if (signingOut) return; // يمنع ضغطات متكررة أثناء التنفيذ
+    if (signingOut) return;
     setSigningOut(true);
     try {
-      await signOut();      // Supabase signOut + مسح الجلسة + توجيه لـ /login
-      onSignOut?.();        // يقفل الدرج بالموبايل لو مرّرته من الـ layout
+      await signOut();
+      onSignOut?.();
     } finally {
       setSigningOut(false);
     }
@@ -438,18 +356,11 @@ function Sidebar({
     [lang, isOpen],
   );
 
-  const userCardOuterStyle = useMemo<React.CSSProperties>(
-    () => ({ background: cardBg, border: `1px solid ${CARD_BORDER}` }),
-    [cardBg],
-  );
+  const userCardOuterStyle = useMemo<React.CSSProperties>(() => ({ background: cardBg, border: `1px solid ${CARD_BORDER}` }), [cardBg]);
 
   const userRowStyle = useMemo<React.CSSProperties>(
     () => ({
       flexDirection: 'row',
-      // ملاحظة: justifyContent ما بتقدر تتحرك بسلاسة بالـ CSS (قيمة غير قابلة
-      // للتحريك)، فكانت بتقفز فجأة بدل ما تنزلق مع باقي الأنيميشن. تركها ثابتة
-      // على flex-start حل المشكلة: لما الـ gap يوصل صفر ومساحة النص صفر، ما
-      // في فرق بصري بين flex-start و center أصلاً.
       justifyContent: 'flex-start',
       gap: isOpen ? '0.75rem' : '0',
       transition: 'gap 0.18s ease',
@@ -477,7 +388,6 @@ function Sidebar({
     [lang, isOpen],
   );
 
-  // النصوص المعروضة بكرت المستخدم (مع fallback أثناء التحميل)
   const displayName = user?.fullName || '—';
   const displayInitials = user?.initials || '—';
   const displayJobTitle =
@@ -486,14 +396,10 @@ function Sidebar({
 
   return (
     <aside dir={isRTL ? 'rtl' : 'ltr'} className="h-full flex flex-col select-none relative" style={asideStyle}>
-      {/* Decorative layer — clipped here so the aside itself can stay visible
-          for tooltips that extend past the rail. */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Glows */}
         <div className="absolute -top-20 -left-20 w-64 h-64 rounded-full" style={topGlowStyle} />
         <div className="absolute -bottom-24 -right-12 w-56 h-56 rounded-full" style={bottomGlowStyle} />
 
-        {/* Grain */}
         <div className="absolute inset-0 opacity-[0.015] mix-blend-overlay">
           <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
             <filter id={`sg-${instanceId}`}>
@@ -505,18 +411,11 @@ function Sidebar({
         </div>
       </div>
 
-      {/* Header */}
       <div className="relative h-16 sm:h-20 shrink-0 flex items-center px-3 gap-2" style={headerStyle}>
         <div className="flex-1 min-w-0 overflow-hidden">
           <AnimatePresence mode="wait">
             {isOpen ? (
-              <motion.div
-                key="full"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={logoFadeTransition}
-              >
+              <motion.div key="full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={logoFadeTransition}>
                 <Link href="/dashboard" className={`block group/logo px-1 ${isRTL ? 'text-right' : 'text-left'}`}>
                   <p className="text-[9px] font-bold uppercase tracking-[0.45em] mb-0.5" style={{ color: 'rgba(69,132,130,0.6)' }}>
                     Studio
@@ -532,14 +431,7 @@ function Sidebar({
                 </Link>
               </motion.div>
             ) : (
-              <motion.div
-                key="mark"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={logoFadeTransition}
-                className="flex justify-center"
-              >
+              <motion.div key="mark" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={logoFadeTransition} className="flex justify-center">
                 <Link href="/dashboard">
                   <span className="text-base font-black uppercase text-[#5ea8a4]" style={{ fontFamily: "'Georgia', serif" }}>
                     J
@@ -554,9 +446,7 @@ function Sidebar({
           <button
             type="button"
             onClick={handleToggleOpen}
-            aria-label={isOpen
-              ? (lang === 'ar' ? 'طي القائمة' : 'Collapse sidebar')
-              : (lang === 'ar' ? 'توسيع القائمة' : 'Expand sidebar')}
+            aria-label={isOpen ? (lang === 'ar' ? 'طي القائمة' : 'Collapse sidebar') : (lang === 'ar' ? 'توسيع القائمة' : 'Expand sidebar')}
             aria-expanded={isOpen}
             className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer"
             style={{ color: TEXT_IDLE, transition: 'color 0.15s, background 0.15s' }}
@@ -568,7 +458,6 @@ function Sidebar({
         )}
       </div>
 
-      {/* Nav */}
       <nav className="relative flex-1 py-3 px-2 space-y-0.5 overflow-y-auto overflow-x-hidden">
         {visibleItems.map((it) => (
           <SidebarNavItem
@@ -584,7 +473,6 @@ function Sidebar({
         ))}
       </nav>
 
-      {/* Theme + Language */}
       <div className="relative px-2 py-1 shrink-0" style={{ borderTop: `1px solid ${DIVIDER}` }}>
         {actionButtons.map((btn) => (
           <button
@@ -600,32 +488,21 @@ function Sidebar({
             <div className="shrink-0 flex items-center justify-center" style={actionIconWrapperStyle}>
               <btn.Icon style={{ width: '17px', height: '17px' }} />
             </div>
-            <span
-              className="text-[11px] font-bold uppercase tracking-[0.12em] whitespace-nowrap overflow-hidden"
-              style={actionLabelStyle}
-            >
+            <span className="text-[11px] font-bold uppercase tracking-[0.12em] whitespace-nowrap overflow-hidden" style={actionLabelStyle}>
               {btn.label}
             </span>
           </button>
         ))}
       </div>
 
-      {/* User card */}
       <div className="relative p-2 pb-3 shrink-0">
         <div className="rounded-2xl p-3" style={userCardOuterStyle}>
           <div className="flex items-center mb-2.5" style={userRowStyle}>
             <div className="relative shrink-0">
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] overflow-hidden"
-                style={avatarStyle}
-              >
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] overflow-hidden" style={avatarStyle}>
                 {user?.avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={user.avatarUrl}
-                    alt={displayName}
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={user.avatarUrl} alt={displayName} className="w-full h-full object-cover" />
                 ) : (
                   displayInitials
                 )}
@@ -655,13 +532,8 @@ function Sidebar({
             onMouseLeave={handleLogoutLeave}
           >
             <LogOut className="w-3.5 h-3.5 shrink-0" />
-            <span
-              className="text-[10px] font-bold uppercase tracking-[0.18em] whitespace-nowrap overflow-hidden"
-              style={logoutLabelStyle}
-            >
-              {signingOut
-                ? (lang === 'ar' ? 'جارٍ الخروج...' : 'Signing out...')
-                : (lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out')}
+            <span className="text-[10px] font-bold uppercase tracking-[0.18em] whitespace-nowrap overflow-hidden" style={logoutLabelStyle}>
+              {signingOut ? (lang === 'ar' ? 'جارٍ الخروج...' : 'Signing out...') : (lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out')}
             </span>
           </button>
         </div>

@@ -23,6 +23,15 @@ const CARD_HOVER_LIGHT = { y: -2, borderColor: 'rgba(0,0,0,0.14)' }
 const CARD_HOVER_DARK  = { y: -2, borderColor: 'rgba(255,255,255,0.12)' }
 const CARD_TRANSITION  = { duration: 0.2 }
 
+/*
+  ارتفاع الصورة ثابت (150px) بغض النظر عن المقاس المختار وقت النشر —
+  بقصد. الكارت هون لازم يكون بارتفاع موحّد لكل الكاردز (Grid عادي،
+  بدون Masonry بـJS بعد ما انكشفت هشاشتها)، فمقاس الصورة بيأثر بس على
+  أي جزء من الصورة يظهر (عبر object-position المحفوظة)، مش على ارتفاع
+  الكارت نفسه. شكل المقاس الكامل بيبان بوضوح أكتر بالمودال لما تفتح الخبر.
+*/
+const IMAGE_HEIGHT_PX = 150
+
 interface NewsCardProps {
   post:    NewsPost
   liked:   boolean
@@ -82,9 +91,17 @@ function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: Ne
     onDelete()
   }, [onDelete])
 
-  const imageStyle = useMemo(() => ({
+  /** حاوية الصورة: ارتفاع ثابت (IMAGE_HEIGHT_PX) لكل الكاردز — عشان
+      الكارت كامل يضل بارتفاع موحّد بالـGrid، بغض النظر عن مقاس الصورة
+      المختار. */
+  const imageWrapStyle: React.CSSProperties = { height: IMAGE_HEIGHT_PX, overflow: 'hidden' }
+
+  /** الصورة نفسها: object-position حسب الموضع المختار (سحب وإفلات
+      بالـComposer)، مش دايمًا "center" ثابت. */
+  const imageStyle = useMemo<React.CSSProperties>(() => ({
     filter: isDark ? 'brightness(0.85)' : 'none',
-  }), [isDark])
+    objectPosition: `${post.imagePositionX}% ${post.imagePositionY}%`,
+  }), [isDark, post.imagePositionX, post.imagePositionY])
 
   const badgeStyle = useMemo(() => ({
     background: `${meta.color}18`,
@@ -108,13 +125,13 @@ function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: Ne
   return (
     <motion.div
       onClick={handleClick}
-      className="w-full rounded-2xl overflow-hidden cursor-pointer group"
+      className="w-full h-[360px] flex flex-col rounded-2xl overflow-hidden cursor-pointer group"
       style={{ background: themeColors.bg, border: `1px solid ${themeColors.border}` }}
       whileHover={isDark ? CARD_HOVER_DARK : CARD_HOVER_LIGHT}
       transition={CARD_TRANSITION}
     >
       {post.image && (
-        <div style={{ height: '150px', overflow: 'hidden' }}>
+        <div className="shrink-0" style={imageWrapStyle}>
           <img
             src={post.image} alt={title}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
@@ -123,7 +140,7 @@ function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: Ne
         </div>
       )}
 
-      <div className="p-4" dir={isRTL ? 'rtl' : 'ltr'}>
+      <div className="p-4 flex-1 min-h-0 flex flex-col" dir={isRTL ? 'rtl' : 'ltr'}>
         {/* Badge + time */}
         <div className="flex items-center justify-between mb-3" style={{ flexDirection: 'row' }}>
           <div
@@ -148,9 +165,10 @@ function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: Ne
           </div>
         </div>
 
-        {/* Title */}
+        {/* Title — line-clamp-2 عشان العنوان الطويل ما يكسر ارتفاع
+            الكارت الموحّد (360px) */}
         <h3
-          className="text-sm font-bold mb-2 leading-snug"
+          className="text-sm font-bold mb-2 leading-snug line-clamp-2 shrink-0"
           style={{
             color: 'var(--foreground)',
             fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)',
@@ -161,10 +179,12 @@ function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: Ne
           {title}
         </h3>
 
-        {/* Body preview */}
-        <div className="mb-3">
+        {/* Body preview — line-clamp-3 لنفس السبب (بالإضافة لتقصير
+            PREVIEW_CHARS أصلاً، هاي حماية إضافية لنصوص فيها كلمات طويلة
+            جدًا بلا مسافات ممكن تكسر الالتفاف). */}
+        <div className="mb-3 flex-1 min-h-0">
           <p
-            className="text-[11px] leading-relaxed"
+            className="text-[11px] leading-relaxed line-clamp-3"
             style={{
               color: textMuted,
               fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
@@ -181,8 +201,9 @@ function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: Ne
           )}
         </div>
 
-        {/* Divider */}
-        <div style={{ height: '1px', background: themeColors.divider, marginBottom: '12px' }} />
+        {/* Divider — mt-auto بيدفعها + الفوتر (أفتار/لايك) لآخر الكارت
+            دايمًا، بغض النظر عن طول العنوان/النص فوقها. */}
+        <div className="mt-auto shrink-0" style={{ height: '1px', background: themeColors.divider, marginBottom: '12px' }} />
 
         {/* Footer */}
         <div className="flex items-center justify-between" style={{ flexDirection: 'row' }}>

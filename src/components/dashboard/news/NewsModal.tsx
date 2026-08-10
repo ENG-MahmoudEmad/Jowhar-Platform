@@ -66,7 +66,19 @@ function NewsModal({ post, liked, likes, isAdmin, onClose, onLike, onDelete }: N
     boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
   }), [isDark])
 
-  const imageStyle = useMemo(() => ({ filter: isDark ? 'brightness(0.8)' : 'none' }), [isDark])
+  /*
+    ⚠️ بالمودال، الصورة دايمًا بنفس الشكل الأصلي (عرض كامل، ارتفاع
+    ثابت 200px، object-cover) — بغض النظر عن المقاس (landscape/
+    portrait/square) اللي اختاره الناشر وقت النشر. اختيار المقاس
+    والموضع بيأثر بس على شكل الصورة *بالكارت* (NewsCard بالـFeed) —
+    هون بالمودال دايمًا "لمحة موسّعة" بنفس النسبة الثابتة، قرار تصميم
+    مقصود (زي ما كان بالنسخة الأصلية قبل إضافة ميزة اختيار المقاس).
+  */
+  const imageWrapStyle: React.CSSProperties = { height: '200px', overflow: 'hidden' }
+
+  const imageStyle = useMemo(() => ({
+    filter: isDark ? 'brightness(0.8)' : 'none',
+  }), [isDark])
 
   const closeBtnStyle = useMemo(() => ({
     [isRTL ? 'left' : 'right']: '12px',
@@ -117,7 +129,7 @@ function NewsModal({ post, liked, likes, isAdmin, onClose, onLike, onDelete }: N
             style={modalStyle}
           >
             {post.image && (
-              <div style={{ height: '200px', overflow: 'hidden' }}>
+              <div style={imageWrapStyle}>
                 <img
                   src={post.image} alt={title}
                   className="w-full h-full object-cover"
@@ -175,7 +187,8 @@ function NewsModal({ post, liked, likes, isAdmin, onClose, onLike, onDelete }: N
                 {title}
               </h2>
 
-              {/* Full body — رسم فعلي للتنسيق (عريض/مائل/نقاط) بدل نص خام */}
+              {/* Full body — رسم فعلي للتنسيق (عريض/مائل/نقاط/روابط قابلة
+                  للضغط) بدل نص خام — راجع RichText.tsx */}
               <RichText
                 segments={bodySegments}
                 muted="var(--foreground-muted)"

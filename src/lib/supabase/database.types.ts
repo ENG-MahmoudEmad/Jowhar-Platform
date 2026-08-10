@@ -338,6 +338,9 @@ export type Database = {
           created_at: string
           expires_at: string | null
           id: number
+          image_aspect: string
+          image_position_x: number
+          image_position_y: number
           image_url: string | null
           notified_at: string | null
           publish_at: string | null
@@ -351,6 +354,9 @@ export type Database = {
           created_at?: string
           expires_at?: string | null
           id?: never
+          image_aspect?: string
+          image_position_x?: number
+          image_position_y?: number
           image_url?: string | null
           notified_at?: string | null
           publish_at?: string | null
@@ -364,6 +370,9 @@ export type Database = {
           created_at?: string
           expires_at?: string | null
           id?: never
+          image_aspect?: string
+          image_position_x?: number
+          image_position_y?: number
           image_url?: string | null
           notified_at?: string | null
           publish_at?: string | null
@@ -1189,6 +1198,9 @@ export type Database = {
           created_at: string
           expires_at: string
           id: number
+          image_aspect: string
+          image_position_x: number
+          image_position_y: number
           image_url: string
           is_upcoming: boolean
           liked_by_me: boolean

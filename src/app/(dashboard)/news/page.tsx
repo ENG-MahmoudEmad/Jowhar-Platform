@@ -13,6 +13,9 @@ type NewsFeedRow = {
   title_ar: string;
   body: string;
   image_url: string | null;
+  image_aspect: 'landscape' | 'portrait' | 'square';
+  image_position_x: number;
+  image_position_y: number;
   author_id: string;
   author_name: string;
   author_initials: string;
@@ -28,7 +31,16 @@ type NewsFeedRow = {
 
 export default async function NewsPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+
+  /*
+    ⚠️ getSession() مش getUser() هون بقصد: proxy.ts (middleware) أصلاً
+    بيستدعي getUser() الحقيقي (رحلة شبكة فعلية لسيرفر Supabase Auth) على
+    كل طلب صفحة، ويرفض أي جلسة غير صالحة قبل ما توصل هون. getSession()
+    بيقرأ من الـcookie مباشرة بدون رحلة شبكة إضافية — نفس التعديل المطبّق
+    على كل صفحة تانية بالمشروع (Dashboard, My Tasks, Archive).
+  */
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
   if (!user) redirect('/login');
 
   const { data: viewerProfile } = await supabase
@@ -68,6 +80,10 @@ export default async function NewsPage() {
     fire-and-forget صراحة (بدون await): ما بدنا نأخّر عرض الصفحة
     بانتظار نتيجة الدالة. لو فشلت لأي سبب، الـcron اليومي شبكة أمان
     بتلتقطها بأسوأ الأحوال خلال 24 ساعة.
+
+    الدالة نفسها رخيصة بالحالة الشائعة (مافي أخبار مستحقة) — راجع
+    migration idx_news_posts_pending_notify للـindex اللي بيخليها
+    كذلك مع نمو الجدول.
   */
   void supabase.rpc('notify_due_news_posts');
 
@@ -80,6 +96,9 @@ export default async function NewsPage() {
     titleAr: row.title_ar,
     body: row.body,
     imageUrl: row.image_url,
+    imageAspect: row.image_aspect,
+    imagePositionX: row.image_position_x,
+    imagePositionY: row.image_position_y,
     authorId: row.author_id,
     authorName: row.author_name?.trim() || '—',
     authorInitials: row.author_initials || '—',

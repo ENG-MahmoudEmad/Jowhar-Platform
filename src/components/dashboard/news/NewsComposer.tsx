@@ -2,12 +2,12 @@
 
 import React, { useState, useRef, useCallback, useMemo, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, ImageIcon, Send, Megaphone, RefreshCw, AlertTriangle, Bold, Italic, List, Smile, Calendar, Palette } from 'lucide-react'
+import { X, ImageIcon, Send, Megaphone, RefreshCw, AlertTriangle, Bold, Italic, List, Smile, Calendar, Palette, RectangleHorizontal, RectangleVertical, Square, Move } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import { createClient } from '@/lib/supabase/client'
 import { createNewsPost } from '@/app/(dashboard)/news/newsActions'
-import type { NewsType, NewsPostData, CurrentUserSummary } from './NewsFeed'
+import type { NewsType, NewsPostData, CurrentUserSummary, NewsImageAspect } from './NewsFeed'
 
 const EMOJI_PRESET = ['😀', '🎉', '✅', '⚠️', '📢', '🔥', '💡', '👍', '❤️', '🚀', '📌', '🙏', '👏', '💯', '🎯', '📅']
 
@@ -26,6 +26,13 @@ const TYPE_OPTIONS: { key: Exclude<NewsType, 'all'>; icon: React.ElementType; en
   { key: 'announcement', icon: Megaphone,     en: 'Announcement', ar: 'إعلان',  color: '#3b82f6' },
   { key: 'update',       icon: RefreshCw,     en: 'Update',       ar: 'تحديث', color: '#a855f7' },
   { key: 'alert',        icon: AlertTriangle, en: 'Alert',        ar: 'تنبيه', color: '#ef4444' },
+]
+
+/** نفس الخريطة المستخدمة بـNewsCard/NewsModal — لازم تضل متطابقة. */
+const ASPECT_OPTIONS: { key: NewsImageAspect; icon: React.ElementType; en: string; ar: string; ratio: string }[] = [
+  { key: 'landscape', icon: RectangleHorizontal, en: 'Landscape', ar: 'عرضية', ratio: '16 / 9' },
+  { key: 'portrait',  icon: RectangleVertical,   en: 'Portrait',  ar: 'طولية', ratio: '3 / 4'  },
+  { key: 'square',    icon: Square,              en: 'Square',    ar: 'مربعة', ratio: '1 / 1'  },
 ]
 
 const MAX_IMAGE_MB = 5
@@ -79,6 +86,166 @@ const TypeOptionButton = memo(function TypeOptionButton({
   )
 })
 
+/** زر اختيار شكل قص الصورة (عرضية/طولية/مربعة). */
+const AspectOptionButton = memo(function AspectOptionButton({
+  option, active, isDark, inputBdr, textMuted, lang, onSelect,
+}: {
+  option: typeof ASPECT_OPTIONS[number]
+  active: boolean
+  isDark: boolean
+  inputBdr: string
+  textMuted: string
+  lang: string
+  onSelect: (key: NewsImageAspect) => void
+}) {
+  const Ic = option.icon
+  const handleClick = useCallback(() => onSelect(option.key), [onSelect, option.key])
+
+  const style = useMemo(() => ({
+    background: active ? 'rgba(69,132,130,0.18)' : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
+    color:      active ? '#458482' : textMuted,
+    border:     `1px solid ${active ? 'rgba(69,132,130,0.4)' : inputBdr}`,
+    fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+  }), [active, isDark, textMuted, inputBdr, lang])
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2.5 rounded-xl text-[10px] font-bold cursor-pointer transition-all"
+      style={style}
+    >
+      <Ic className="w-4 h-4" />
+      {lang === 'ar' ? option.ar : option.en}
+    </button>
+  )
+})
+
+/**
+ * معاينة الصورة مع سحب وإفلات حر لتحديد موضع القص — بنفس فكرة أدوات
+ * Facebook/Instagram لصورة الغلاف. الصورة معروضة بحجمها الكامل (مش
+ * مقصوصة)، والإطار بلون شبه شفاف بيبيّن أي جزء رح يظهر فعليًا بالكارت
+ * (نسبة أبعاد aspect ثابتة، بيتحرك بس مكانه داخل الصورة حسب position).
+ */
+const ImagePositionPicker = memo(function ImagePositionPicker({
+  imageUrl, aspect, positionX, positionY, onChange, isDark, lang,
+}: {
+  imageUrl:  string
+  aspect:    NewsImageAspect
+  positionX: number
+  positionY: number
+  onChange:  (x: number, y: number) => void
+  isDark:    boolean
+  lang:      string
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false)
+
+  const aspectRatio = useMemo(
+    () => ASPECT_OPTIONS.find(a => a.key === aspect)?.ratio ?? '16 / 9',
+    [aspect],
+  )
+
+  const updateFromPointer = useCallback((clientX: number, clientY: number) => {
+    const el = containerRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100))
+    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100))
+    onChange(Math.round(x), Math.round(y))
+  }, [onChange])
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setDragging(true)
+    updateFromPointer(e.clientX, e.clientY)
+    const el = e.currentTarget
+    el.setPointerCapture(e.pointerId)
+  }, [updateFromPointer])
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging) return
+    updateFromPointer(e.clientX, e.clientY)
+  }, [dragging, updateFromPointer])
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    setDragging(false)
+    e.currentTarget.releasePointerCapture(e.pointerId)
+  }, [])
+
+  const containerStyle = useMemo<React.CSSProperties>(() => ({
+    aspectRatio: '16 / 9', // نافذة المعاينة نفسها دايمًا عريضة (مساحة كافية للسحب)، بغض النظر عن الـaspect المختار
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: '12px',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)'}`,
+    cursor: dragging ? 'grabbing' : 'grab',
+    touchAction: 'none',
+    userSelect: 'none',
+  }), [isDark, dragging])
+
+  const cropOverlayStyle = useMemo<React.CSSProperties>(() => {
+    // الإطار (aspect المختار) متمركز أفقيًا داخل نافذة المعاينة، وارتفاعه
+    // بيتغيّر حسب النسبة — بيبيّن للناشر أي جزء بالضبط رح يظهر بالكارت.
+    return {
+      position: 'absolute',
+      inset: 0,
+      margin: 'auto',
+      aspectRatio,
+      maxWidth: '100%',
+      maxHeight: '100%',
+      border: '2px solid #458482',
+      boxShadow: '0 0 0 2000px rgba(0,0,0,0.5)',
+      pointerEvents: 'none',
+    }
+  }, [aspectRatio])
+
+  return (
+    <div
+      ref={containerRef}
+      style={containerStyle}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+    >
+      <img
+        src={imageUrl}
+        alt=""
+        draggable={false}
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ objectPosition: `${positionX}% ${positionY}%` }}
+      />
+      <div style={cropOverlayStyle} />
+
+      {/* مؤشر مركز موضع القص الحالي — تلميح بصري بس */}
+      <div
+        className="absolute w-3 h-3 rounded-full pointer-events-none"
+        style={{
+          left: `${positionX}%`,
+          top: `${positionY}%`,
+          transform: 'translate(-50%, -50%)',
+          background: '#458482',
+          border: '2px solid #ffffff',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+        }}
+      />
+
+      <div
+        className="absolute bottom-2 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold pointer-events-none"
+        style={{
+          [/* rtl-safe */ 'insetInlineStart']: '8px',
+          background: 'rgba(8,15,18,0.6)',
+          color: '#ffffff',
+          backdropFilter: 'blur(4px)',
+        } as React.CSSProperties}
+      >
+        <Move className="w-3 h-3" />
+        {lang === 'ar' ? 'اسحب لتحديد الموضع' : 'Drag to reposition'}
+      </div>
+    </div>
+  )
+})
+
 function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps) {
   const { theme }       = useTheme()
   const { lang, isRTL } = useLang()
@@ -91,6 +258,9 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
   const [imagePreview, setImagePreview] = useState<string | null>(null) // local preview only (blob URL or pasted URL)
   const [imageFile,  setImageFile]  = useState<File | null>(null)
   const [imageUrl,   setImageUrl]   = useState('')
+  const [imageAspect, setImageAspect] = useState<NewsImageAspect>('landscape')
+  const [imagePositionX, setImagePositionX] = useState(50)
+  const [imagePositionY, setImagePositionY] = useState(50)
   const [publishAt,  setPublishAt]  = useState('') // datetime-local string, فاضي = ينشر فورًا
   const [expiresAt,  setExpiresAt]  = useState('') // datetime-local string, فاضي = ما بينتهي
   const [showEmoji,  setShowEmoji]  = useState(false)
@@ -123,6 +293,8 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
 
     setImageFile(file)
     setImageUrl('')
+    setImagePositionX(50)
+    setImagePositionY(50)
     // معاينة فورية محليًا بس (blob URL) — الرفع الحقيقي لـ Storage بيصير وقت النشر.
     setImagePreview(URL.createObjectURL(file))
   }, [lang])
@@ -132,14 +304,22 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
       if (current.startsWith('http')) {
         setImageFile(null)
         setImagePreview(current)
+        setImagePositionX(50)
+        setImagePositionY(50)
       }
       return current
     })
   }, [])
 
+  const handlePositionChange = useCallback((x: number, y: number) => {
+    setImagePositionX(x)
+    setImagePositionY(y)
+  }, [])
+
   const reset = useCallback(() => {
     setType('announcement'); setTitleEn(''); setTitleAr('')
     setBody(''); setImageFile(null); setImagePreview(null); setImageUrl('')
+    setImageAspect('landscape'); setImagePositionX(50); setImagePositionY(50)
     setPublishAt(''); setExpiresAt(''); setShowEmoji(false); setShowColorPicker(false)
     setSubmitting(false); setUploadError(null)
   }, [])
@@ -147,7 +327,8 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
   /**
    * أزرار التنسيق بتحيط النص المحدد برموز (**bold**، *italic*) بدل محرر
    * معقّد — نفس أسلوب GitHub/Slack. الرموز بتتحوّل لتنسيق حقيقي وقت
-   * العرض عبر parseNewsMarkdown (شوف NewsCard/NewsModal).
+   * العرض عبر parseNewsMarkdown (شوف NewsCard/NewsModal). الروابط
+   * (http/https) بتتكشف تلقائيًا من شكلها، بدون أي رمز خاص.
    */
   const wrapSelection = useCallback((before: string, after: string = before) => {
     const el = bodyRef.current
@@ -243,6 +424,9 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
         titleAr: titleAr.trim(),
         body: body.trim(),
         imageUrl: finalImageUrl,
+        imageAspect,
+        imagePositionX,
+        imagePositionY,
         publishAt: publishAtIso,
         expiresAt: expiresAtIso,
       })
@@ -254,6 +438,9 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
         titleAr: titleAr.trim(),
         body: body.trim(),
         imageUrl: finalImageUrl,
+        imageAspect,
+        imagePositionX,
+        imagePositionY,
         authorId: currentUser.id,
         authorName: currentUser.name,
         authorInitials: currentUser.initials,
@@ -273,10 +460,13 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
       setUploadError(lang === 'ar' ? 'تعذّر النشر — حاول من جديد.' : 'Could not publish — try again.')
       setSubmitting(false)
     }
-  }, [titleEn, titleAr, body, type, imageFile, imageUrl, publishAt, expiresAt, onPost, reset, onClose, currentUser, lang])
+  }, [titleEn, titleAr, body, type, imageFile, imageUrl, imageAspect, imagePositionX, imagePositionY, publishAt, expiresAt, onPost, reset, onClose, currentUser, lang])
 
   const handleFileBtnClick = useCallback(() => fileRef.current?.click(), [])
-  const handleRemoveImage = useCallback(() => { setImageFile(null); setImagePreview(null); setImageUrl('') }, [])
+  const handleRemoveImage = useCallback(() => {
+    setImageFile(null); setImagePreview(null); setImageUrl('')
+    setImagePositionX(50); setImagePositionY(50)
+  }, [])
   const handleTitleEnChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setTitleEn(e.target.value), [])
   const handleTitleArChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setTitleAr(e.target.value), [])
   const handleBodyChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => setBody(e.target.value), [])
@@ -308,6 +498,7 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
     photo:     lang === 'ar' ? 'صورة الغلاف (اختياري)' : 'Cover image (optional)',
     upload:    lang === 'ar' ? 'رفع من الجهاز'     : 'Upload from device',
     orUrl:     lang === 'ar' ? 'أو الصق رابطًا'    : 'Or paste a URL',
+    aspectLabel: lang === 'ar' ? 'شكل الصورة'       : 'Image shape',
     publishAt:      lang === 'ar' ? 'جدولة النشر (اختياري)' : 'Schedule publish (optional)',
     publishAtHint:  lang === 'ar' ? 'فاضي = ينشر فورًا' : 'Empty = publish immediately',
     expiresAt:      lang === 'ar' ? 'تاريخ الانتهاء (اختياري)' : 'Expiry date (optional)',
@@ -334,7 +525,6 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
   const titleArInputStyle = useMemo(() => ({ ...inputStyle, direction: 'rtl' as const, fontFamily: 'var(--font-arabic)' }), [inputStyle])
   const bodyInputStyle = useMemo(() => ({ ...inputStyle, borderRadius: '12px', resize: 'none' as const, lineHeight: '1.7' }), [inputStyle])
   const urlInputStyle = useMemo(() => ({ ...inputStyle, direction: 'ltr' as const, fontSize: '11px' }), [inputStyle])
-  const imagePreviewStyle = useMemo(() => ({ height: '90px', borderRadius: '12px', overflow: 'hidden' as const, border: `1px solid ${colors.inputBdr}` }), [colors.inputBdr])
   const submitBtnStyle = useMemo(() => ({
     background: canSubmit ? '#458482' : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'),
     color:      canSubmit ? '#ffffff'  : textMuted,
@@ -486,7 +676,7 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
                           className="absolute z-20 grid grid-cols-4 gap-1.5 p-2 rounded-xl"
                           style={{
                             top: 'calc(100% + 6px)',
-                            insetInlineEnd: 76, // يفضى مكان لقائمة الإيموجي جنبه لو الاثنين مفتوحين بالتتابع
+                            insetInlineEnd: 76,
                             width: 116,
                             background: isDark ? '#161b22' : '#ffffff',
                             border: `1px solid ${colors.inputBdr}`,
@@ -561,7 +751,9 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
                   style={bodyInputStyle}
                 />
                 <p className="text-[9px] mt-1" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
-                  {lang === 'ar' ? 'حدّد نص واضغط عريض/مائل/لون، أو ابدأ سطر بـ "- " لنقطة' : 'Select text then Bold/Italic/Color, or start a line with "- " for a bullet'}
+                  {lang === 'ar'
+                    ? 'حدّد نص واضغط عريض/مائل/لون، أو ابدأ سطر بـ "- " لنقطة. أي رابط (https://...) بيصير قابل للضغط تلقائيًا.'
+                    : 'Select text then Bold/Italic/Color, or start a line with "- " for a bullet. Any https:// link becomes clickable automatically.'}
                 </p>
               </div>
 
@@ -596,10 +788,36 @@ function NewsComposer({ open, onClose, onPost, currentUser }: NewsComposerProps)
                     onChange={handleImageUrlChange}
                     onBlur={handleUrlBlur}
                   />
+
+                  {/* شكل الصورة — 3 خيارات، تظهر بس لما فيه صورة فعلية */}
                   {imagePreview && (
-                    <div style={imagePreviewStyle}>
-                      <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
-                    </div>
+                    <>
+                      <div className="flex gap-2 mt-1">
+                        {ASPECT_OPTIONS.map(opt => (
+                          <AspectOptionButton
+                            key={opt.key}
+                            option={opt}
+                            active={imageAspect === opt.key}
+                            isDark={isDark}
+                            inputBdr={colors.inputBdr}
+                            textMuted={textMuted}
+                            lang={lang}
+                            onSelect={setImageAspect}
+                          />
+                        ))}
+                      </div>
+
+                      {/* معاينة قابلة للسحب لتحديد موضع القص */}
+                      <ImagePositionPicker
+                        imageUrl={imagePreview}
+                        aspect={imageAspect}
+                        positionX={imagePositionX}
+                        positionY={imagePositionY}
+                        onChange={handlePositionChange}
+                        isDark={isDark}
+                        lang={lang}
+                      />
+                    </>
                   )}
                 </div>
               </div>

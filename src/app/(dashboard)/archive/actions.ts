@@ -8,6 +8,7 @@ import {
   canManageArchiveByWork,
   canDeleteArchive,
 } from './guards';
+import { hasCapability } from '@/app/(dashboard)/adminControl/guards';
 
 // ⚠️ عن قصد: ما في revalidatePath هون. PlatformGrid.tsx بيدير الحالة
 // بنفسه Optimistic UI (setPlatforms) — نفس قاعدة الداشبورد المعمول فيها
@@ -565,7 +566,15 @@ export async function deleteFileAction(fileDbId: string): Promise<void> {
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB موحّد (القرار المحسوم)
 
 export async function uploadArchiveImageAction(formData: FormData): Promise<string> {
-  const { supabase } = await requireArchiveActor();
+  const { supabase, actor } = await requireArchiveActor();
+
+  // ⚠️ إضافة أمنية: قبل هالفحص، أي عضو نشط (بدون أي شرط صلاحية) كان
+  // يقدر يرفع صور لـ storage الأرشيف. صار محصور بـ archive.manage —
+  // نفس منطق add_file_type/canCreatePlatform (صلاحية عامة بدون شرط
+  // عضوية منصة معينة، لأن الصورة ممكن تكون لمنصة جديدة لسا ما انخلقت).
+  if (!(await hasCapability(supabase, actor, 'archive.manage'))) {
+    throw new Error('forbidden');
+  }
 
   const file = formData.get('file');
   if (!(file instanceof File)) throw new Error('no_file');

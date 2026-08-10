@@ -8,6 +8,9 @@ import { requireAdminActor, hasCapability } from '@/app/(dashboard)/adminControl
 
 const CAPABILITY = 'news.publish';
 
+const VALID_ASPECTS = ['landscape', 'portrait', 'square'] as const;
+type ImageAspect = (typeof VALID_ASPECTS)[number];
+
 async function requireNewsPublisher() {
   const { supabase, actor } = await requireAdminActor();
   if (!(await hasCapability(supabase, actor, CAPABILITY))) {
@@ -37,10 +40,20 @@ export interface CreateNewsPostInput {
   body: string;
   /** رابط من Storage (أو خارجي) — الرفع نفسه صار بالفرونت قبل ما توصل هون. */
   imageUrl: string | null;
+  /** شكل قص الصورة — يُتجاهل لو imageUrl فاضي. */
+  imageAspect?: ImageAspect;
+  /** موضع القص (0-100%) — نفس فكرة CSS object-position. */
+  imagePositionX?: number;
+  imagePositionY?: number;
   /** فاضي = ينشر فورًا. لو بالمستقبل، الخبر "قادم" (بادج مخصوص). */
   publishAt: string | null;
   /** فاضي = ما بينتهي أبدًا. */
   expiresAt: string | null;
+}
+
+function clampPercent(value: number | undefined, fallback: number): number {
+  if (value === undefined || Number.isNaN(value)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 export async function createNewsPost(input: CreateNewsPostInput): Promise<{ id: number }> {
@@ -58,6 +71,10 @@ export async function createNewsPost(input: CreateNewsPostInput): Promise<{ id: 
     throw new Error('expiry_before_publish');
   }
 
+  const imageAspect: ImageAspect = VALID_ASPECTS.includes(input.imageAspect as ImageAspect)
+    ? (input.imageAspect as ImageAspect)
+    : 'landscape';
+
   const { data, error } = await supabase
     .from('news_posts')
     .insert({
@@ -66,6 +83,9 @@ export async function createNewsPost(input: CreateNewsPostInput): Promise<{ id: 
       title_ar: titleAr,
       body,
       image_url: input.imageUrl,
+      image_aspect: imageAspect,
+      image_position_x: clampPercent(input.imagePositionX, 50),
+      image_position_y: clampPercent(input.imagePositionY, 50),
       author_id: actor.id,
       publish_at: input.publishAt,
       expires_at: input.expiresAt,

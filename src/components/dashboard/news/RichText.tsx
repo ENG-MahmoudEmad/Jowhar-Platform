@@ -1,6 +1,6 @@
 "use client";
 
-// Renders rich text segments (bold, italic, color, bullet points, line breaks)
+// Renders rich text segments (bold, italic, color, bullet points, line breaks, links)
 import React, { useMemo, memo } from "react";
 import type { RichSegment } from "./NewsFeed";
 
@@ -38,6 +38,41 @@ function buildLines(segments: RichSegment[]): Line[] {
   return lines;
 }
 
+/** رابط بلون ثابت (لا يعتمد على color المخصص للنص) — عشان يضل واضح
+    إنه قابل للضغط حتى لو النص حواليه ملوّن بلون تاني. */
+const LINK_COLOR = "#3b82f6";
+
+function LinkSpan({ seg }: { seg: RichSegment }) {
+  const style = useMemo<React.CSSProperties>(() => ({
+    color: LINK_COLOR,
+    textDecoration: "underline",
+    textUnderlineOffset: "2px",
+    fontWeight: seg.bold ? 700 : 500,
+    fontStyle: seg.italic ? "italic" : "normal",
+    wordBreak: "break-all",
+    cursor: "pointer",
+  }), [seg.bold, seg.italic]);
+
+  const handleClick = (e: React.MouseEvent) => {
+    // الرابط جوا كارت/مودال كله قابل للضغط لفتح التفاصيل — لازم نوقف
+    // انتشار الحدث عشان الضغط على الرابط يفتح الرابط نفسه، مش يفتح
+    // مودال الخبر (أو يقفله لو أصلاً مفتوح).
+    e.stopPropagation();
+  };
+
+  return (
+    <a
+      href={seg.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={handleClick}
+      style={style}
+    >
+      {seg.text}
+    </a>
+  );
+}
+
 const BulletLine = memo(function BulletLine({ seg, muted }: { seg: RichSegment; muted: string }) {
   const dotStyle = useMemo(() => ({
     background: seg.color || "#458482", minWidth: "6px",
@@ -59,9 +94,13 @@ const BulletLine = memo(function BulletLine({ seg, muted }: { seg: RichSegment; 
         className="mt-[7px] shrink-0 w-1.5 h-1.5 rounded-full"
         style={dotStyle}
       />
-      <span style={textStyle}>
-        {seg.text}
-      </span>
+      {seg.link ? (
+        <LinkSpan seg={seg} />
+      ) : (
+        <span style={textStyle}>
+          {seg.text}
+        </span>
+      )}
     </div>
   )
 })
@@ -78,18 +117,22 @@ const InlineLine = memo(function InlineLine({ segs, muted, marginTop }: { segs: 
 
   return (
     <p style={pStyle}>
-      {segs.map((seg, j) => (
-        <span
-          key={j}
-          style={{
-            color: seg.color || (seg.bold ? "var(--foreground)" : muted),
-            fontWeight: seg.bold ? 700 : 400,
-            fontStyle: seg.italic ? "italic" : "normal",
-          }}
-        >
-          {seg.text}
-        </span>
-      ))}
+      {segs.map((seg, j) =>
+        seg.link ? (
+          <LinkSpan key={j} seg={seg} />
+        ) : (
+          <span
+            key={j}
+            style={{
+              color: seg.color || (seg.bold ? "var(--foreground)" : muted),
+              fontWeight: seg.bold ? 700 : 400,
+              fontStyle: seg.italic ? "italic" : "normal",
+            }}
+          >
+            {seg.text}
+          </span>
+        )
+      )}
     </p>
   )
 })

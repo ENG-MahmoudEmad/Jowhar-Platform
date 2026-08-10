@@ -22,9 +22,14 @@ export interface RichSegment {
   bullet?:  boolean;
   /** فاصل سطر — مش نص فعلي، بس علامة "خلّص هالسطر ابدأ سطر جديد". */
   newline?: boolean;
+  /** رابط قابل للضغط (اتكشف تلقائيًا من parseNewsMarkdown). */
+  link?:    boolean;
+  href?:    string;
 }
 
-// شكل العرض الداخلي — يلي NewsCard/NewsModal بتستهلكه
+/** أشكال قص/عرض صورة الخبر — يختارها الناشر وقت النشر. */
+export type NewsImageAspect = 'landscape' | 'portrait' | 'square'
+
 export interface NewsPost {
   id:          number
   type:        Exclude<NewsType, 'all'>
@@ -32,6 +37,9 @@ export interface NewsPost {
   titleAr:     string
   body:        string
   image?:      string
+  imageAspect: NewsImageAspect
+  imagePositionX: number
+  imagePositionY: number
   author:      string
   authorAr:    string
   avatar:      string
@@ -40,13 +48,10 @@ export interface NewsPost {
   timestamp:   string
   likes:       number
   likedByMe?:  boolean
-  /** خبر مجدول للمستقبل — ظاهر للأدمن بس، ببادج "قادم". */
   isUpcoming:  boolean
   publishAt:   string | null
 }
 
-// شكل البيانات الراجعة من get_news_feed() بعد التحويل بـ page.tsx —
-// مصدر واحد قبل ما يتحوّل لشكل NewsPost أعلاه (بحساب timestamp حسب اللغة الحالية)
 export interface NewsPostData {
   id: number
   type: Exclude<NewsType, 'all'>
@@ -54,6 +59,9 @@ export interface NewsPostData {
   titleAr: string
   body: string
   imageUrl: string | null
+  imageAspect: NewsImageAspect
+  imagePositionX: number
+  imagePositionY: number
   authorId: string
   authorName: string
   authorInitials: string
@@ -77,7 +85,6 @@ export interface CurrentUserSummary {
 
 interface NewsFeedProps {
   initialPosts: NewsPostData[]
-  /** true لو المستخدم Chief/Developer أو حامل صلاحية news.publish. */
   isAdmin: boolean
   currentUser: CurrentUserSummary
 }
@@ -90,7 +97,7 @@ interface LikeState {
 const EMPTY_LIKE_STATE: LikeState = { liked: false, count: 0 }
 
 const ADD_BTN_STYLE: React.CSSProperties = { background: '#458482', color: '#ffffff', border: 'none' }
-const COLUMNS_STYLE: React.CSSProperties = { columnGap: '16px' }
+const GRID_STYLE: React.CSSProperties = { gap: '16px' }
 const FADE_TRANSITION = { duration: 0.18 }
 const CARD_ENTRY_TRANSITION = { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
 const EMPTY_ICON_STYLE: React.CSSProperties = { color: 'var(--foreground-muted)', opacity: 0.35 }
@@ -103,7 +110,9 @@ function toDisplayPost(data: NewsPostData, lang: 'en' | 'ar'): NewsPost {
     titleAr: data.titleAr,
     body: data.body,
     image: data.imageUrl ?? undefined,
-    // ما في اسم مترجم منفصل بالداتابيز (شخص واحد بس) — نفس الاسم بالاتجاهين.
+    imageAspect: data.imageAspect,
+    imagePositionX: data.imagePositionX,
+    imagePositionY: data.imagePositionY,
     author: data.authorName,
     authorAr: data.authorName,
     avatar: data.authorInitials,
@@ -142,7 +151,6 @@ const NewsPostItem = memo(function NewsPostItem({
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={entryTransition}
-      className="break-inside-avoid mb-4"
     >
       <NewsCard
         post={post}
@@ -173,10 +181,6 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
 
   const posts = useMemo(() => postsData.map(p => toDisplayPost(p, lang)), [postsData, lang])
 
-  /**
-   * Optimistic toggle + استدعاء فعلي لـ toggle_post_like() بالسيرفر.
-   * لو فشل، رجوع للحالة القديمة (نفس نمط باقي المشروع).
-   */
   const toggleLike = useCallback((id: number) => {
     const prevState = likes[id] ?? EMPTY_LIKE_STATE
 
@@ -193,7 +197,6 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
 
     togglePostLike(id)
       .then((result) => {
-        // نطابق مع الرقم الحقيقي من السيرفر (في حال تعارض توقيت)
         setLikes(prevAll => ({ ...prevAll, [id]: { liked: result.liked, count: result.likesCount } }))
       })
       .catch(() => {
@@ -214,19 +217,8 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
     return matchType && matchSearch
   }), [posts, search, type])
 
-  /**
-   * مفتاح الحاوية مبني على محتوى النتيجة الفعلي (IDs)، مش اسم الفلتر —
-   * لو نفس الكاردز بالظبط ظاهرة بفلترين مختلفين (مثلاً كارت واحد بس
-   * موجود، فهو نفسه ظاهر بـ "الكل" و"تنبيه" مع بعض)، المفتاح بيضل
-   * نفسه، فـ React ما بيعتبرها عنصر جديد وما بيشغّل أي حركة — الكارت
-   * بيضل مكانه بالظبط بدون ما يختفي ويرجع يظهر.
-   */
   const gridKey = useMemo(() => filtered.map(p => p.id).join('-'), [filtered])
 
-  /**
-   * الكومبوزر بيكون خلّص الرفع للـ Storage والنشر الفعلي (createNewsPost)
-   * قبل ما ينادي هالدالة — هون بس منضيف النتيجة لأول القائمة محليًا.
-   */
   const handlePost = useCallback((newPost: NewsPostData) => {
     setPostsData(prev => [newPost, ...prev])
     setLikes(prev => ({ ...prev, [newPost.id]: { liked: false, count: 0 } }))
@@ -271,7 +263,6 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
         </div>
       )}
 
-      {/* Filters + add button */}
       <div className="flex items-stretch gap-3 mb-6">
         <div className="flex-1">
           <NewsFilters search={search} type={type} onSearch={setSearch} onType={setType} />
@@ -288,19 +279,22 @@ function NewsFeed({ initialPosts, isAdmin, currentUser }: NewsFeedProps) {
         )}
       </div>
 
-      {/* Cards — masonry columns. CSS multi-column (columns-*) بيعيد
-          حساب توزيع الأعمدة بطريقة غير متوقّعة لو صار فيه تداخل زمني
-          بين كاردز بتختفي وكاردز بتتحرك لمكان جديد بنفس اللحظة —
-          هيك السبب الحقيقي لمشكلة "القفزة". الحل: القديم يختفي بالكامل
-          (mode="wait") قبل ما الجديد يبلش يظهر — صفر تداخل، صفر تخبيط.
-          الكاردز الجديدة بتدخل بحركة متتالية لطيفة (stagger) بدل ما
-          تطلع كلها دفعة وحدة. */}
+      {/*
+        ⚠️ CSS Grid عادي بقصد (بعد تجربة Masonry بـJavaScript وانكشاف هشاشتها):
+        - CSS columns (الأول): ترتيب عمود-عمود غير منطقي لمحتوى إعلانات رسمية.
+        - MasonryGrid بـJS (جربناه بعدها): حل ترتيب الأعمدة، بس بان فيه خلل
+          إعادة حساب الارتفاع بعد حذف/تصفية كاردز — نتيجته فراغ غير متوقع.
+        - الحل النهائي: Grid عادي (المتصفح بيرتب ويحسب كل شي بنفسه، صفر
+          حسابات JS هشة) + كاردز بارتفاع موحّد ثابت (NewsCard.tsx) — هيك
+          صف-صف صحيح *و* بلا فراغات بنفس الوقت، لأنه كل الكاردز بنفس
+          الارتفاع أصلاً فمافي فرق ارتفاع يسبب فراغ من الأساس.
+      */}
       <AnimatePresence mode="wait">
         {filtered.length > 0 ? (
           <motion.div
             key={gridKey}
-            className="columns-1 md:columns-2 xl:columns-3"
-            style={COLUMNS_STYLE}
+            className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+            style={GRID_STYLE}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
