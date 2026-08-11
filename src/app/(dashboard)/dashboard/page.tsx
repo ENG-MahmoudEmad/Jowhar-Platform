@@ -11,6 +11,11 @@ import StudioPulse, { type DailyVerseData, type StudioPulseStatsData } from '@/c
 import Leaderboard, { type LeaderEntry } from '@/components/dashboard/Leaderboard';
 import { sortMembersForDisplay } from '@/lib/sortMembersForDisplay';
 import { hasCapability } from '@/app/(dashboard)/adminControl/guards';
+import {
+  getCachedLeaderboard,
+  getCachedDailyVerse,
+  getCachedStudioPulseStats,
+} from '@/lib/supabase/cachedQueries';  
 
 type TeamProgressRow = {
   id: string;
@@ -139,24 +144,32 @@ export default async function DashboardPage() {
 
   // ═══════════════════════════════════════════════════════════════════
   // BATCH 1: كل الاستعلامات المستقلة عن بعضها تنطلق بنفس اللحظة.
+  //
+  // ⚠️ leaderboard / daily verse / studio pulse stats: نفس المحتوى لكل
+  // مستخدم بنفس اللحظة (مش شخصية)، فبتجي من getCachedLeaderboard/
+  // getCachedDailyVerse/getCachedStudioPulseStats (unstable_cache،
+  // src/lib/supabase/cachedQueries.ts) بدل RPC مباشر — أول طلب بيحمّل
+  // من الداتابيز، وأي طلب تاني بنفس دقيقة تقريبًا بياخد الرد الجاهز
+  // فورًا. باقي الاستعلامات هون (team progress, deadlines, platforms,
+  // roster) شخصية أو بتتغيّر بشكل يحتاج دايمًا آخر نسخة، فضلّت مباشرة.
   // ═══════════════════════════════════════════════════════════════════
   const [
     { data: teamProgressRows },
     { data: deadlineRows },
-    { data: weeklyRows },
-    { data: monthlyRows },
-    { data: verseRows, error: verseError },
-    { data: pulseStatsRows, error: statsError },
+    weeklyRows,
+    monthlyRows,
+    verseRows,
+    pulseStatsRows,
     { data: viewerProfile },
     { data: platformRows },
     { data: rosterRows },
   ] = await Promise.all([
     supabase.rpc('get_team_progress'),
     supabase.rpc('get_my_deadlines'),
-    supabase.rpc('get_leaderboard', { p_period: 'weekly' }),
-    supabase.rpc('get_leaderboard', { p_period: 'monthly' }),
-    supabase.rpc('get_daily_verse'),
-    supabase.rpc('get_studio_pulse_stats'),
+    getCachedLeaderboard('weekly'),
+    getCachedLeaderboard('monthly'),
+    getCachedDailyVerse(),
+    getCachedStudioPulseStats(),
     supabase
       .from('profiles')
       .select('is_chief, is_developer, access_role')
@@ -184,9 +197,6 @@ export default async function DashboardPage() {
       .eq('status', 'active')
       .is('deleted_at', null),
   ]);
-
-  if (verseError) console.error('get_daily_verse failed:', verseError.message);
-  if (statsError) console.error('get_studio_pulse_stats failed:', statsError.message);
 
   const teamMembers: TeamMemberData[] = (teamProgressRows ?? []).map((row: TeamProgressRow) => ({
     id: row.id,

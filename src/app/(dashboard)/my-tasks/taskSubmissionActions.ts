@@ -18,7 +18,7 @@
 // صفحة تانية فعليًا محتاجة تعرف بالتحديث (قائمة pending_review عندها).
 'use server';
 
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, updateTag } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 
 const MAX_NOTE_LENGTH = 500;
@@ -118,6 +118,15 @@ export async function approveTask(taskId: string) {
 
   if (error) throw new Error('task_approve_failed');
 
+  /*
+    الموافقة بتغيّر نقاط الـLeaderboard وإحصائيات Studio Pulse (كلاهما
+    مكاش بـ getCachedLeaderboard/getCachedStudioPulseStats بالداشبورد،
+    src/lib/supabase/cachedQueries.ts). بدون هالسطرين، التحديث كان
+    بيستنى انتهاء الـ60 ثانية بدل ما يظهر فورًا.
+  */
+  updateTag('leaderboard');
+  updateTag('studio-pulse-stats');
+
   // Admin Control بيعرض قائمة pending_review كمان — صفحة تانية فعليًا،
   // مش مغطاة بالـ optimistic state تبع MyTasksClient، فلازم تتحدث فورًا
   revalidatePath('/adminControl');
@@ -171,6 +180,13 @@ export async function revertApproval(taskId: string) {
     .eq('id', taskId);
 
   if (error) throw new Error('task_revert_failed');
+
+  /*
+    التراجع عن موافقة بيلغي نقاط كانت اتحسبت للـLeaderboard/Studio Pulse
+    — نفس السبب المذكور بـapproveTask بالضبط.
+  */
+  updateTag('leaderboard');
+  updateTag('studio-pulse-stats');
 
   // Admin Control بيعرض قائمة pending_review كمان — صفحة تانية فعليًا
   revalidatePath('/adminControl');
