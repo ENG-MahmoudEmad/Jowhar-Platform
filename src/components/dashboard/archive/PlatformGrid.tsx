@@ -2,6 +2,7 @@
 "use client"
 
 import { useState, useRef, useMemo, useCallback, memo } from 'react'
+import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FolderOpen, ChevronRight, Layers, Plus, X, Upload, Pipette, Lock, Pencil, Trash2 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -311,6 +312,12 @@ const AddPlatformModal = memo(function AddPlatformModal({
             <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
               style={{ background: color + '30', border: `1px solid ${color}40` }}>
               {thumbnailUrl
+                /*
+                  next/image ما بيدعم blob: URLs (معاينة محلية أثناء
+                  الرفع) — وهاي أداة إدارة (مودال إضافة/تعديل منصة)، مش
+                  عرض عام، فالتكلفة الإضافية بلا فايدة حقيقية هون.
+                */
+                // eslint-disable-next-line @next/next/no-img-element
                 ? <img src={thumbnailUrl} alt="" className="w-full h-full object-cover rounded-lg" />
                 : <span className="text-lg font-black" style={{ color, fontFamily: 'var(--font-display)' }}>
                     {(nameEn || 'A').charAt(0).toUpperCase()}
@@ -418,6 +425,8 @@ const AddPlatformModal = memo(function AddPlatformModal({
             )}
             {thumbnailUrl && (
               <div className="mt-2 flex items-center gap-2">
+                {/* نفس سبب المعاينة فوق — blob: URL أثناء الرفع */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={thumbnailUrl} alt="preview" className="w-10 h-10 rounded-lg object-cover" style={{ border: '1px solid rgba(255,255,255,0.1)', opacity: uploading ? 0.5 : 1 }} />
                 <span className="text-[9px]" style={{ color: 'var(--foreground-muted)' }}>
                   {uploading ? (lang === 'ar' ? 'جاري الرفع...' : 'Uploading...') : (lang === 'ar' ? 'معاينة الصورة' : 'Image preview')}
@@ -707,10 +716,12 @@ const PlatformCard = memo(function PlatformCard({ platform, index, canDeleteGlob
         )}
 
         {platform.thumbnail && (
-          <img
+          <Image
             src={platform.thumbnail}
             alt={name}
-            className="absolute inset-0 w-full h-full object-cover"
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            className="object-cover"
           />
         )}
 

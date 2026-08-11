@@ -1,6 +1,7 @@
 "use client"
 
 import { memo, useCallback, useMemo } from "react"
+import Image from 'next/image'
 import { LazyMotion, domAnimation, m } from 'framer-motion'
 import { ChevronRight, FolderOpen, FileStack } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -106,6 +107,7 @@ function WorkHero({
     background: `linear-gradient(135deg, ${c}30, ${c}15)`,
     border:     `1px solid ${c}40`,
     boxShadow:  `0 8px 32px ${c}30`,
+    position: 'relative',
   }), [c]);
 
   const fallbackLetterStyle = useMemo<React.CSSProperties>(() => ({
@@ -191,7 +193,7 @@ function WorkHero({
             style={logoWrapStyle}
           >
             {work.thumbnail
-              ? <img src={work.thumbnail} alt={name} className="w-full h-full object-cover" />
+              ? <Image src={work.thumbnail} alt={name} fill sizes="80px" className="object-cover" />
               : <span className="text-4xl font-black select-none" style={fallbackLetterStyle}>
                   {name.charAt(0)}
                 </span>

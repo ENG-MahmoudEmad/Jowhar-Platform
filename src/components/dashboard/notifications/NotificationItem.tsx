@@ -2,6 +2,7 @@
 "use client";
 
 import React, { memo, useCallback, useMemo } from 'react';
+import Image from 'next/image';
 import {
   ListTodo, NotebookPen, MessageSquare, UserPlus, UserCheck,
   CheckCircle2, XCircle, Mail, Newspaper, Bell,
@@ -121,12 +122,18 @@ function NotificationItem({
       {/* Avatar + type badge */}
       <div className="relative shrink-0">
         <div
-          className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-[10px] font-black text-white"
+          className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-[10px] font-black text-white"
           style={{ background: notification.actorColor }}
         >
           {notification.actorAvatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={notification.actorAvatarUrl} alt="" className="h-full w-full object-cover" />
+            <Image
+              src={notification.actorAvatarUrl}
+              alt=""
+              fill
+              sizes="36px"
+              className="object-cover"
+              unoptimized
+            />
           ) : (
             initialsOf(notification.actorName)
           )}

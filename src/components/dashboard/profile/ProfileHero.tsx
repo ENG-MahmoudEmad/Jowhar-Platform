@@ -4,6 +4,7 @@
 
 import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import { Camera, Shield, Calendar, Lock, Loader2 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang }  from '@/context/LangContext';
@@ -185,8 +186,24 @@ export default function ProfileHero({
             onClick={triggerUpload}
           >
             {avatarSrc ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatarSrc} alt={name} className="w-full h-full object-cover" />
+              preview ? (
+                /*
+                  معاينة محلية مؤقتة (blob: URL) قبل ما الرفع يخلص —
+                  next/image ما بيدعم روابط blob: رسميًا (مش بتطابق
+                  remotePatterns)، وهي أصلاً تعرض لثواني بس لحد ما
+                  avatarUrl الحقيقي يوصل من الأب، فمو مهمة للأداء.
+                */
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={preview} alt={name} className="w-full h-full object-cover" />
+              ) : (
+                <Image
+                  src={avatarSrc}
+                  alt={name}
+                  fill
+                  sizes="96px"
+                  className="object-cover"
+                />
+              )
             ) : (
               <div
                 className="w-full h-full flex items-center justify-center text-white font-black text-2xl"

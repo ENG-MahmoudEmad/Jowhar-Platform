@@ -2,6 +2,7 @@
 "use client";
 
 import React, { memo } from 'react';
+import Image from 'next/image';
 
 interface AvatarProps {
   avatarUrl?: string | null;
@@ -57,8 +58,19 @@ const Avatar = memo(function Avatar({
       }}
     >
       {avatarUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={avatarUrl} alt={name ?? initials} className="h-full w-full object-cover" />
+        <Image
+          src={avatarUrl}
+          alt={name ?? initials}
+          width={size}
+          height={size}
+          className="h-full w-full object-cover"
+          // الأفاتار كتير صغير (عادة 24-64px) وبيظهر بأماكن كتير بنفس
+          // الصفحة (Sidebar, MembersCard, Leaderboard...) — unoptimized
+          // بيتفادى تكلفة إعادة معالجة كل صورة بأحجام مختلفة على سيرفر
+          // Next.js لصورة أصلاً صغيرة، بدون ما نخسر أهم فايدتين من
+          // <Image>: lazy loading التلقائي ومنع layout shift.
+          unoptimized
+        />
       ) : (
         initials
       )}

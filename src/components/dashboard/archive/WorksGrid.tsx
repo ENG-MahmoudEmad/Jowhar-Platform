@@ -2,6 +2,7 @@
 "use client"
 
 import { useState, useRef, useMemo, useCallback, memo } from 'react'
+import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FolderOpen, ChevronRight, Briefcase, Plus, X, Upload, Lock, Search, FileStack, Pencil, Trash2 } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -267,6 +268,12 @@ const AddWorkModal = memo(function AddWorkModal({
             <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
               style={{ background: color + '30', border: `1px solid ${color}40` }}>
               {thumbnailUrl
+                /*
+                  next/image ما بيدعم blob: URLs (معاينة محلية أثناء
+                  الرفع) — وهاي أداة إدارة (مودال إضافة/تعديل عمل)، مش
+                  عرض عام، فالتكلفة الإضافية بلا فايدة حقيقية هون.
+                */
+                // eslint-disable-next-line @next/next/no-img-element
                 ? <img src={thumbnailUrl} alt="" className="w-full h-full object-cover rounded-lg" />
                 : <span className="text-lg font-black" style={{ color, fontFamily: 'var(--font-display)' }}>
                     {(nameEn || 'W').charAt(0).toUpperCase()}
@@ -337,6 +344,8 @@ const AddWorkModal = memo(function AddWorkModal({
             )}
             {thumbnailUrl && (
               <div className="mt-2 flex items-center gap-2">
+                {/* نفس سبب المعاينة فوق — blob: URL أثناء الرفع */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={thumbnailUrl} alt="preview" className="w-10 h-10 rounded-lg object-cover" style={{ border: '1px solid rgba(255,255,255,0.1)', opacity: uploading ? 0.5 : 1 }} />
                 {!uploading && (
                   <button onClick={handleRemoveThumbnail} className="text-[9px]" style={{ color: '#ef4444', cursor: 'pointer' }}>
@@ -534,7 +543,13 @@ const WorkCard = memo(function WorkCard({
         )}
 
         {work.thumbnail && (
-          <img src={work.thumbnail} alt={name} className="absolute inset-0 w-full h-full object-cover" />
+          <Image
+            src={work.thumbnail}
+            alt={name}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            className="object-cover"
+          />
         )}
 
         <div className="absolute top-0 inset-x-0 h-0.5" style={topLineStyle} />
@@ -630,6 +645,7 @@ const WorkListRow = memo(function WorkListRow({
 
   const thumbStyle = useMemo<React.CSSProperties>(() => ({
     background: `linear-gradient(135deg, ${color}22, ${color}08)`,
+    position: 'relative',
   }), [color])
 
   const chevronStyle = useMemo<React.CSSProperties>(() => ({
@@ -654,7 +670,7 @@ const WorkListRow = memo(function WorkListRow({
       {/* Thumbnail */}
       <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style={thumbStyle}>
         {work.thumbnail
-          ? <img src={work.thumbnail} alt={name} className="w-full h-full object-cover" />
+          ? <Image src={work.thumbnail} alt={name} fill sizes="40px" className="object-cover" unoptimized />
           : <span className="text-sm font-black" style={{ color, fontFamily: 'var(--font-display)' }}>
               {name.charAt(0)}
             </span>

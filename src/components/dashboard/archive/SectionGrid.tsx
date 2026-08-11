@@ -2,6 +2,7 @@
 "use client"
 
 import { useState, useCallback, useMemo, useRef, memo } from "react"
+import Image from 'next/image'
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
 import { Plus, X, Search, SlidersHorizontal, Upload, ChevronRight, Pencil, Trash2, CheckSquare, Square } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -547,6 +548,12 @@ const AddItemModal = memo(function AddItemModal({
 
             {thumbnailData && (
               <div className="flex items-center gap-2 mt-2">
+                {/*
+                  next/image ما بيدعم blob: URLs (معاينة محلية أثناء
+                  الرفع) — وهاي أداة إدارة (مودال إضافة/تعديل عنصر)، مش
+                  عرض عام، فالتكلفة الإضافية بلا فايدة حقيقية هون.
+                */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={thumbnailData}
                   alt=""
@@ -724,7 +731,15 @@ const ItemCard = memo(function ItemCard({
         <div className="absolute inset-0" style={radialOverlayStyle} />
 
         {item.thumbnail
-          ? <img src={item.thumbnail} alt={name} className="absolute inset-0 w-full h-full object-cover" />
+          ? (
+            <Image
+              src={item.thumbnail}
+              alt={name}
+              fill
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+              className="object-cover"
+            />
+          )
           : (
             <div className="absolute inset-0 flex items-center justify-center select-none">
               <span className="font-black" style={fallbackLetterStyle}>
@@ -852,6 +867,7 @@ const ItemListRow = memo(function ItemListRow({
 
   const thumbStyle = useMemo<React.CSSProperties>(() => ({
     background: `linear-gradient(135deg, ${color}22, ${color}08)`,
+    position: 'relative',
   }), [color]);
 
   const tagBadgeStyle = useMemo<React.CSSProperties>(() => ({
@@ -885,7 +901,7 @@ const ItemListRow = memo(function ItemListRow({
 
       <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style={thumbStyle}>
         {item.thumbnail
-          ? <img src={item.thumbnail} alt={name} className="w-full h-full object-cover" />
+          ? <Image src={item.thumbnail} alt={name} fill sizes="36px" className="object-cover" unoptimized />
           : <span className="text-xs font-black" style={{ color, fontFamily: 'var(--font-display)' }}>{name.charAt(0)}</span>
         }
       </div>

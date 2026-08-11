@@ -4,6 +4,7 @@
 
 import React, { memo, useCallback, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Image from 'next/image';
 import {
   LayoutDashboard,ShieldCheck, CheckSquare, Archive,
   Newspaper, LogOut, UserCircle, ChevronRight,
@@ -280,6 +281,7 @@ function Sidebar({
     return {
       background: `linear-gradient(135deg, ${base} 0%, ${base}99 100%)`,
       boxShadow: `0 4px 12px ${base}4d`,
+      position: 'relative',
     };
   }, [user?.color]);
 
@@ -501,8 +503,7 @@ function Sidebar({
             <div className="relative shrink-0">
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] overflow-hidden" style={avatarStyle}>
                 {user?.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={user.avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+                  <Image src={user.avatarUrl} alt={displayName} fill sizes="32px" className="object-cover" unoptimized />
                 ) : (
                   displayInitials
                 )}

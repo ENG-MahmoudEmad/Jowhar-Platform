@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useMemo, useCallback, memo } from 'react'
+import Image from 'next/image'
 import { Heart, Clock, Megaphone, RefreshCw, AlertTriangle, CalendarClock, Trash2, Check, X as XIcon } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTheme } from '@/context/ThemeContext'
@@ -93,8 +94,8 @@ function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: Ne
 
   /** حاوية الصورة: ارتفاع ثابت (IMAGE_HEIGHT_PX) لكل الكاردز — عشان
       الكارت كامل يضل بارتفاع موحّد بالـGrid، بغض النظر عن مقاس الصورة
-      المختار. */
-  const imageWrapStyle: React.CSSProperties = { height: IMAGE_HEIGHT_PX, overflow: 'hidden' }
+      المختار. position: relative لازمة لـ<Image fill>. */
+  const imageWrapStyle: React.CSSProperties = { height: IMAGE_HEIGHT_PX, overflow: 'hidden', position: 'relative' }
 
   /** الصورة نفسها: object-position حسب الموضع المختار (سحب وإفلات
       بالـComposer)، مش دايمًا "center" ثابت. */
@@ -132,9 +133,12 @@ function NewsCard({ post, liked, likes, isAdmin, onLike, onClick, onDelete }: Ne
     >
       {post.image && (
         <div className="shrink-0" style={imageWrapStyle}>
-          <img
-            src={post.image} alt={title}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          <Image
+            src={post.image}
+            alt={title}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
             style={imageStyle}
           />
         </div>

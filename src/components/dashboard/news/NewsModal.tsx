@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import Image from 'next/image'
 import { X, Clock, Heart, CalendarClock, Trash2, Check } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
@@ -74,7 +75,7 @@ function NewsModal({ post, liked, likes, isAdmin, onClose, onLike, onDelete }: N
     هون بالمودال دايمًا "لمحة موسّعة" بنفس النسبة الثابتة، قرار تصميم
     مقصود (زي ما كان بالنسخة الأصلية قبل إضافة ميزة اختيار المقاس).
   */
-  const imageWrapStyle: React.CSSProperties = { height: '200px', overflow: 'hidden' }
+  const imageWrapStyle: React.CSSProperties = { height: '200px', overflow: 'hidden', position: 'relative' }
 
   const imageStyle = useMemo(() => ({
     filter: isDark ? 'brightness(0.8)' : 'none',
@@ -130,10 +131,14 @@ function NewsModal({ post, liked, likes, isAdmin, onClose, onLike, onDelete }: N
           >
             {post.image && (
               <div style={imageWrapStyle}>
-                <img
-                  src={post.image} alt={title}
-                  className="w-full h-full object-cover"
+                <Image
+                  src={post.image}
+                  alt={title}
+                  fill
+                  sizes="(max-width: 672px) 100vw, 672px"
+                  className="object-cover"
                   style={imageStyle}
+                  priority
                 />
               </div>
             )}
