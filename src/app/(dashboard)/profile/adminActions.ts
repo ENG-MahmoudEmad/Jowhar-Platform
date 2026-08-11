@@ -5,6 +5,11 @@
 // كلهم بـ Admin Control **فقط**. تكرارهم هون كان بيخلق مكانين بيغيّروا
 // نفس البيانات بقواعد مختلفة (أدمن ثانوي ممنوع يرقّي من Admin Control،
 // بس مسموح من البروفايل) — نفس فخ درس #8 بس بالواجهة.
+//
+// الأفعال الحساسة (قفل/فك قفل، موافقة/رفض إيميل، حذف) بتسجّل بـ
+// admin_audit_log عبر logAudit() (من guards.ts المشترك) — لو صار نزاع
+// أو خطأ، بنعرف مين عمل شو وإمتى. اللون/المسمّى/الاسم/الصورة مش
+// مسجّلين (هوية اعتيادية مش قرار إداري حساس).
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -14,6 +19,7 @@ import {
   requireManagedTarget,
   requireAdminActor,
   loadTarget,
+  logAudit,
 } from '@/app/(dashboard)/adminControl/guards';
 
 const CAPABILITY = 'members.manage';
@@ -77,11 +83,6 @@ export async function setMemberJobTitle(memberId: string, en: string, ar: string
 
   if (titleEn.length > 60 || titleAr.length > 60) throw new Error('title_too_long');
 
-  /*
-    الاتنين اختياريين: الواجهة بتعرض الموجود منهم كبديل عن الفاضي، فإجبار
-    الأدمن يكتب مرتين لكل عضو عبء بلا مقابل. `null` مش '' عشان الفحص
-    بالواجهة يكون `?? fallback` بدل فحص طول النص.
-  */
   const { error } = await supabase
     .from('profiles')
     .update({
@@ -99,14 +100,6 @@ export async function setMemberJobTitle(memberId: string, en: string, ar: string
 // ===========================================================
 // اسم العضو
 // ===========================================================
-/**
- * الـ Chief/Developer يعدّلوا اسم أي عضو — الحاجة عملية: عضو حاطط اسم
- * مخل أو بيلعب بالاسم كل يوم، فبيتصحّح ثم `lock_name` بتوقفه.
- *
- * ⚠️ القفل ما بينطبق على المُعدِّل: هو اللي بيحطه أصلاً، وتطبيقه عليه
- * بيعني إنه يقفل حاله بلا مفتاح. الـ trigger بالداتابيز بيفحص الأقفال
- * على **التعديل الذاتي** فقط، فما في تعارض.
- */
 export async function setMemberName(memberId: string, firstName: string, lastName: string) {
   const { supabase } = await requireIdentityEditor(memberId);
 
@@ -130,12 +123,6 @@ export async function setMemberName(memberId: string, firstName: string, lastNam
 // ===========================================================
 // صورة العضو
 // ===========================================================
-/**
- * الرفع نفسه بيصير من المتصفح لـ Storage (سياسة `avatars` بتتحقق من
- * الملكية عبر `can_edit_identity`)، وهالأكشن بس بيثبّت الرابط.
- *
- * الصورة جزء من الهوية، فبتمشي بنفس حارس اللون والمسمّى بالضبط.
- */
 export async function setMemberAvatar(memberId: string, avatarUrl: string | null) {
   const { supabase } = await requireIdentityEditor(memberId);
 
@@ -160,20 +147,17 @@ export async function toggleProfileLock(
   lock: 'name' | 'avatar',
   value: boolean
 ) {
-  const { supabase } = await requireManagedTarget(memberId, CAPABILITY);
+  const { supabase, actor } = await requireManagedTarget(memberId, CAPABILITY);
 
-  /*
-    مفتاح ديناميكي زي { [column]: value } كان بيولّد نوع { [x: string]: boolean }
-    من ناحية TypeScript، حتى لو `column` فعليًا محصور باثنتين بس — TypeScript
-    ما بيدمج computed key من union بكائن أدق من index signature عامة (وهذا
-    مرفوض الآن بالنوع الصارم RejectExcessProperties اللي Supabase بيولّده).
-    الفرعين الصريحين هون بيحلّوها بدون ما يغيّروا أي سلوك وقت التشغيل.
-  */
   const { error } = lock === 'name'
     ? await supabase.from('profiles').update({ lock_name: value }).eq('id', memberId)
     : await supabase.from('profiles').update({ lock_avatar: value }).eq('id', memberId);
 
   if (error) throw new Error('lock_update_failed');
+
+  await logAudit(supabase, memberId, value ? `lock_${lock}_enabled` : `lock_${lock}_disabled`, {
+    actor_id: actor.id,
+  });
 
   revalidatePath(`/profile/${memberId}`);
 }
@@ -193,11 +177,6 @@ export async function approveEmailChange(memberId: string) {
 
   if (!request) throw new Error('not_found');
 
-  /*
-    الموافقة مش تفعيل. `email_confirm: false` بتخلي Supabase يبعت رابط
-    تأكيد للإيميل **الجديد**، والإيميل القديم بيضل فعّال لحد ما العضو
-    يضغط الرابط — طبقة تانية بتتأكد إن الإيميل حقيقي وملكه فعلاً.
-  */
   const adminClient = createAdminClient();
   const { error: authError } = await adminClient.auth.admin.updateUserById(memberId, {
     email: request.new_email,
@@ -209,8 +188,6 @@ export async function approveEmailChange(memberId: string) {
   const { error } = await supabase
     .from('email_change_requests')
     .update({
-      // مش 'completed': الأدمن وافق بس، والإيميل ما اتفعّل لحد ما العضو
-      // يضغط رابط التأكيد. الحالة بتوصف المرحلة مش نتيجة المراجعة.
       status: 'pending_email_verification',
       reviewed_by: actor.id,
       reviewed_at: new Date().toISOString(),
@@ -219,17 +196,22 @@ export async function approveEmailChange(memberId: string) {
 
   if (error) throw new Error('request_update_failed');
 
+  await logAudit(supabase, memberId, 'email_change_approved', {
+    new_email: request.new_email,
+  });
+
   revalidatePath(`/profile/${memberId}`);
 }
 
 export async function rejectEmailChange(memberId: string) {
   const { supabase, actor } = await requireManagedTarget(memberId, CAPABILITY);
 
-  /*
-    المواصفات: الرفض بيحذف الطلب — ما في حالة `rejected` بالـ enum أصلاً.
-    `actor` مستعمل بس بالموافقة، فالرفض ما بيسجّل مراجعًا.
-  */
-  void actor;
+  const { data: request } = await supabase
+    .from('email_change_requests')
+    .select('new_email')
+    .eq('user_id', memberId)
+    .eq('status', 'pending_admin')
+    .maybeSingle();
 
   const { error } = await supabase
     .from('email_change_requests')
@@ -239,6 +221,11 @@ export async function rejectEmailChange(memberId: string) {
 
   if (error) throw new Error('reject_failed');
 
+  await logAudit(supabase, memberId, 'email_change_rejected', {
+    actor_id: actor.id,
+    new_email: request?.new_email ?? null,
+  });
+
   // TODO: إشعار العضو برفض الطلب (بعد بناء جدول الإشعارات)
   revalidatePath(`/profile/${memberId}`);
 }
@@ -247,13 +234,8 @@ export async function rejectEmailChange(memberId: string) {
 // حذف الحساب (soft delete)
 // ===========================================================
 export async function softDeleteMember(memberId: string) {
-  const { supabase } = await requireManagedTarget(memberId, CAPABILITY);
+  const { supabase, actor } = await requireManagedTarget(memberId, CAPABILITY);
 
-  /*
-    Soft delete: الصف بيضل موجود لأن التاسكات والملاحظات مربوطة فيه،
-    وحذفه بيضيّع تاريخ الشغل. الحذف النهائي بعد 90 يوم عبر
-    `purge_deleted_profiles()` (بتحتاج pg_cron → Supabase Pro).
-  */
   const { error } = await supabase
     .from('profiles')
     .update({ deleted_at: new Date().toISOString() })
@@ -261,7 +243,10 @@ export async function softDeleteMember(memberId: string) {
 
   if (error) throw new Error('delete_failed');
 
-  // الحساب المحذوف ما بيقدر يسجل دخول من هلق
+  await logAudit(supabase, memberId, 'member_soft_deleted', {
+    actor_id: actor.id,
+  });
+
   try {
     const adminClient = createAdminClient();
     await adminClient.auth.admin.signOut(memberId, 'global');
@@ -275,10 +260,6 @@ export async function softDeleteMember(memberId: string) {
 // ===========================================================
 // جلب بيانات إضافية بتحتاج service_role
 // ===========================================================
-/**
- * `last_sign_in_at` و `email` موجودين بـ `auth.users` فقط.
- * بيتجلبوا هون بدل ما ينخزنوا نسخة بـ `profiles` تصير بايتة.
- */
 export async function getMemberAuthInfo(memberId: string): Promise<{
   email: string | null;
   lastSignInAt: string | null;

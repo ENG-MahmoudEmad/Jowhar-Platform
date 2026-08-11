@@ -9,10 +9,34 @@ import {
   canDeleteArchive,
 } from './guards';
 import { hasCapability } from '@/app/(dashboard)/adminControl/guards';
+import { verifyRealImageType } from '@/lib/verifyImageFile';
+import {
+  platformPayloadSchema,
+  workPayloadSchema,
+  sectionPayloadSchema,
+  itemPayloadSchema,
+  filePayloadSchema,
+  fileTypeSchema,
+} from './validation';
+import type { z } from 'zod';
 
 // ⚠️ عن قصد: ما في revalidatePath هون. PlatformGrid.tsx بيدير الحالة
 // بنفسه Optimistic UI (setPlatforms) — نفس قاعدة الداشبورد المعمول فيها
 // بكل مكان تاني بالمشروع.
+
+/**
+ * فحص Zod موحّد لكل مدخلات الأرشيف. بيرمي نص خطأ بسيط (زي باقي أخطاء
+ * المشروع: 'forbidden', 'insert_failed'...) بدل شكل ZodError المعقد —
+ * الواجهة حاليًا ما بتقرا نص الخطأ أصلًا (rollback صامت بكل مكان)، بس
+ * هيك جاهز لو حبينا نعرض رسائل واضحة للمستخدم مستقبلًا.
+ */
+function parseOrThrow<T>(schema: z.ZodType<T>, payload: unknown): T {
+  const result = schema.safeParse(payload);
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? 'invalid_input');
+  }
+  return result.data;
+}
 
 export type PlatformActionPayload = {
   nameEn: string;
@@ -24,8 +48,8 @@ export type PlatformActionPayload = {
 };
 
 export type PlatformRow = {
-  dbId: string;         // uuid — للتحديث/الحذف
-  id: string;            // slug — للراوتينج بالفرونت إند
+  dbId: string;
+  id: string;
   nameEn: string;
   nameAr: string;
   description: string;
@@ -51,17 +75,18 @@ export async function addPlatformAction(
     throw new Error('forbidden');
   }
 
-  const slug = slugify(payload.nameEn);
+  const validated = parseOrThrow(platformPayloadSchema, payload);
+  const slug = slugify(validated.nameEn);
 
   const { data, error } = await supabase
     .from('platforms')
     .insert({
-      name_en: payload.nameEn,
-      name_ar: payload.nameAr,
-      description_en: payload.description,
-      description_ar: payload.descriptionAr,
-      color: payload.color,
-      thumbnail_url: payload.thumbnail ?? null,
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      description_en: validated.description,
+      description_ar: validated.descriptionAr,
+      color: validated.color,
+      thumbnail_url: validated.thumbnail || null,
       slug,
     })
     .select('id, slug, name_en, name_ar, description_en, description_ar, color, thumbnail_url')
@@ -81,7 +106,7 @@ export async function addPlatformAction(
     folderCount: 0,
     fileCount: 0,
     locked: false,
-    canEdit: true, // اللي بينشئها أكيد عنده صلاحية التعديل عليها لحظتها
+    canEdit: true,
   };
 }
 
@@ -95,18 +120,17 @@ export async function updatePlatformAction(
     throw new Error('forbidden');
   }
 
+  const validated = parseOrThrow(platformPayloadSchema, updates);
+
   const { error } = await supabase
     .from('platforms')
     .update({
-      name_en: updates.nameEn,
-      name_ar: updates.nameAr,
-      description_en: updates.description,
-      description_ar: updates.descriptionAr,
-      color: updates.color,
-      thumbnail_url: updates.thumbnail ?? null,
-      // ⚠️ الـ slug ما بيتغيّر بعد الإنشاء عن قصد — تغييره بيكسر أي رابط
-      // محفوظ/مشارك سابقًا لهاي المنصة. لو لازم يتغيّر مستقبلًا، لازم يصير
-      // بقرار منفصل مع تحويل (redirect) من الـ slug القديم.
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      description_en: validated.description,
+      description_ar: validated.descriptionAr,
+      color: validated.color,
+      thumbnail_url: validated.thumbnail || null,
     })
     .eq('id', platformDbId);
 
@@ -118,9 +142,6 @@ export async function deletePlatformAction(platformDbId: string): Promise<void> 
 
   if (!canDeleteArchive(actor)) throw new Error('forbidden');
 
-  // بنستخدم الـ RPC (delete_platform) مش .delete() مباشرة — الدالة
-  // بالداتابيز عندها فحص can_delete_archive() مستقل (دفاع بطبقتين:
-  // فرونت إند + قاعدة بيانات)، ونفس النمط لباقي مستويات الحذف.
   const { error } = await supabase.rpc('delete_platform', {
     p_platform_id: platformDbId,
   });
@@ -128,9 +149,7 @@ export async function deletePlatformAction(platformDbId: string): Promise<void> 
   if (error) throw new Error(error.message);
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   Work (Level 2)
-   ══════════════════════════════════════════════════════════════════════ */
+/* Work (Level 2) */
 
 export type WorkActionPayload = {
   nameEn: string;
@@ -141,16 +160,16 @@ export type WorkActionPayload = {
 };
 
 export type WorkRow = {
-  dbId:         string; // uuid
-  id:           string; // slug
-  platformId:   string; // uuid — الأب
-  nameEn:       string;
-  nameAr:       string;
-  description:  string;
+  dbId: string;
+  id: string;
+  platformId: string;
+  nameEn: string;
+  nameAr: string;
+  description: string;
   descriptionAr: string;
-  thumbnail?:   string;
+  thumbnail?: string;
   sectionCount: number;
-  fileCount:    number;
+  fileCount: number;
 };
 
 function slugifyWork(nameEn: string): string {
@@ -167,19 +186,20 @@ export async function addWorkAction(
     throw new Error('forbidden');
   }
 
-  const slug = slugifyWork(payload.nameEn);
+  const validated = parseOrThrow(workPayloadSchema, payload);
+  const slug = slugifyWork(validated.nameEn);
 
   const { data, error } = await supabase
     .from('works')
     .insert({
-      platform_id:    platformDbId,
-      name_en:        payload.nameEn,
-      name_ar:        payload.nameAr,
-      description_en: payload.description,
-      description_ar: payload.descriptionAr,
-      image_url:      payload.thumbnail ?? null,
+      platform_id: platformDbId,
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      description_en: validated.description,
+      description_ar: validated.descriptionAr,
+      image_url: validated.thumbnail || null,
       slug,
-      created_by:     actor.id,
+      created_by: actor.id,
     })
     .select('id, platform_id, slug, name_en, name_ar, description_en, description_ar, image_url')
     .single();
@@ -187,16 +207,16 @@ export async function addWorkAction(
   if (error || !data) throw new Error(error?.message ?? 'insert_failed');
 
   return {
-    dbId:          data.id,
-    id:            data.slug,
-    platformId:    data.platform_id,
-    nameEn:        data.name_en,
-    nameAr:        data.name_ar,
-    description:   data.description_en ?? '',
+    dbId: data.id,
+    id: data.slug,
+    platformId: data.platform_id,
+    nameEn: data.name_en,
+    nameAr: data.name_ar,
+    description: data.description_en ?? '',
     descriptionAr: data.description_ar ?? '',
-    thumbnail:     data.image_url ?? undefined,
-    sectionCount:  0,
-    fileCount:     0,
+    thumbnail: data.image_url ?? undefined,
+    sectionCount: 0,
+    fileCount: 0,
   };
 }
 
@@ -211,15 +231,16 @@ export async function updateWorkAction(
     throw new Error('forbidden');
   }
 
+  const validated = parseOrThrow(workPayloadSchema, updates);
+
   const { error } = await supabase
     .from('works')
     .update({
-      name_en:        updates.nameEn,
-      name_ar:        updates.nameAr,
-      description_en: updates.description,
-      description_ar: updates.descriptionAr,
-      image_url:      updates.thumbnail ?? null,
-      // ⚠️ الـ slug ما بيتغيّر بعد الإنشاء عن قصد — نفس منطق platforms.
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      description_en: validated.description,
+      description_ar: validated.descriptionAr,
+      image_url: validated.thumbnail || null,
     })
     .eq('id', workDbId);
 
@@ -239,9 +260,7 @@ export async function deleteWorkAction(
   if (error) throw new Error(error.message);
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   Section (Level 3)
-   ══════════════════════════════════════════════════════════════════════ */
+/* Section (Level 3) */
 
 export type SectionActionPayload = {
   nameEn: string;
@@ -252,15 +271,15 @@ export type SectionActionPayload = {
 };
 
 export type SectionRow = {
-  dbId:          string; // uuid — هو نفسه المستخدم بالراوت (ما في slug لهاي المستوى)
-  id:            string; // = dbId، موجود بس عشان التوافق مع شكل الكومبوننت القديم
-  workId:        string;
-  nameEn:        string;
-  nameAr:        string;
-  description:   string;
+  dbId: string;
+  id: string;
+  workId: string;
+  nameEn: string;
+  nameAr: string;
+  description: string;
   descriptionAr: string;
-  itemCount:     number;
-  icon:          string;
+  itemCount: number;
+  icon: string;
 };
 
 export async function addSectionAction(
@@ -273,16 +292,18 @@ export async function addSectionAction(
     throw new Error('forbidden');
   }
 
+  const validated = parseOrThrow(sectionPayloadSchema, payload);
+
   const { data, error } = await supabase
     .from('sections')
     .insert({
-      work_id:        workDbId,
-      name_en:        payload.nameEn,
-      name_ar:        payload.nameAr,
-      description_en: payload.description,
-      description_ar: payload.descriptionAr,
-      icon:           payload.icon,
-      created_by:     actor.id,
+      work_id: workDbId,
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      description_en: validated.description,
+      description_ar: validated.descriptionAr,
+      icon: validated.icon,
+      created_by: actor.id,
     })
     .select('id, work_id, name_en, name_ar, description_en, description_ar, icon')
     .single();
@@ -290,15 +311,15 @@ export async function addSectionAction(
   if (error || !data) throw new Error(error?.message ?? 'insert_failed');
 
   return {
-    dbId:          data.id,
-    id:            data.id,
-    workId:        data.work_id,
-    nameEn:        data.name_en,
-    nameAr:        data.name_ar,
-    description:   data.description_en ?? '',
+    dbId: data.id,
+    id: data.id,
+    workId: data.work_id,
+    nameEn: data.name_en,
+    nameAr: data.name_ar,
+    description: data.description_en ?? '',
     descriptionAr: data.description_ar ?? '',
-    itemCount:     0,
-    icon:          data.icon,
+    itemCount: 0,
+    icon: data.icon,
   };
 }
 
@@ -313,14 +334,16 @@ export async function updateSectionAction(
     throw new Error('forbidden');
   }
 
+  const validated = parseOrThrow(sectionPayloadSchema, updates);
+
   const { error } = await supabase
     .from('sections')
     .update({
-      name_en:        updates.nameEn,
-      name_ar:        updates.nameAr,
-      description_en: updates.description,
-      description_ar: updates.descriptionAr,
-      icon:           updates.icon,
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      description_en: validated.description,
+      description_ar: validated.descriptionAr,
+      icon: validated.icon,
     })
     .eq('id', sectionDbId);
 
@@ -337,9 +360,7 @@ export async function deleteSectionAction(sectionDbId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   Item (Level 4)
-   ══════════════════════════════════════════════════════════════════════ */
+/* Item (Level 4) */
 
 export type ItemActionPayload = {
   nameEn: string;
@@ -348,20 +369,20 @@ export type ItemActionPayload = {
   descriptionAr: string;
   driveUrl: string;
   thumbnail?: string;
-  tag?: string; // مفتاح من file_types
+  tag?: string;
 };
 
 export type ItemRow = {
-  dbId:          string; // uuid
-  id:            string; // = dbId
-  sectionId:     string;
-  nameEn:        string;
-  nameAr:        string;
-  description:   string;
+  dbId: string;
+  id: string;
+  sectionId: string;
+  nameEn: string;
+  nameAr: string;
+  description: string;
   descriptionAr: string;
-  thumbnail?:    string;
-  driveUrl:      string;
-  tag?:          string;
+  thumbnail?: string;
+  driveUrl: string;
+  tag?: string;
 };
 
 export async function addItemAction(
@@ -375,18 +396,20 @@ export async function addItemAction(
     throw new Error('forbidden');
   }
 
+  const validated = parseOrThrow(itemPayloadSchema, payload);
+
   const { data, error } = await supabase
     .from('items')
     .insert({
-      section_id:     sectionDbId,
-      name_en:        payload.nameEn,
-      name_ar:        payload.nameAr,
-      description_en: payload.description,
-      description_ar: payload.descriptionAr,
-      drive_url:      payload.driveUrl,
-      thumbnail_url:  payload.thumbnail ?? null,
-      tag:            payload.tag ?? null,
-      created_by:     actor.id,
+      section_id: sectionDbId,
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      description_en: validated.description,
+      description_ar: validated.descriptionAr,
+      drive_url: validated.driveUrl || '',
+      thumbnail_url: validated.thumbnail || null,
+      tag: validated.tag || null,
+      created_by: actor.id,
     })
     .select('id, section_id, name_en, name_ar, description_en, description_ar, drive_url, thumbnail_url, tag')
     .single();
@@ -394,16 +417,16 @@ export async function addItemAction(
   if (error || !data) throw new Error(error?.message ?? 'insert_failed');
 
   return {
-    dbId:          data.id,
-    id:            data.id,
-    sectionId:     data.section_id,
-    nameEn:        data.name_en,
-    nameAr:        data.name_ar,
-    description:   data.description_en ?? '',
+    dbId: data.id,
+    id: data.id,
+    sectionId: data.section_id,
+    nameEn: data.name_en,
+    nameAr: data.name_ar,
+    description: data.description_en ?? '',
     descriptionAr: data.description_ar ?? '',
-    thumbnail:     data.thumbnail_url ?? undefined,
-    driveUrl:      data.drive_url ?? '',
-    tag:           data.tag ?? undefined,
+    thumbnail: data.thumbnail_url ?? undefined,
+    driveUrl: data.drive_url ?? '',
+    tag: data.tag ?? undefined,
   };
 }
 
@@ -418,16 +441,18 @@ export async function updateItemAction(
     throw new Error('forbidden');
   }
 
+  const validated = parseOrThrow(itemPayloadSchema, updates);
+
   const { error } = await supabase
     .from('items')
     .update({
-      name_en:        updates.nameEn,
-      name_ar:        updates.nameAr,
-      description_en: updates.description,
-      description_ar: updates.descriptionAr,
-      drive_url:      updates.driveUrl,
-      thumbnail_url:  updates.thumbnail ?? null,
-      tag:            updates.tag ?? null,
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      description_en: validated.description,
+      description_ar: validated.descriptionAr,
+      drive_url: validated.driveUrl || '',
+      thumbnail_url: validated.thumbnail || null,
+      tag: validated.tag || null,
     })
     .eq('id', itemDbId);
 
@@ -444,9 +469,7 @@ export async function deleteItemAction(itemDbId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   File Types registry (مشترك بين كل المنصات)
-   ══════════════════════════════════════════════════════════════════════ */
+/* File Types registry */
 
 export type FileTypeRow = { key: string; color: string };
 
@@ -456,14 +479,13 @@ export async function addFileTypeAction(
 ): Promise<FileTypeRow> {
   const { supabase, actor } = await requireArchiveActor();
 
-  // إضافة نوع ملف جديد صلاحيتها Manage Archive بشكل عام (بدون شرط عضوية
-  // منصة معينة، لأن الـ registry مشترك بين كل المنصات) — نفس منطق RPC
-  // add_file_type بالداتابيز.
   if (!(await canCreatePlatform(supabase, actor))) throw new Error('forbidden');
 
+  const validated = parseOrThrow(fileTypeSchema, { key, color });
+
   const { data, error } = await supabase.rpc('add_file_type', {
-    p_key: key,
-    p_color: color,
+    p_key: validated.key,
+    p_color: validated.color,
   });
 
   if (error) throw new Error(error.message);
@@ -471,20 +493,18 @@ export async function addFileTypeAction(
   return { key: data.key, color: data.color };
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   File (Level 5)
-   ══════════════════════════════════════════════════════════════════════ */
+/* File (Level 5) */
 
 export type FileActionPayload = {
   nameEn: string;
   nameAr: string;
   driveUrl: string;
-  tag?: string; // مفتاح من file_types — اختياري
+  tag?: string;
 };
 
 export type FileDbRow = {
-  dbId:   string; // uuid
-  id:     string; // = dbId
+  dbId: string;
+  id: string;
   itemId: string;
   nameEn: string;
   nameAr: string;
@@ -503,14 +523,16 @@ export async function addFileAction(
     throw new Error('forbidden');
   }
 
+  const validated = parseOrThrow(filePayloadSchema, payload);
+
   const { data, error } = await supabase
     .from('files')
     .insert({
-      item_id:    itemDbId,
-      name_en:    payload.nameEn,
-      name_ar:    payload.nameAr,
-      drive_url:  payload.driveUrl,
-      file_type:  payload.tag ?? null,
+      item_id: itemDbId,
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      drive_url: validated.driveUrl || '',
+      file_type: validated.tag || null,
       created_by: actor.id,
     })
     .select('id, item_id, name_en, name_ar, drive_url, file_type')
@@ -519,9 +541,13 @@ export async function addFileAction(
   if (error || !data) throw new Error(error?.message ?? 'insert_failed');
 
   return {
-    dbId: data.id, id: data.id, itemId: data.item_id,
-    nameEn: data.name_en, nameAr: data.name_ar,
-    driveUrl: data.drive_url, tag: data.file_type ?? undefined,
+    dbId: data.id,
+    id: data.id,
+    itemId: data.item_id,
+    nameEn: data.name_en,
+    nameAr: data.name_ar,
+    driveUrl: data.drive_url,
+    tag: data.file_type ?? undefined,
   };
 }
 
@@ -536,13 +562,15 @@ export async function updateFileAction(
     throw new Error('forbidden');
   }
 
+  const validated = parseOrThrow(filePayloadSchema, updates);
+
   const { error } = await supabase
     .from('files')
     .update({
-      name_en:   updates.nameEn,
-      name_ar:   updates.nameAr,
-      drive_url: updates.driveUrl,
-      file_type: updates.tag ?? null,
+      name_en: validated.nameEn,
+      name_ar: validated.nameAr,
+      drive_url: validated.driveUrl || '',
+      file_type: validated.tag || null,
     })
     .eq('id', fileDbId);
 
@@ -559,19 +587,13 @@ export async function deleteFileAction(fileDbId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   رفع الصور (Platform/Work/Item thumbnails) — Supabase Storage
-   ══════════════════════════════════════════════════════════════════════ */
+/* رفع الصور — Supabase Storage */
 
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB موحّد (القرار المحسوم)
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 export async function uploadArchiveImageAction(formData: FormData): Promise<string> {
   const { supabase, actor } = await requireArchiveActor();
 
-  // ⚠️ إضافة أمنية: قبل هالفحص، أي عضو نشط (بدون أي شرط صلاحية) كان
-  // يقدر يرفع صور لـ storage الأرشيف. صار محصور بـ archive.manage —
-  // نفس منطق add_file_type/canCreatePlatform (صلاحية عامة بدون شرط
-  // عضوية منصة معينة، لأن الصورة ممكن تكون لمنصة جديدة لسا ما انخلقت).
   if (!(await hasCapability(supabase, actor, 'archive.manage'))) {
     throw new Error('forbidden');
   }
@@ -579,17 +601,18 @@ export async function uploadArchiveImageAction(formData: FormData): Promise<stri
   const file = formData.get('file');
   if (!(file instanceof File)) throw new Error('no_file');
 
-  if (!file.type.startsWith('image/')) throw new Error('invalid_file_type');
   if (file.size > MAX_IMAGE_BYTES) throw new Error('file_too_large');
 
+  const realType = await verifyRealImageType(file);
+
   const folder = (formData.get('folder') as string) || 'misc';
-  const safeFolder = /^[a-z-]+$/.test(folder) ? folder : 'misc'; // منع path traversal
+  const safeFolder = /^[a-z-]+$/.test(folder) ? folder : 'misc';
   const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
   const path = `${safeFolder}/${crypto.randomUUID()}.${ext || 'jpg'}`;
 
   const { error: uploadError } = await supabase.storage
     .from('archive')
-    .upload(path, file, { contentType: file.type, upsert: false });
+    .upload(path, file, { contentType: realType, upsert: false });
 
   if (uploadError) throw new Error(uploadError.message);
 
@@ -603,8 +626,6 @@ export async function setArchiveViewModeAction(mode: 'grid' | 'list'): Promise<v
   if (error) throw new Error(error.message);
 }
 
-/** تعديل رابط مجلد الـItem الكامل بس (Open Full Drive Folder) — بدون لمس
-    باقي حقول الـitem، عشان صفحة الملفات ما تحتاج تجيب/تبعت كل الحقول. */
 export async function updateItemDriveUrlAction(
   itemDbId: string,
   workDbId: string,
@@ -624,17 +645,12 @@ export async function updateItemDriveUrlAction(
   if (error) throw new Error(error.message);
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   DestinationPicker — تصفّح للقراءة فقط (أي عضو مسجّل دخول يقدر يتصفح،
-   نفس صلاحية SELECT المفتوحة على الجداول). الفحص الحقيقي (عضوية +
-   archive.copy_move على المصدر والوجهة معًا) بيصير جوا RPCs التنفيذ
-   بالأسفل، مش هون.
-   ══════════════════════════════════════════════════════════════════════ */
+/* DestinationPicker */
 
 export type PickerPlatform = { id: string; slug: string; nameEn: string; nameAr: string; color: string };
-export type PickerWork     = { id: string; nameEn: string; nameAr: string; platformId: string };
-export type PickerSection  = { id: string; nameEn: string; nameAr: string; icon: string; workId: string };
-export type PickerItem     = { id: string; nameEn: string; nameAr: string; sectionId: string };
+export type PickerWork = { id: string; nameEn: string; nameAr: string; platformId: string };
+export type PickerSection = { id: string; nameEn: string; nameAr: string; icon: string; workId: string };
+export type PickerItem = { id: string; nameEn: string; nameAr: string; sectionId: string };
 
 export async function listPlatformsForPicker(): Promise<PickerPlatform[]> {
   const { supabase } = await requireArchiveActor();
@@ -679,12 +695,7 @@ export async function listItemsForPicker(sectionId: string): Promise<PickerItem[
   return (data ?? []).map(i => ({ id: i.id, nameEn: i.name_en, nameAr: i.name_ar, sectionId: i.section_id }));
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   النسخ/النقل الفعلي — بتستدعي الـRPCs الجاهزة أصلاً بالباك اند
-   (SECURITY DEFINER، فاحصة can_copy_move_archive على المصدر والوجهة
-   معًا جوا الدالة نفسها). الـServer Action هون بس واجهة استدعاء + رمي
-   خطأ واضح، بدون تكرار منطق الصلاحيات.
-   ══════════════════════════════════════════════════════════════════════ */
+/* النسخ/النقل الفعلي */
 
 export async function moveSectionAction(sectionId: string, toWorkId: string): Promise<void> {
   const { supabase } = await requireArchiveActor();

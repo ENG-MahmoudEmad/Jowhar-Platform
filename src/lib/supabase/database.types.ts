@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_audit_log: {
+        Row: {
+          action: string
+          actor_id: string
+          created_at: string
+          details: Json
+          id: number
+          target_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          created_at?: string
+          details?: Json
+          id?: never
+          target_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          created_at?: string
+          details?: Json
+          id?: never
+          target_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_audit_log_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_verses: {
         Row: {
           arabic_text: string
@@ -1050,6 +1092,10 @@ export type Database = {
         Args: { actor: string; target: string }
         Returns: boolean
       }
+      can_upload_avatar: {
+        Args: { actor: string; target: string }
+        Returns: boolean
+      }
       complete_email_change: { Args: { p_user_id: string }; Returns: boolean }
       copy_files: {
         Args: { p_file_ids: string[]; p_to_item_id: string }
@@ -1267,6 +1313,10 @@ export type Database = {
       is_platform_member: {
         Args: { p_platform_id: string; p_user_id: string }
         Returns: boolean
+      }
+      log_admin_action: {
+        Args: { p_action: string; p_details?: Json; p_target_id: string }
+        Returns: undefined
       }
       mark_note_seen: { Args: { p_note_id: string }; Returns: undefined }
       move_files: {

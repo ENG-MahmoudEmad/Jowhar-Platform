@@ -5,13 +5,16 @@
 // الحراسات نفسها بـ `./guards.ts`: نفس الفحص الموجود بـ proxy.ts، بس مستقل
 // تمامًا عنه (defense in depth) — الـ middleware ممكن ينخدع أو يتخطاه حد،
 // والـ Server Action لازم تتأكد بنفسها.
+//
+// كل فعل هون بينسجّل بـ admin_audit_log عبر logAudit() — هدول أهم الأفعال
+// الإدارية بالمنصة (قبول/رفض/إيقاف)، لازم يكون فيه سجل واضح مين عملها وإمتى.
 'use server';
 
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { canManage } from '@/lib/permissions/hierarchy';
-import { requireAdminActor, loadTarget } from './guards';
+import { requireAdminActor, loadTarget, logAudit } from './guards';
 
 async function sendAccountApprovedEmail(email: string) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -77,6 +80,8 @@ export async function acceptMember(memberId: string) {
 
   if (error) throw new Error(`accept_failed: ${error.message} (${error.code})`);
 
+  await logAudit(supabase, memberId, 'member_accepted');
+
   const adminClient = createAdminClient();
   const { data: authUser } = await adminClient.auth.admin.getUserById(memberId);
   const email = authUser?.user?.email ?? null;
@@ -118,6 +123,8 @@ export async function rejectMember(memberId: string) {
 
   if (error) throw new Error('reject_failed');
 
+  await logAudit(supabase, memberId, 'member_rejected');
+
   // تسجيل محاولة الرفض لمنطق الحظر (5 محاولات = حظر أسبوعين)
   const forwardedFor = (await headers()).get('x-forwarded-for');
   const ip = forwardedFor?.split(',')[0]?.trim() ?? null;
@@ -157,6 +164,8 @@ export async function suspendMember(memberId: string, days: number) {
 
   if (error) throw new Error('suspend_failed');
 
+  await logAudit(supabase, memberId, 'member_suspended', { days, suspended_until: suspendedUntil });
+
   revalidatePath('/adminControl');
 }
 
@@ -179,6 +188,8 @@ export async function liftSuspension(memberId: string) {
     .eq('id', memberId);
 
   if (error) throw new Error('lift_failed');
+
+  await logAudit(supabase, memberId, 'member_suspension_lifted');
 
   revalidatePath('/adminControl');
 }

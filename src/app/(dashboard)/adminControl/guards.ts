@@ -139,3 +139,30 @@ export async function requireOpenableTarget(
 export function fullName(first: string | null, last: string | null): string {
   return `${first ?? ''} ${last ?? ''}`.trim() || '—';
 }
+
+/**
+ * تسجيل فعل إداري حساس بـ admin_audit_log (عبر RPC log_admin_action).
+ * best-effort مقصود: فشل التسجيل (خطأ شبكي، مؤقت) ما لازم يفشّل الفعل
+ * الإداري الأصلي — الأولوية دايمًا للفعل نفسه ينفّذ.
+ *
+ * `JSON.parse(JSON.stringify(...))` بدل تمرير details مباشرة: نوع Json
+ * المولّد من Supabase صارم وبيرفض Record<string, unknown> مباشرة حتى لو
+ * المحتوى متوافق فعليًا — التحويل بيضمن كمان إنه فعلاً serializable
+ * (لو انحطت فيه قيمة زي Date بالغلط مستقبلاً، بينكشف هون مش بصمت).
+ */
+export async function logAudit(
+  supabase: ServerClient,
+  targetId: string,
+  action: string,
+  details: Record<string, unknown> = {}
+) {
+  try {
+    await supabase.rpc('log_admin_action', {
+      p_target_id: targetId,
+      p_action: action,
+      p_details: JSON.parse(JSON.stringify(details)),
+    });
+  } catch {
+    // best-effort — ما بنكسر الفعل الأصلي بسبب فشل التسجيل
+  }
+}

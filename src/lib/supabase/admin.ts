@@ -3,6 +3,7 @@
 // يُستخدم فقط داخل Server Actions/Route Handlers محمية أصلاً بفحص is_chief/access_role،
 // ولأشياء لا يقدر عليها الـ anon client مثل قراءة auth.users (الإيميل).
 // ⚠️ لا يُستورد أبدًا داخل أي كومبوننت أو كود يصل للمتصفح.
+import 'server-only';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './database.types';
 

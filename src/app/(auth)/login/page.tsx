@@ -69,8 +69,6 @@ export default function LoginPage() {
       password: data.password,
     });
 
-    // 🔍 تشخيص مؤقت — احذف هالسطر بعد ما نحل المشكلة
-
     if (error || !authData.user) {
       setApprovalError(UNIFIED_ERROR);
       return;
@@ -83,8 +81,6 @@ export default function LoginPage() {
       .eq('id', authData.user.id)
       .single();
 
-    // 🔍 تشخيص مؤقت — احذف هالسطر بعد ما نحل المشكلة
-
     const suspensionActive =
       profile?.is_suspended &&
       (!profile.suspended_until || new Date(profile.suspended_until) > new Date());
@@ -95,7 +91,6 @@ export default function LoginPage() {
       suspensionActive ||
       profile.status !== 'active';
 
-    // 🔍 تشخيص مؤقت — احذف هالسطر بعد ما نحل المشكلة
     if (blocked) {
       // مهم: نطلع الجلسة فورًا عشان ما تفضل جلسة صالحة لحساب ممنوع
       await supabase.auth.signOut();
@@ -103,7 +98,16 @@ export default function LoginPage() {
       return;
     }
 
-    // 3) حساب نشط -> للداشبورد
+    // 3) دخول واحد بس بأي وقت — نقفل أي جلسة تانية مفتوحة لنفس الحساب
+    // (جهاز/متصفح تاني) بدون ما تلمس جلستنا الحالية. best-effort: فشلها
+    // ما لازم يمنع تسجيل الدخول الحالي، فبنكمل عادي حتى لو رمت خطأ.
+    try {
+      await supabase.auth.signOut({ scope: 'others' });
+    } catch {
+      // تجاهل — الجلسة الحالية سليمة، وهاي مجرد إجراء إضافي
+    }
+
+    // 4) حساب نشط -> للداشبورد
     router.push('/dashboard');
     router.refresh(); // يجبر الـ proxy يعيد التقييم بالجلسة الجديدة
   };

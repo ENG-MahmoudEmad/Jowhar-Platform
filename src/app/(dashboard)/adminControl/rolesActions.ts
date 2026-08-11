@@ -4,7 +4,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { canManage, canEditRoles } from '@/lib/permissions/hierarchy';
-import { requireAdminActor, loadTarget } from './guards';
+import { requireAdminActor, loadTarget, logAudit } from './guards';
 
 // ===========================================================
 // تغيير دور العضو (member ⇄ admin)
@@ -36,6 +36,8 @@ export async function setMemberRole(memberId: string, role: 'member' | 'admin') 
   if (role === 'member') {
     await supabase.from('user_permissions').delete().eq('user_id', memberId);
   }
+
+  await logAudit(supabase, memberId, 'role_changed', { new_role: role });
 
   revalidatePath('/adminControl');
 }
@@ -82,5 +84,9 @@ export async function togglePermission(
     if (error) throw new Error('revoke_failed');
   }
 
+  await logAudit(supabase, memberId, granted ? 'permission_granted' : 'permission_revoked', {
+    permission_key: permissionKey,
+  });
+
   revalidatePath('/adminControl');
-}
+} 
