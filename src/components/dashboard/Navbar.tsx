@@ -4,7 +4,6 @@
 
 import React, { memo, useCallback, useMemo } from 'react';
 import { Plus, Calendar as CalendarIcon, Sparkles, Menu } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useLang } from '@/context/LangContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -107,12 +106,18 @@ function Navbar({ onMenuClick }: NavbarProps) {
     [isDark],
   );
 
+  // زر "ملاحظة جديدة" — CSS transition عادي بدل framer-motion لتفادي
+  // أي تأخير (lag) بأول هوفر بسبب lazy-loading الـ domAnimation features.
+  // بيصير الحركة فورية وسلسة زي الجرس تماماً.
   const addNoteButtonStyle = useMemo<React.CSSProperties>(
     () => ({
       background: '#458482',
       border: '1px solid rgba(69,132,130,0.35)',
       color: '#ffffff',
       boxShadow: '0 2px 10px rgba(69,132,130,0.28)',
+      transform: 'scale(1)',
+      transition: 'transform 0.15s ease-out, box-shadow 0.15s ease-out',
+      willChange: 'transform',
     }),
     [],
   );
@@ -128,6 +133,22 @@ function Navbar({ onMenuClick }: NavbarProps) {
   const handleAddNote = useCallback(() => {
     router.push(NEW_NOTE_HREF);
   }, [router]);
+
+  const handleAddNoteEnter = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.transform = 'scale(1.05)';
+  }, []);
+
+  const handleAddNoteLeave = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.transform = 'scale(1)';
+  }, []);
+
+  const handleAddNoteDown = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.transform = 'scale(0.95)';
+  }, []);
+
+  const handleAddNoteUp = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.transform = 'scale(1.05)';
+  }, []);
 
   // الاسم الأول فقط بالترحيب (نفس منطق My Tasks spec)
   const displayFirstName = user?.firstName || '';
@@ -185,18 +206,20 @@ function Navbar({ onMenuClick }: NavbarProps) {
       {/* ── Quick actions: new note + bell (RIGHT in LTR, LEFT in RTL) ── */}
       <div style={actionsGroupStyle}>
         {/* New note — jumps straight into MyNotes' create form */}
-        <motion.button
+        <button
           type="button"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
           onClick={handleAddNote}
+          onMouseEnter={handleAddNoteEnter}
+          onMouseLeave={handleAddNoteLeave}
+          onMouseDown={handleAddNoteDown}
+          onMouseUp={handleAddNoteUp}
           aria-label={lang === 'ar' ? 'ملاحظة جديدة' : 'New note'}
           title={lang === 'ar' ? 'ملاحظة جديدة' : 'New note'}
-          className="p-2.5 rounded-xl cursor-pointer shrink-0"
+          className="p-2.5 rounded-xl cursor-pointer shrink-0 flex items-center justify-center"
           style={addNoteButtonStyle}
         >
           <Plus size={17} />
-        </motion.button>
+        </button>
 
         {/*
           الجرس واللوحة انفصلوا لكومبوننت خاص: الـ Navbar فيه منطق كافي،

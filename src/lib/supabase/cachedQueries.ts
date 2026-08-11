@@ -7,26 +7,23 @@
 // عشان نقدر نلغيه فورًا (عبر updateTag بالـ Server Actions) لما البيانات
 // فعليًا تتغيّر (مثلاً موافقة تاسك) بدل ما نستنى انتهاء الـ60 ثانية.
 //
-// ⚠️ عميل بدون كوكيز بقصد: Next.js 16.3 بيمنع استخدام cookies() (اللي
-// عميل createClient() العادي بيعتمد عليه) جوا دالة مكاشة بـunstable_cache
-// — الكوكيز "ديناميكية" (خاصة بكل طلب) وهذا يتعارض مع فكرة كاش مشترك.
-// بما إنه هاي البيانات مش شخصية أصلاً، ما محتاجين جلسة مستخدم لجلبها —
-// عميل anon عادي (بدون SSR cookie handling) كافي وآمن.
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+// ⚠️ service role (createAdminClient) بقصد، مش عميل anon عادي:
+//   1. Next.js 16.3 بيمنع استخدام cookies() (عميل createClient() العادي)
+//      جوا دالة مكاشة بـunstable_cache — الكوكيز "ديناميكية" وهذا يتعارض
+//      مع فكرة كاش مشترك.
+//   2. عميل anon بمفتاح anon بس (بدون جلسة) بيشتغل بدور 'anon' بقاعدة
+//      البيانات — لو الـRPCs معطاة صلاحية تنفيذ لـ'authenticated' بس
+//      (الحالة الشائعة)، الاستدعاء بينرفض بصمت وترجع النتيجة فاضية.
+//   service role بيتخطى RLS والصلاحيات بالكامل، وآمن هون لأن البيانات
+//   نفسها عامة أصلاً (لا فيها تخصيص حسب هوية الطالب).
 import { unstable_cache } from 'next/cache';
-import type { Database } from './database.types';
-
-function createAnonClient() {
-  return createSupabaseClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
+import { createAdminClient } from '@/lib/supabase/admin';
 
 export const getCachedLeaderboard = unstable_cache(
   async (period: 'weekly' | 'monthly') => {
-    const supabase = createAnonClient();
-    const { data } = await supabase.rpc('get_leaderboard', { p_period: period });
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.rpc('get_leaderboard', { p_period: period });
+    if (error) console.error('get_leaderboard (cached) failed:', error.message);
     return data ?? [];
   },
   ['leaderboard'], // مفتاح أساسي — Next.js بيضيف الآرغيومنتس (period) تلقائيًا
@@ -35,8 +32,9 @@ export const getCachedLeaderboard = unstable_cache(
 
 export const getCachedDailyVerse = unstable_cache(
   async () => {
-    const supabase = createAnonClient();
-    const { data } = await supabase.rpc('get_daily_verse');
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.rpc('get_daily_verse');
+    if (error) console.error('get_daily_verse (cached) failed:', error.message);
     return data ?? [];
   },
   ['daily-verse'],
@@ -45,8 +43,9 @@ export const getCachedDailyVerse = unstable_cache(
 
 export const getCachedStudioPulseStats = unstable_cache(
   async () => {
-    const supabase = createAnonClient();
-    const { data } = await supabase.rpc('get_studio_pulse_stats');
+    const supabase = createAdminClient();
+    const { data, error } = await supabase.rpc('get_studio_pulse_stats');
+    if (error) console.error('get_studio_pulse_stats (cached) failed:', error.message);
     return data ?? [];
   },
   ['studio-pulse-stats'],

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { memo, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { LazyMotion, domAnimation, m } from 'framer-motion';
 import { useLang } from '@/context/LangContext';
 import { useTheme } from '@/context/ThemeContext';
 
@@ -99,38 +99,41 @@ function Footer() {
   );
 
   return (
-    <motion.footer
-      initial={footerInitial}
-      animate={footerAnimate}
-      transition={footerTransition}
-      dir={isRTL ? 'rtl' : 'ltr'}
-      style={footerStyle}
-    >
-      {/* Left — studio name */}
-      <div style={studioBlockStyle}>
-        {/* Tiny animated dot */}
-        <motion.span
-          style={dotStyle}
-          animate={dotAnimate}
-          transition={dotTransition}
-        />
-        <span style={studioNameStyle}>
-          {lang === 'ar' ? 'استوديو جوهر' : 'Studio Jowhar'}
+    <LazyMotion features={domAnimation}>
+      <m.footer
+        initial={footerInitial}
+        animate={footerAnimate}
+        transition={footerTransition}
+        dir={isRTL ? 'rtl' : 'ltr'}
+        className="select-none"
+        style={footerStyle}
+      >
+        {/* Left — studio name */}
+        <div style={studioBlockStyle}>
+          {/* Tiny animated dot */}
+          <m.span
+            style={dotStyle}
+            animate={dotAnimate}
+            transition={dotTransition}
+          />
+          <span style={studioNameStyle}>
+            {lang === 'ar' ? 'استوديو جوهر' : 'Studio Jowhar'}
+          </span>
+        </div>
+
+        {/* Center — copyright */}
+        <span style={copyrightStyle}>
+          {lang === 'ar'
+            ? `© ${year} جميع الحقوق محفوظة لاستوديو جوهر`
+            : `© ${year} All credits reserved for Jowhar Studio`}
         </span>
-      </div>
 
-      {/* Center — copyright */}
-      <span style={copyrightStyle}>
-        {lang === 'ar'
-          ? `© ${year} جميع الحقوق محفوظة لاستوديو جوهر`
-          : `© ${year} All credits reserved for Jowhar Studio`}
-      </span>
-
-      {/* Right — version/status badge */}
-      <span style={badgeStyle}>
-        {lang === 'ar' ? 'الإصدار 1.0' : 'v1.0'}
-      </span>
-    </motion.footer>
+        {/* Right — version/status badge */}
+        <span style={badgeStyle}>
+          {lang === 'ar' ? 'الإصدار 1.0' : 'v1.0'}
+        </span>
+      </m.footer>
+    </LazyMotion>
   );
 }
 

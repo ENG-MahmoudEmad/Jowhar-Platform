@@ -11,7 +11,7 @@ import {
   PanelLeftClose, PanelLeftOpen, Sun, Moon, Languages,
   type LucideIcon,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { LazyMotion, domMax, m, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTheme } from '@/context/ThemeContext';
@@ -181,7 +181,7 @@ const SidebarNavItem = memo(function SidebarNavItem({
       <Link href={item.path} aria-current={isActive ? 'page' : undefined} className="block group/item relative">
         <div className="relative h-11 flex items-center rounded-xl overflow-hidden" style={rowStyle}>
           {isActive && (
-            <motion.div
+            <m.div
               layoutId={activeLayoutId}
               className="absolute inset-0 rounded-xl"
               style={activeOverlayStyle}
@@ -397,149 +397,151 @@ function Sidebar({
     (lang === 'ar' ? 'عضو' : 'Member');
 
   return (
-    <aside dir={isRTL ? 'rtl' : 'ltr'} className="h-full flex flex-col select-none relative" style={asideStyle}>
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-20 -left-20 w-64 h-64 rounded-full" style={topGlowStyle} />
-        <div className="absolute -bottom-24 -right-12 w-56 h-56 rounded-full" style={bottomGlowStyle} />
+    <LazyMotion features={domMax}>
+      <aside dir={isRTL ? 'rtl' : 'ltr'} className="h-full flex flex-col select-none relative" style={asideStyle}>
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-20 -left-20 w-64 h-64 rounded-full" style={topGlowStyle} />
+          <div className="absolute -bottom-24 -right-12 w-56 h-56 rounded-full" style={bottomGlowStyle} />
 
-        <div className="absolute inset-0 opacity-[0.015] mix-blend-overlay">
-          <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-            <filter id={`sg-${instanceId}`}>
-              <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="4" stitchTiles="stitch" />
-              <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.4 0" />
-            </filter>
-            <rect width="100%" height="100%" filter={`url(#sg-${instanceId})`} />
-          </svg>
-        </div>
-      </div>
-
-      <div className="relative h-16 sm:h-20 shrink-0 flex items-center px-3 gap-2" style={headerStyle}>
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <AnimatePresence mode="wait">
-            {isOpen ? (
-              <motion.div key="full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={logoFadeTransition}>
-                <Link href="/dashboard" className={`block group/logo px-1 ${isRTL ? 'text-right' : 'text-left'}`}>
-                  <p className="text-[9px] font-bold uppercase tracking-[0.45em] mb-0.5" style={{ color: 'rgba(69,132,130,0.6)' }}>
-                    Studio
-                  </p>
-                  <h2
-                    className="text-xl font-black uppercase leading-none whitespace-nowrap
-                      group-hover/logo:text-[#5ea8a4] transition-colors duration-200"
-                    style={{ fontFamily: "'Georgia', serif", letterSpacing: '0.2em', color: TEXT_MAIN }}
-                  >
-                    JOWHAR
-                  </h2>
-                  <div className="h-[1.5px] mt-1.5 w-8 rounded-full" style={logoUnderlineStyle} />
-                </Link>
-              </motion.div>
-            ) : (
-              <motion.div key="mark" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={logoFadeTransition} className="flex justify-center">
-                <Link href="/dashboard">
-                  <span className="text-base font-black uppercase text-[#5ea8a4]" style={{ fontFamily: "'Georgia', serif" }}>
-                    J
-                  </span>
-                </Link>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <div className="absolute inset-0 opacity-[0.015] mix-blend-overlay">
+            <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+              <filter id={`sg-${instanceId}`}>
+                <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="4" stitchTiles="stitch" />
+                <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.4 0" />
+              </filter>
+              <rect width="100%" height="100%" filter={`url(#sg-${instanceId})`} />
+            </svg>
+          </div>
         </div>
 
-        {showCollapseButton && (
-          <button
-            type="button"
-            onClick={handleToggleOpen}
-            aria-label={isOpen ? (lang === 'ar' ? 'طي القائمة' : 'Collapse sidebar') : (lang === 'ar' ? 'توسيع القائمة' : 'Expand sidebar')}
-            aria-expanded={isOpen}
-            className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer"
-            style={{ color: TEXT_IDLE, transition: 'color 0.15s, background 0.15s' }}
-            onMouseEnter={handleCollapseEnter}
-            onMouseLeave={handleCollapseLeave}
-          >
-            <CollapseIcon className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-
-      <nav className="relative flex-1 py-3 px-2 space-y-0.5 overflow-y-auto overflow-x-hidden">
-        {visibleItems.map((it) => (
-          <SidebarNavItem
-            key={it.path}
-            item={it}
-            isActive={isPathActive(pathname, it.path)}
-            isOpen={isOpen}
-            isRTL={isRTL}
-            isDark={isDark}
-            lang={lang}
-            activeLayoutId={activeLayoutId}
-          />
-        ))}
-      </nav>
-
-      <div className="relative px-2 py-1 shrink-0" style={{ borderTop: `1px solid ${DIVIDER}` }}>
-        {actionButtons.map((btn) => (
-          <button
-            key={btn.id}
-            type="button"
-            onClick={btn.onClick}
-            aria-label={btn.label}
-            className="w-full h-10 rounded-xl cursor-pointer flex items-center"
-            style={{ color: TEXT_IDLE, flexDirection: 'row', transition: 'color 0.15s, background 0.15s' }}
-            onMouseEnter={handleActionEnter}
-            onMouseLeave={handleActionLeave}
-          >
-            <div className="shrink-0 flex items-center justify-center" style={actionIconWrapperStyle}>
-              <btn.Icon style={{ width: '17px', height: '17px' }} />
-            </div>
-            <span className="text-[11px] font-bold uppercase tracking-[0.12em] whitespace-nowrap overflow-hidden" style={actionLabelStyle}>
-              {btn.label}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      <div className="relative p-2 pb-3 shrink-0">
-        <div className="rounded-2xl p-3" style={userCardOuterStyle}>
-          <div className="flex items-center mb-2.5" style={userRowStyle}>
-            <div className="relative shrink-0">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] overflow-hidden" style={avatarStyle}>
-                {user?.avatarUrl ? (
-                  <Image src={user.avatarUrl} alt={displayName} fill sizes="32px" className="object-cover" unoptimized />
-                ) : (
-                  displayInitials
-                )}
-              </div>
-              <div className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 border-2 rounded-full" style={avatarStatusDotStyle} />
-            </div>
-            <div className="flex flex-col min-w-0 overflow-hidden" style={userNameWrapStyle}>
-              <span className="text-[11px] font-bold uppercase tracking-wider truncate whitespace-nowrap" style={{ color: TEXT_MAIN }}>
-                {displayName}
-              </span>
-              <span className="text-[9px] font-black uppercase tracking-[0.12em] whitespace-nowrap" style={{ color: '#5ea8a4' }}>
-                {displayJobTitle}
-              </span>
-            </div>
+        <div className="relative h-16 sm:h-20 shrink-0 flex items-center px-3 gap-2" style={headerStyle}>
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <AnimatePresence mode="wait">
+              {isOpen ? (
+                <m.div key="full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={logoFadeTransition}>
+                  <Link href="/dashboard" className={`block group/logo px-1 ${isRTL ? 'text-right' : 'text-left'}`}>
+                    <p className="text-[9px] font-bold uppercase tracking-[0.45em] mb-0.5" style={{ color: 'rgba(69,132,130,0.6)' }}>
+                      Studio
+                    </p>
+                    <h2
+                      className="text-xl font-black uppercase leading-none whitespace-nowrap
+                        group-hover/logo:text-[#5ea8a4] transition-colors duration-200"
+                      style={{ fontFamily: "'Georgia', serif", letterSpacing: '0.2em', color: TEXT_MAIN }}
+                    >
+                      JOWHAR
+                    </h2>
+                    <div className="h-[1.5px] mt-1.5 w-8 rounded-full" style={logoUnderlineStyle} />
+                  </Link>
+                </m.div>
+              ) : (
+                <m.div key="mark" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={logoFadeTransition} className="flex justify-center">
+                  <Link href="/dashboard">
+                    <span className="text-base font-black uppercase text-[#5ea8a4]" style={{ fontFamily: "'Georgia', serif" }}>
+                      J
+                    </span>
+                  </Link>
+                </m.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          <div className="h-px mx-1 mb-2 rounded-full" style={{ background: DIVIDER }} />
-
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={signingOut}
-            aria-label={lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out'}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl cursor-pointer border border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ color: TEXT_IDLE, flexDirection: 'row', transition: 'color 0.15s, background 0.15s, border-color 0.15s' }}
-            onMouseEnter={handleLogoutEnter}
-            onMouseLeave={handleLogoutLeave}
-          >
-            <LogOut className="w-3.5 h-3.5 shrink-0" />
-            <span className="text-[10px] font-bold uppercase tracking-[0.18em] whitespace-nowrap overflow-hidden" style={logoutLabelStyle}>
-              {signingOut ? (lang === 'ar' ? 'جارٍ الخروج...' : 'Signing out...') : (lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out')}
-            </span>
-          </button>
+          {showCollapseButton && (
+            <button
+              type="button"
+              onClick={handleToggleOpen}
+              aria-label={isOpen ? (lang === 'ar' ? 'طي القائمة' : 'Collapse sidebar') : (lang === 'ar' ? 'توسيع القائمة' : 'Expand sidebar')}
+              aria-expanded={isOpen}
+              className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer"
+              style={{ color: TEXT_IDLE, transition: 'color 0.15s, background 0.15s' }}
+              onMouseEnter={handleCollapseEnter}
+              onMouseLeave={handleCollapseLeave}
+            >
+              <CollapseIcon className="w-4 h-4" />
+            </button>
+          )}
         </div>
-      </div>
-    </aside>
+
+        <nav className="relative flex-1 py-3 px-2 space-y-0.5 overflow-y-auto overflow-x-hidden">
+          {visibleItems.map((it) => (
+            <SidebarNavItem
+              key={it.path}
+              item={it}
+              isActive={isPathActive(pathname, it.path)}
+              isOpen={isOpen}
+              isRTL={isRTL}
+              isDark={isDark}
+              lang={lang}
+              activeLayoutId={activeLayoutId}
+            />
+          ))}
+        </nav>
+
+        <div className="relative px-2 py-1 shrink-0" style={{ borderTop: `1px solid ${DIVIDER}` }}>
+          {actionButtons.map((btn) => (
+            <button
+              key={btn.id}
+              type="button"
+              onClick={btn.onClick}
+              aria-label={btn.label}
+              className="w-full h-10 rounded-xl cursor-pointer flex items-center"
+              style={{ color: TEXT_IDLE, flexDirection: 'row', transition: 'color 0.15s, background 0.15s' }}
+              onMouseEnter={handleActionEnter}
+              onMouseLeave={handleActionLeave}
+            >
+              <div className="shrink-0 flex items-center justify-center" style={actionIconWrapperStyle}>
+                <btn.Icon style={{ width: '17px', height: '17px' }} />
+              </div>
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] whitespace-nowrap overflow-hidden" style={actionLabelStyle}>
+                {btn.label}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="relative p-2 pb-3 shrink-0">
+          <div className="rounded-2xl p-3" style={userCardOuterStyle}>
+            <div className="flex items-center mb-2.5" style={userRowStyle}>
+              <div className="relative shrink-0">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-[11px] overflow-hidden" style={avatarStyle}>
+                  {user?.avatarUrl ? (
+                    <Image src={user.avatarUrl} alt={displayName} fill sizes="32px" className="object-cover" unoptimized />
+                  ) : (
+                    displayInitials
+                  )}
+                </div>
+                <div className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 border-2 rounded-full" style={avatarStatusDotStyle} />
+              </div>
+              <div className="flex flex-col min-w-0 overflow-hidden" style={userNameWrapStyle}>
+                <span className="text-[11px] font-bold uppercase tracking-wider truncate whitespace-nowrap" style={{ color: TEXT_MAIN }}>
+                  {displayName}
+                </span>
+                <span className="text-[9px] font-black uppercase tracking-[0.12em] whitespace-nowrap" style={{ color: '#5ea8a4' }}>
+                  {displayJobTitle}
+                </span>
+              </div>
+            </div>
+
+            <div className="h-px mx-1 mb-2 rounded-full" style={{ background: DIVIDER }} />
+
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              aria-label={lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out'}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl cursor-pointer border border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ color: TEXT_IDLE, flexDirection: 'row', transition: 'color 0.15s, background 0.15s, border-color 0.15s' }}
+              onMouseEnter={handleLogoutEnter}
+              onMouseLeave={handleLogoutLeave}
+            >
+              <LogOut className="w-3.5 h-3.5 shrink-0" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] whitespace-nowrap overflow-hidden" style={logoutLabelStyle}>
+                {signingOut ? (lang === 'ar' ? 'جارٍ الخروج...' : 'Signing out...') : (lang === 'ar' ? 'تسجيل الخروج' : 'Sign Out')}
+              </span>
+            </button>
+          </div>
+        </div>
+      </aside>
+    </LazyMotion>
   );
 }
 

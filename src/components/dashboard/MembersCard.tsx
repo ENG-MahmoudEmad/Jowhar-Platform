@@ -4,6 +4,7 @@ import React, {
   memo, useCallback, useMemo, useState, useRef, useLayoutEffect,
 } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion'
 import { X, Users, Plus, Trash2, ChevronRight, ChevronLeft, Pencil, Check } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
@@ -153,7 +154,7 @@ const PlatformChip = memo(function PlatformChip({
           background: `linear-gradient(${isRTL ? '270deg' : '90deg'}, ${platform.color}, transparent)`,
         }} />
         {platform.thumbnail ? (
-          <img src={platform.thumbnail} alt={name} className="absolute inset-0 w-full h-full object-cover" />
+          <Image src={platform.thumbnail} alt={name} fill sizes="52px" className="object-cover" unoptimized />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center select-none">
             <span className="font-black" style={{ fontSize: 22, color: platform.color + '60', fontFamily: 'var(--font-display)', lineHeight: 1 }}>
