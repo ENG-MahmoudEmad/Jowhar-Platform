@@ -6,6 +6,7 @@ import { Search, Check, X, ShieldAlert, ChevronRight, ChevronDown, Lock } from '
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
 import { useCurrentUser } from '@/context/UserContext';
+import Avatar from '@/components/ui/Avatar';
 import { acceptMember, rejectMember, suspendMember, liftSuspension } from '@/app/(dashboard)/adminControl/actions';
 import { canManage, canOpen, type Actor, type Target } from '@/lib/permissions/hierarchy';
 
@@ -24,6 +25,8 @@ export type Member = {
   id: string;
   name: string;
   initials: string;
+  /** رابط صورة الأفاتار — Avatar بيرجع للأحرف تلقائيًا لو null (نفس منطق TeamProgress) */
+  avatarUrl: string | null;
   role: Role;
   roleLabel: string;
   roleLabelAr: string;
@@ -371,9 +374,20 @@ const MemberRow = memo(function MemberRow({
       }`}
       style={rowStyle}
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--mc-avatar-border)] bg-[var(--mc-avatar-bg)] text-xs font-bold text-[var(--member-color)]">
-        {member.initials}
-      </div>
+      {/*
+        Avatar المشترك — نفس الكومبوننت والمنطق المستخدم في TeamProgress:
+        صورة حقيقية لو avatarUrl موجود، وإلا رجوع تلقائي للأحرف (initials)
+        بلون العضو. ما في حاجة نتعامل معها يدويًا هون.
+      */}
+      <Avatar
+        avatarUrl={member.avatarUrl}
+        initials={member.initials}
+        name={member.name}
+        size={36}
+        shape="square"
+        color={member.color}
+        className="shrink-0 text-xs font-bold text-[var(--member-color)] bg-[var(--mc-avatar-bg)] border border-[var(--mc-avatar-border)]"
+      />
 
       <div className="min-w-0 flex-1 text-start">
         <div className="flex items-center gap-2">

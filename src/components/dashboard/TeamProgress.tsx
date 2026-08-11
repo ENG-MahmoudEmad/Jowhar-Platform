@@ -159,12 +159,12 @@ const TeamMemberRow = memo(function TeamMemberRow({
 
             <div className="min-w-0 text-start">
               {/* h3 لأن الأب هو h2 (team-progress-title) — كنا نستخدم h4 هنا وده كان بيقفز فوق h3 */}
-              <h3 className="truncate text-sm font-bold text-[var(--team-text-main)] flex items-center gap-1.5">
-                {member.name}
+              <h3 className="min-w-0 flex items-center gap-1.5 text-sm font-bold text-[var(--team-text-main)]">
+                <span className="truncate">{member.name}</span>
                 {isOnline && (
                   <m.span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
-                    style={{ boxShadow: '0 0 5px rgba(52,211,153,0.7)' }}
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#458482]"
+                    style={{ boxShadow: '0 0 6px rgba(69,132,130,0.8)' }}
                     animate={ONLINE_DOT_ANIMATE}
                     transition={ONLINE_DOT_TRANSITION}
                     aria-label={lang === 'ar' ? 'متصل الآن' : 'Online now'}

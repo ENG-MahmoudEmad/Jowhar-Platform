@@ -33,6 +33,44 @@ const amiriQuran = Amiri({
 export const metadata: Metadata = {
   title: "JOWHAR | Animation Studio",
   description: "Creative Workspace",
+  // موقع خاص بالفريق فقط — منمنع فهرسته بمحركات البحث تمامًا.
+  // هذا لا يمنع الوصول المباشر عبر الرابط، فقط يمنع ظهوره في نتائج البحث.
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true,
+    },
+  },
+  icons: {
+    // favicon.ico و apple-touch-icon.png لازم يكونوا في public/ مباشرة
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
+  openGraph: {
+    title: "JOWHAR | Animation Studio",
+    description: "Creative Workspace",
+    url: "https://www.jowharhub.com",
+    siteName: "JOWHAR",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+      },
+    ],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "JOWHAR | Animation Studio",
+    description: "Creative Workspace",
+    images: ["/og-image.png"],
+  },
 };
 
 type Theme = "dark" | "light";

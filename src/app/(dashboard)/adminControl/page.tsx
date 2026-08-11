@@ -61,7 +61,7 @@ export default async function AdminControlPage() {
   const { data: memberProfiles } = await supabase
     .from('profiles')
     .select(
-      'id, first_name, last_name, access_role, is_chief, is_developer, is_suspended, suspended_until, color, job_title_en, job_title_ar, created_at'
+      'id, first_name, last_name, access_role, is_chief, is_developer, is_suspended, suspended_until, color, avatar_url, job_title_en, job_title_ar, created_at'
     )
     .eq('status', 'active')
     .order('created_at', { ascending: true });
@@ -105,6 +105,7 @@ export default async function AdminControlPage() {
     id: m.id,
     name: `${m.first_name ?? ''} ${m.last_name ?? ''}`.trim(),
     initials: initialsOf(m.first_name, m.last_name),
+    avatarUrl: m.avatar_url ?? null,
     role: m.access_role as 'admin' | 'member',
     roleLabel: m.job_title_en || (m.access_role === 'admin' ? 'Admin' : 'Member'),
     roleLabelAr: m.job_title_ar || (m.access_role === 'admin' ? 'أدمن' : 'عضو'),
