@@ -5,8 +5,14 @@ import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
 import { ChevronRight, Users, X } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
+import { useCurrentUser } from '@/context/UserContext';
 import Avatar from '@/components/ui/Avatar';
 import { sortMembersForDisplay } from '@/lib/sortMembersForDisplay';
+
+// نبضة النقطة الخضرا (أونلاين) — نفس فلسفة نقطة الفوتر، بس دورة أسرع شوية
+// عشان تحس إنها "حية" بجانب الاسم بدون ما تكون مزعجة.
+const ONLINE_DOT_ANIMATE = { opacity: [1, 0.35, 1], scale: [1, 0.7, 1] };
+const ONLINE_DOT_TRANSITION = { duration: 1.8, repeat: Infinity, ease: 'easeInOut' as const };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data shape — matches what the server (page.tsx) hands down after mapping
@@ -119,7 +125,7 @@ const TeamMemberRow = memo(function TeamMemberRow({
   isRTL,
   lang,
   activeTasksLabel,
-  isCurrentUser,
+  isOnline,
 }: {
   member: TeamMemberData;
   index: number;
@@ -127,7 +133,7 @@ const TeamMemberRow = memo(function TeamMemberRow({
   isRTL: boolean;
   lang: Lang;
   activeTasksLabel: string;
-  isCurrentUser?: boolean;
+  isOnline?: boolean;
 }) {
   const rowStyle: MemberRowStyle = {
     '--member-color': getProgressColor(member.progress),
@@ -152,12 +158,19 @@ const TeamMemberRow = memo(function TeamMemberRow({
             />
 
             <div className="min-w-0 text-start">
-              <h4 className="truncate text-sm font-bold text-[var(--team-text-main)] flex items-center gap-1.5">
+              {/* h3 لأن الأب هو h2 (team-progress-title) — كنا نستخدم h4 هنا وده كان بيقفز فوق h3 */}
+              <h3 className="truncate text-sm font-bold text-[var(--team-text-main)] flex items-center gap-1.5">
                 {member.name}
-                {isCurrentUser && (
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#458482]" aria-hidden="true" />
+                {isOnline && (
+                  <m.span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+                    style={{ boxShadow: '0 0 5px rgba(52,211,153,0.7)' }}
+                    animate={ONLINE_DOT_ANIMATE}
+                    transition={ONLINE_DOT_TRANSITION}
+                    aria-label={lang === 'ar' ? 'متصل الآن' : 'Online now'}
+                  />
                 )}
-              </h4>
+              </h3>
               <p
                 className="text-[10px] font-medium tracking-wider text-[var(--team-text-muted)]"
                 style={{
@@ -210,6 +223,7 @@ const TeamMemberRow = memo(function TeamMemberRow({
 function TeamProgress({ members, currentUserId }: TeamProgressProps) {
   const { theme } = useTheme();
   const { lang, isRTL } = useLang();
+  const { isOnline } = useCurrentUser();
   const isDark = theme === 'dark';
   const copy = TEXT[lang];
   const palette = useMemo(() => getPalette(isDark), [isDark]);
@@ -271,10 +285,15 @@ function TeamProgress({ members, currentUserId }: TeamProgressProps) {
             </div>
           </div>
 
+          {/*
+            target-size fix: كان الزرار 76×15px بس (النص نفسه بدون padding كافي).
+            المفروض على الأقل 24×24px. min-h-6 + padding بيوسّع منطقة اللمس
+            من غير ما يكبر شكل النص بصريًا بشكل ملحوظ.
+          */}
           <button
             type="button"
             onClick={stopPropagation}
-            className="shrink-0 cursor-pointer text-[10px] font-black uppercase tracking-tight text-[var(--team-text-muted)] transition-colors hover:text-[#458482]"
+            className="shrink-0 cursor-pointer min-h-6 px-2 py-1.5 -m-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight text-[var(--team-text-muted)] transition-colors hover:text-[#458482]"
             style={{ fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
           >
             {copy.manage}
@@ -299,7 +318,7 @@ function TeamProgress({ members, currentUserId }: TeamProgressProps) {
                 isRTL={isRTL}
                 lang={lang}
                 activeTasksLabel={copy.activeTasks(member.tasksCount)}
-                isCurrentUser={member.id === currentUserId}
+                isOnline={isOnline(member.id)}
               />
             ))
           )}
@@ -387,7 +406,7 @@ function TeamProgress({ members, currentUserId }: TeamProgressProps) {
                       isRTL={isRTL}
                       lang={lang}
                       activeTasksLabel={copy.activeTasks(member.tasksCount)}
-                      isCurrentUser={member.id === currentUserId}
+                      isOnline={isOnline(member.id)}
                     />
                   ))
                 )}

@@ -37,9 +37,17 @@ type UserContextValue = {
   canAccessAdminControl: boolean;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
+  /**
+   * "مين فاتح الموقع دلوقتي" — عبر Supabase Realtime Presence، مش جدول
+   * بالداتابيز. القناة واحدة مشتركة لكل الداشبورد (mount مرة واحدة هون)،
+   * وأي كومبوننت بيقدر يسأل isOnline(memberId) بدل ما يعمل اشتراك خاص فيه.
+   */
+  isOnline: (userId: string) => boolean;
 };
 
 const UserContext = createContext<UserContextValue | null>(null);
+
+const PRESENCE_CHANNEL_NAME = 'online-users';
 
 export function UserProvider({
   children,
@@ -60,6 +68,7 @@ export function UserProvider({
   const [permissions, setPermissions] = useState<string[]>(initialPermissions);
   // ما في تحميل ابتدائي طالما البيانات وصلت جاهزة من السيرفر
   const [loading, setLoading] = useState(initialUser === null);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
   const router = useRouter();
 
   const load = useCallback(async () => {
@@ -126,6 +135,50 @@ export function UserProvider({
     setPermissions(initialPermissions);
   }, [initialPermissions]);
 
+  /*
+    ── Presence: "مين أونلاين دلوقتي" ──
+    قناة واحدة مشتركة لكل الداشبورد. كل تبويب/جهاز فاتح الموقع بيـ"يسجل
+    حضوره" (`track`) بمجرد الاتصال، والـ`sync` event بيرجع قائمة كل الـ
+    presence keys المتصلة حاليًا (احنا مستخدمين user.id كـkey). لما تبويب
+    يتقفل أو الاتصال ينقطع، Supabase بيشيله تلقائيًا من الحالة خلال ثواني
+    (`leave` event)، فمفيش داعي نتعامل معه يدويًا — الـ`sync` بيرجع الصورة
+    الكاملة الصحيحة كل مرة.
+
+    ⚠️ ما بنستخدم createAdminClient هون — العميل العادي (anon) كافي تمامًا
+    لأن presence مش بيلمس أي جدول أو RLS، هو حالة WebSocket لحظية بس.
+  */
+  useEffect(() => {
+    if (!user) {
+      setOnlineUserIds(new Set());
+      return;
+    }
+
+    const supabase = createClient();
+    const channel = supabase.channel(PRESENCE_CHANNEL_NAME, {
+      config: { presence: { key: user.id } },
+    });
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        setOnlineUserIds(new Set(Object.keys(state)));
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          void channel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
+  const isOnline = useCallback(
+    (userId: string) => onlineUserIds.has(userId),
+    [onlineUserIds],
+  );
+
   const signOut = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -159,8 +212,9 @@ export function UserProvider({
       canAccessAdminControl: user ? checkAdminAccess(user) : false,
       signOut,
       refresh: load,
+      isOnline,
     }),
-    [user, loading, permissions, hasPermission, signOut, load],
+    [user, loading, permissions, hasPermission, signOut, load, isOnline],
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
