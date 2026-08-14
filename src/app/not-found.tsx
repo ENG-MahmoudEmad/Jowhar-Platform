@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Undo2, Zap, Box } from 'lucide-react'
+import { useLang } from '@/context/LangContext' // عدّل المسار حسب مكان الـ context عندك
 
 interface Particle {
   tx: number
@@ -17,37 +18,71 @@ interface Particle {
   breathe: number
 }
 
+const COPY = {
+  en: {
+    dir: 'ltr' as const,
+    font: 'Georgia, serif',
+    subtitle: 'page not found',
+    error: '— error: sequence interrupted —',
+    frameA: 'the current ',
+    frameB: 'frame',
+    frameC: ' is missing from the render',
+    back: 'back to project',
+    reload: 're-render',
+    studio: 'JOWHAR STUDIO',
+    corrupted: 'Timeline Corrupted',
+    hint: 'interact to reveal the fragments',
+  },
+  ar: {
+    dir: 'rtl' as const,
+    font: 'var(--font-arabic), Cairo, sans-serif',
+    subtitle: 'الصفحة غير موجودة',
+    error: '— خطأ: انقطاع في التسلسل —',
+    frameA: 'الإطار ',
+    frameB: 'الحالي',
+    frameC: ' مفقود من العرض',
+    back: 'العودة للمشروع',
+    reload: 'إعادة العرض',
+    studio: 'استوديو جوهر',
+    corrupted: 'الخط الزمني تالف',
+    hint: 'تفاعل لكشف الشظايا',
+  },
+}
+
 // ── بناء الجزيئات: تكبير الرقم 404 ورفعه للأعلى ──
-function buildParticles(W: number, H: number, CX: number, CY: number): Particle[] {
+function buildParticles(W: number, H: number, CX: number, CY: number, subtitle: string): Particle[] {
   const off = document.createElement('canvas')
   off.width = W
   off.height = H
   const oc = off.getContext('2d')!
 
-  // كبرنا الخط لـ 280 (ضخم) و 160 للموبايل
-  const fs = W < 500 ? 160 : 280
+  // أحجام متدرجة حسب عرض الشاشة: كبير / متوسط (تابلت) / صغير (موبايل)
+  const fs = W < 400 ? 100 : W < 640 ? 130 : W < 1024 ? 200 : 280
+  const yOffset = W < 640 ? 60 : 100
+
   oc.font = `900 ${fs}px Georgia, serif`
   oc.fillStyle = 'white'
   oc.textAlign = 'center'
   oc.textBaseline = 'middle'
-  
-  // رفعنا الرقم لـ (CY - 100) ليعطي مساحة للأزرار تحت
-  oc.fillText('404', CX, CY - 100)
+  oc.fillText('404', CX, CY - yOffset)
 
-  oc.font = `400 15px monospace`
+  oc.font = `400 ${W < 640 ? 11 : 15}px monospace`
   oc.fillStyle = 'rgba(255,255,255,0.6)'
-  oc.fillText('page not found', CX, CY + fs / 5)
+  oc.fillText(subtitle, CX, CY + fs / 5)
 
   const data = oc.getImageData(0, 0, W, H).data
   const pts: Particle[] = []
-  const step = 5 // لو في تعليق بالجهاز ارفعها لـ 6
+
+  // خطوة أكبر على الشاشات الصغيرة أو الضعيفة لتفادي البطء
+  const totalPixels = W * H
+  const step = totalPixels > 1_800_000 ? 6 : totalPixels > 600_000 ? 5 : 4
 
   for (let x = 0; x < W; x += step) {
     for (let y = 0; y < H; y += step) {
       if (data[(y * W + x) * 4 + 3] > 100) {
         const isSub = y > CY + 20
-        const scatter = isSub ? 40 : 100 
-        
+        const scatter = isSub ? 40 : 100
+
         pts.push({
           tx: x,
           ty: y,
@@ -65,10 +100,20 @@ function buildParticles(W: number, H: number, CX: number, CY: number): Particle[
       }
     }
   }
+
+  // حماية إضافية: سقف أقصى لعدد الجزيئات على أي جهاز
+  const MAX_PARTICLES = 6000
+  if (pts.length > MAX_PARTICLES) {
+    const ratio = MAX_PARTICLES / pts.length
+    return pts.filter(() => Math.random() < ratio)
+  }
   return pts
 }
 
 export default function NotFound() {
+  const { lang } = useLang() // يفترض إنه يرجع 'ar' | 'en' — عدّل حسب الـ hook الفعلي عندك
+  const t = COPY[lang === 'ar' ? 'ar' : 'en']
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const ptsRef = useRef<Particle[]>([])
@@ -76,6 +121,11 @@ export default function NotFound() {
   const animRef = useRef<number>(0)
   const [particleCount, setParticleCount] = useState(0)
   const [ready, setReady] = useState(false)
+  const [isTouch, setIsTouch] = useState(false)
+
+  useEffect(() => {
+    setIsTouch(window.matchMedia('(hover: none)').matches)
+  }, [])
 
   useEffect(() => {
     const root = rootRef.current
@@ -84,7 +134,7 @@ export default function NotFound() {
 
     const ctx = canvas.getContext('2d')!
     let t = 0
-    const REPEL_R = 110 // تكبير دائرة التأثير قليلاً لتناسب حجم الرقم
+    const REPEL_R = 110
     const REPEL_STR = 3.5
 
     const updateSize = () => {
@@ -92,14 +142,21 @@ export default function NotFound() {
       const H = root.offsetHeight
       canvas.width = W
       canvas.height = H
-      const pts = buildParticles(W, H, W / 2, H / 2)
+      const pts = buildParticles(W, H, W / 2, H / 2, COPY[lang === 'ar' ? 'ar' : 'en'].subtitle)
       ptsRef.current = pts
       setParticleCount(pts.length)
       setReady(true)
     }
 
     updateSize()
-    window.addEventListener('resize', updateSize)
+
+    // تجنّب إعادة البناء المتكررة عند الـ resize (مهم على الموبايل عند فتح لوحة المفاتيح مثلاً)
+    let resizeTimer: ReturnType<typeof setTimeout>
+    const onResize = () => {
+      clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(updateSize, 200)
+    }
+    window.addEventListener('resize', onResize)
 
     function draw() {
       const W = canvas!.width
@@ -157,19 +214,33 @@ export default function NotFound() {
 
     return () => {
       cancelAnimationFrame(animRef.current)
-      window.removeEventListener('resize', updateSize)
+      window.removeEventListener('resize', onResize)
+      clearTimeout(resizeTimer)
     }
-  }, [])
+  }, [lang])
+
+  // على الأجهزة اللمسية: اللمس بيحرك تأثير التنافر بدل الماوس
+  const handlePointerMove = (clientX: number, clientY: number) => {
+    const r = rootRef.current?.getBoundingClientRect()
+    if (!r) return
+    mouseRef.current.x = clientX - r.left
+    mouseRef.current.y = clientY - r.top
+  }
 
   return (
     <div
       ref={rootRef}
-      onMouseMove={(e) => {
-        const r = e.currentTarget.getBoundingClientRect()
-        mouseRef.current.x = e.clientX - r.left
-        mouseRef.current.y = e.clientY - r.top
-      }}
+      dir={t.dir}
+      onMouseMove={(e) => !isTouch && handlePointerMove(e.clientX, e.clientY)}
       onMouseLeave={() => {
+        mouseRef.current.x = -999
+        mouseRef.current.y = -999
+      }}
+      onTouchMove={(e) => {
+        const touch = e.touches[0]
+        if (touch) handlePointerMove(touch.clientX, touch.clientY)
+      }}
+      onTouchEnd={() => {
         mouseRef.current.x = -999
         mouseRef.current.y = -999
       }}
@@ -178,48 +249,57 @@ export default function NotFound() {
       <canvas ref={canvasRef} className="absolute inset-0" />
 
       {/* Top UI */}
-      <div className="absolute top-8 left-8 text-[10px] text-white/20 font-mono border-l border-[#458482]/30 pl-4 space-y-1 hidden lg:block z-10">
+      <div
+        className={`absolute top-4 sm:top-8 ${t.dir === 'rtl' ? 'right-4 sm:right-8 border-r' : 'left-4 sm:left-8 border-l'} text-[9px] sm:text-[10px] text-white/20 font-mono ${t.dir === 'rtl' ? 'border-[#458482]/30 pr-3 sm:pr-4' : 'border-[#458482]/30 pl-3 sm:pl-4'} space-y-1 hidden md:block z-10`}
+      >
         <p>// SCENE_ID: 0x404</p>
         <p>// NODES: {particleCount}</p>
         <p>// STATUS: {ready ? 'READY' : 'LOADING'}</p>
       </div>
 
-      <div className="absolute top-8 right-8 text-[10px] text-white/20 font-mono text-right z-10 hidden lg:block uppercase tracking-[0.2em]">
-        <p>JOWHAR STUDIO</p>
-        <p className="opacity-40">Timeline Corrupted</p>
+      <div
+        className={`absolute top-4 sm:top-8 ${t.dir === 'rtl' ? 'left-4 sm:left-8 text-left' : 'right-4 sm:right-8 text-right'} text-[9px] sm:text-[10px] text-white/20 font-mono z-10 hidden md:block uppercase tracking-[0.2em]`}
+      >
+        <p>{t.studio}</p>
+        <p className="opacity-40">{t.corrupted}</p>
       </div>
 
-      {/* Bottom UI - مرفوع للأعلى بـ pb-32 */}
-      <div className="absolute inset-0 flex flex-col items-center justify-end pb-32 z-10 pointer-events-none">
-        <p className="text-[11px] tracking-[0.4em] text-[#458482]/60 font-mono mb-4 uppercase">
-          — error: sequence interrupted —
+      {/* Bottom UI */}
+      <div className="absolute inset-0 flex flex-col items-center justify-end pb-16 sm:pb-24 md:pb-32 px-4 z-10 pointer-events-none">
+        <p className="text-[9px] sm:text-[11px] tracking-[0.3em] sm:tracking-[0.4em] text-[#458482]/60 font-mono mb-3 sm:mb-4 uppercase text-center">
+          {t.error}
         </p>
-        <h2 className="text-[22px] font-light text-white/70 italic tracking-wide mb-10" style={{ fontFamily: 'Georgia, serif' }}>
-          the current <span className="text-[#458482] not-italic font-bold">frame</span> is missing from the render
+        <h2
+          className="text-[15px] sm:text-[18px] md:text-[22px] font-light text-white/70 italic tracking-wide mb-6 sm:mb-8 md:mb-10 text-center max-w-[90vw] leading-relaxed"
+          style={{ fontFamily: t.font }}
+        >
+          {t.frameA}
+          <span className="text-[#458482] not-italic font-bold">{t.frameB}</span>
+          {t.frameC}
         </h2>
 
-        <div className="flex gap-5 pointer-events-auto">
-          <Link href="/">
-            <button className="flex items-center gap-3 text-[10px] tracking-[0.2em] uppercase px-10 py-4 bg-[#458482]/10 text-[#458482] border border-[#458482]/30 hover:bg-[#458482] hover:text-black transition-all duration-300 font-bold">
-              <Undo2 size={14} /> back to project
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-5 w-full sm:w-auto pointer-events-auto px-4 sm:px-0">
+          <Link href="/" className="w-full sm:w-auto">
+            <button className="w-full flex items-center justify-center gap-3 text-[9px] sm:text-[10px] tracking-[0.2em] uppercase px-6 sm:px-10 py-3.5 sm:py-4 bg-[#458482]/10 text-[#458482] border border-[#458482]/30 hover:bg-[#458482] hover:text-black active:bg-[#458482] active:text-black transition-all duration-300 font-bold">
+              <Undo2 size={14} /> {t.back}
             </button>
           </Link>
           <button
             onClick={() => window.location.reload()}
-            className="flex items-center gap-3 text-[10px] tracking-[0.2em] uppercase px-10 py-4 bg-transparent text-white/20 border border-white/10 hover:border-[#d9815e] hover:text-[#d9815e] transition-all duration-300"
+            className="w-full sm:w-auto flex items-center justify-center gap-3 text-[9px] sm:text-[10px] tracking-[0.2em] uppercase px-6 sm:px-10 py-3.5 sm:py-4 bg-transparent text-white/20 border border-white/10 hover:border-[#d9815e] hover:text-[#d9815e] active:border-[#d9815e] active:text-[#d9815e] transition-all duration-300"
           >
-            <Zap size={14} /> re-render
+            <Zap size={14} /> {t.reload}
           </button>
         </div>
       </div>
 
       {/* الأيقونة الجانبية */}
-      <div className="absolute bottom-8 right-8 opacity-20 z-10">
+      <div className={`absolute bottom-6 sm:bottom-8 ${t.dir === 'rtl' ? 'left-6 sm:left-8' : 'right-6 sm:right-8'} opacity-20 z-10 hidden sm:block`}>
         <Box size={24} className="text-[#458482]" />
       </div>
 
-      <p className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[8px] text-white/10 font-mono tracking-[0.6em] z-10 uppercase">
-        interact to reveal the fragments
+      <p className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 text-[7px] sm:text-[8px] text-white/10 font-mono tracking-[0.4em] sm:tracking-[0.6em] z-10 uppercase hidden sm:block">
+        {t.hint}
       </p>
     </div>
   )
