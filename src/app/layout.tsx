@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { Inter, Montserrat, Cairo, Amiri } from "next/font/google";
 import "./globals.css";
 import Providers from "@/components/Providers";
+import Script from 'next/script'
 
 const inter = Inter({
   variable: "--font-inter",
@@ -104,12 +105,16 @@ export default async function RootLayout({
         هون الـ <head> وسم JSX عادي، وNext.js بيضيف حقنه الخاص جنب محتوانا
         بدل ما يُمسح، والـ script بينحط جواه كابن شرعي.
       */}
-      <head>
-        <script
-          dangerouslySetInnerHTML={{ __html: themeBootScript }}
-          suppressHydrationWarning
-        />
-      </head>
+
+  <head>
+  <Script
+    id="theme-boot"
+    strategy="beforeInteractive"
+    dangerouslySetInnerHTML={{
+      __html: themeBootScript,
+    }}
+  />
+</head>
       <body className="min-h-full flex flex-col font-sans bg-[var(--background)] text-[var(--foreground)]">
         <Providers initialTheme={initialTheme} initialLang={initialLang}>
           {children}
