@@ -28,7 +28,6 @@ export async function updateMyName(firstName: string, lastName: string) {
   const first = firstName.trim();
   const last = lastName.trim();
 
-  // المواصفات: مقطعين، ما ينفع فاضي ولا مقطع واحد
   if (!first || !last) throw new Error('name_needs_two_parts');
   if (first.length > 40 || last.length > 40) throw new Error('name_too_long');
 
@@ -37,15 +36,14 @@ export async function updateMyName(firstName: string, lastName: string) {
     .update({ first_name: first, last_name: last })
     .eq('id', user.id);
 
-  /*
-    `name_locked` بيجي من trigger `trg_guard_profile_self_update` —
-    الواجهة بتخفي زر التعديل، بس الرسالة لازم تكون واضحة لو حدا تخطاها.
-  */
   if (error) {
     throw new Error(error.message.includes('name_locked') ? 'name_locked' : 'name_update_failed');
   }
 
   revalidatePath('/profile');
+  // 🆕 الاسم كمان بيتعرض بـLeaderboard/TeamProgress/ProjectCalendar عبر
+  // الـserver — نفس سبب تحديث الأفاتار تحت.
+  revalidatePath('/dashboard');
 }
 
 // ===========================================================
@@ -72,6 +70,12 @@ export async function updateMyAvatar(avatarUrl: string | null) {
   }
 
   revalidatePath('/profile');
+  // 🆕 بدون هاي، الـDashboard (وبالتالي Leaderboard وStudio Pulse، اللي
+  // بياخدوا avatar_url من السيرفر عبر get_leaderboard()/get_studio_pulse_stats())
+  // بيضلوا عم يعرضوا الصورة القديمة لحد ما الكاش تنتهي صلاحيتها طبيعيًا —
+  // مش بسبب مشكلة بالرفع، بس لأن Next.js ما كان عم يعرف إنه لازم يجدد
+  // نسخة صفحة الداشبورد المخزّنة.
+  revalidatePath('/dashboard');
 }
 
 // ===========================================================
@@ -84,16 +88,11 @@ export async function requestEmailChange(newEmail: string) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('invalid_email');
   if (email === user.email?.toLowerCase()) throw new Error('same_email');
 
-  /*
-    فحص التفرّد قبل ما الطلب يوصل للأدمن أصلاً — ما في داعي يراجع طلب
-    محكوم عليه بالفشل. الإيميلات بـ auth.users فبنحتاج service_role.
-  */
   const adminClient = createAdminClient();
   const { data: usersPage } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const taken = usersPage?.users?.some((u) => u.email?.toLowerCase() === email);
   if (taken) throw new Error('email_taken');
 
-  // ولا يكون محجوز بطلب معلّق لعضو تاني
   const { data: reserved } = await supabase
     .from('email_change_requests')
     .select('id')
@@ -104,7 +103,6 @@ export async function requestEmailChange(newEmail: string) {
 
   if (reserved) throw new Error('email_taken');
 
-  // المواصفات: طلب جديد بيستبدل القديم — ما في تراكم
   await supabase
     .from('email_change_requests')
     .delete()
@@ -173,18 +171,9 @@ export async function changeMyPassword(currentPassword: string, newPassword: str
   if (newPassword.length < 8) throw new Error('password_too_short');
   if (currentPassword === newPassword) throw new Error('password_unchanged');
 
-  /*
-    ⚠️ القيد الأسبوعي هون فقط. `request_password_reset` (مايجريشن 004)
-    إلها rate limit مستقل بـ 10 دقايق، وهو سيناريو طارئ — ممنوع نخلط
-    الاتنين، وإلا حدا نسي كلمته وما بيقدر يستعيدها لأسبوع.
-  */
   const info = await getPasswordChangeInfo();
   if (!info.canChange) throw new Error('password_cooldown');
 
-  /*
-    التحقق من كلمة السر الحالية بعميل منفصل تمامًا — لو استعملنا العميل
-    المربوط بالكوكيز، تسجيل الدخول بيستبدل الجلسة الحالية.
-  */
   const verifier = createSbClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -201,13 +190,8 @@ export async function changeMyPassword(currentPassword: string, newPassword: str
   const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
   if (updateError) throw new Error('password_update_failed');
 
-  // ختم التاريخ عبر دالة مايجريشن 004
   await supabase.rpc('stamp_password_change');
 
-  /*
-    إبطال باقي الجلسات — لو كان في حدا داخل بكلمة السر القديمة، بينطرد.
-    فشلها ما بيلغي نجاح التغيير، فبتنبلع.
-  */
   try {
     const adminClient = createAdminClient();
     await adminClient.auth.admin.signOut(user.id, 'others');

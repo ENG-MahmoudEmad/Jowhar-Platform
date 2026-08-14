@@ -4,6 +4,7 @@
 import { useCallback, useState } from 'react';
 import { useScrollToHash } from '@/hooks/useScrollToHash';
 import { createClient } from '@/lib/supabase/client';
+import { resizeAvatarFile } from '@/lib/resizeAvatar';
 import ProfileHero from '@/components/dashboard/profile/ProfileHero';
 import PersonalInfo, { type PendingEmail } from '@/components/dashboard/profile/PersonalInfo';
 import SecuritySettings, { type PasswordCooldown } from '@/components/dashboard/profile/SecuritySettings';
@@ -53,7 +54,6 @@ export default function ProfileClient({
   pendingEmail: PendingEmail | null;
   lastLoginAt: string | null;
   cooldown: PasswordCooldown;
-  /** الـ Chief والـ Developer يعدّلوا هويتهم بنفسهم (مايجريشن 014) */
   canEditIdentity: boolean;
   initialJobTitleEn: string;
   initialJobTitleAr: string;
@@ -62,7 +62,6 @@ export default function ProfileClient({
   const [name, setName] = useState(initialName);
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
 
-  // إشعار قبول/رفض تغيير الإيميل بيودّي لـ `/profile#email-field`
   useScrollToHash();
   const [uploading, setUploading] = useState(false);
   const [color, setColor] = useState(memberColor);
@@ -72,7 +71,6 @@ export default function ProfileClient({
     const parts = fullName.trim().split(/\s+/);
     if (parts.length < 2) throw new Error('name_needs_two_parts');
 
-    // آخر مقطع = اسم العائلة، والباقي كله الاسم الأول (أسماء مركبة)
     const last = parts.pop() as string;
     const first = parts.join(' ');
 
@@ -81,9 +79,13 @@ export default function ProfileClient({
   }, []);
 
   /*
-    الرفع من المتصفح مباشرة لـ Storage — الملف ما بيمر بالسيرفر إطلاقًا،
-    فأسرع وما بيستهلك ذاكرة الـ Server Action.
+    الرفع من المتصفح مباشرة لـ Storage — الملف ما بيمر بالسيرفر إطلاقًا.
     مسار الملف لازم يبدأ بـ {userId}/ عشان سياسة الـ bucket تتحقق من الملكية.
+
+    🆕 قبل الرفع، بنصغّر الصورة لـ400×400 ونحولها WebP بجودة 85% عبر
+    Canvas API بالمتصفح — عشان نقطع الحجم الضايع بين الصورة الأصلية
+    (غالبًا 1000×1000+) وأكبر حجم فعلي بيتعرض فيه الأفاتار بالتطبيق.
+    هاد كله client-side، ما بيضيف أي حمل على السيرفر.
   */
   const handleAvatarSelect = useCallback(async (file: File) => {
     if (!ALLOWED_TYPES.includes(file.type)) return;
@@ -93,18 +95,23 @@ export default function ProfileClient({
     const supabase = createClient();
 
     try {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-      const path = `${userId}/${Date.now()}.${ext}`;
+      const resizedBlob = await resizeAvatarFile(file);
+      // 🆕 اسم ثابت لكل مستخدم بدل timestamp — كل رفعة بتستبدل الملف
+      // القديم تلقائيًا (upsert: true) عوض ما تراكم ملفات يتيمة بالـStorage.
+      const path = `${userId}/avatar.webp`;
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(path, file, { cacheControl: '3600', upsert: false });
+        .upload(path, resizedBlob, { cacheControl: '3600', upsert: true, contentType: 'image/webp' });
 
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-      await updateMyAvatar(data.publicUrl);
-      setAvatarUrl(data.publicUrl);
+      // 🆕 cache-busting query param — عشان المتصفح/الـCDN ما يعرض نسخة
+      // مخزّنة قديمة بعد الاستبدال (نفس الـURL أصلًا بسبب الاسم الثابت).
+      const bustedUrl = `${data.publicUrl}?v=${Date.now()}`;
+      await updateMyAvatar(bustedUrl);
+      setAvatarUrl(bustedUrl);
     } catch {
       // المعاينة المحلية بتضل ظاهرة لحد الريفرش — الصورة القديمة هي المحفوظة
     } finally {
@@ -120,10 +127,6 @@ export default function ProfileClient({
     await changeMyPassword(current, next);
   }, []);
 
-  /*
-    الـ Chief/Developer بيعدّلوا هويتهم من هون. `can_manage_member` بترفض
-    النفس مطلقًا، فبدون هذا كان اللون والمسمّى بلا أي طريق تعديل غير SQL.
-  */
   const handleColorChange = useCallback(async (next: string) => {
     const previous = color;
     setColor(next);
@@ -140,7 +143,6 @@ export default function ProfileClient({
   }, [userId]);
 
   const notAllowed = useCallback(async () => {
-    // الإدارة ممنوعة على النفس قصدًا — حماية من قفل الحساب برّا النظام
     throw new Error('forbidden');
   }, []);
 
@@ -176,10 +178,6 @@ export default function ProfileClient({
         onChangePassword={handleChangePassword}
       />
 
-      {/*
-        الهوية فقط. الدور والصلاحيات والإيقاف والحذف ممنوعين على النفس
-        قصدًا — لو الـ Chief نزّل نفسه لـ member ما حدا يقدر يرجّعه.
-      */}
       {canEditIdentity && (
         <AdminControls
           memberId={userId}
