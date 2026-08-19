@@ -1,3 +1,5 @@
+//src\components\dashboard\MembersCard.tsx
+
 "use client"
 
 import React, {
@@ -10,6 +12,7 @@ import { X, Users, Plus, Trash2, ChevronRight, ChevronLeft, Pencil, Check } from
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 import Avatar from '@/components/ui/Avatar'
+import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal'
 import {
   addMemberToPlatform,
   removeMemberFromPlatform,
@@ -19,18 +22,12 @@ import {
   deletePlatformCategory,
 } from '@/app/(dashboard)/dashboard/platformActions'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Data shape — matches what the server (page.tsx) hands down after mapping
-// the nested platforms → categories → members query. This component knows
-// nothing about Supabase or column names.
-// ─────────────────────────────────────────────────────────────────────────────
 export interface PlatformMemberData {
-  id: string // profiles.id
+  id: string
   name: string
   initials: string
   color: string
   avatarUrl: string | null
-  /** أقرب بديل حقيقي متوفر لحقل "bio" الأصلي — المسمى الوظيفي. */
   bio: string
   bioAr: string
 }
@@ -61,10 +58,15 @@ export interface RosterMemberData {
 
 interface MembersCardProps {
   platforms: PlatformData[]
-  /** كل الأعضاء الفعّالين — لقائمة "إضافة عضو" (بغض النظر عن عضويتهم الحالية). */
   roster: RosterMemberData[]
-  /** true لو المستخدم Chief/Developer أو حامل صلاحية platforms.manage. */
   isAdmin: boolean
+  /**
+   * true بس للشيف أدمن والديفيلوبر — التنقل السريع لصفحة أي عضو بالضغط
+   * على صفه هون. مش نفس isAdmin: أدمن عادي عنده صلاحية إدارة المنصة
+   * (إضافة/إزالة/نقل أعضاء) بس ما بيقدر يفتح صفحة عضو تاني من هون —
+   * الميزة هاي محصورة بالمستويين الأعلى فقط.
+   */
+  canNavigateToProfiles: boolean
 }
 
 type CardStyle = React.CSSProperties
@@ -93,7 +95,6 @@ function makeTempId() {
   return `temp-${Date.now()}-${tempIdCounter}`
 }
 
-/** تصنيف لسا بانتظار الـ id الحقيقي من السيرفر — التفاعل معه معطّل مؤقتًا. */
 function isTempId(id: string) {
   return id.startsWith('temp-')
 }
@@ -208,14 +209,11 @@ const AddMemberDropdown = memo(function AddMemberDropdown({
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [openUpward, setOpenUpward] = useState(false)
 
-  // بيحدد اتجاه الفتح مرة وحدة وقت ما يظهر — لو مافي مساحة كافية تحت
-  // (جوا حدود الشاشة المرئية، بما فيها المودال المتمرکز)، بيفتح لفوق
-  // بدل ما يطلع برّا الحدود ويسبب سكرول غير مرغوب.
   useLayoutEffect(() => {
     const el = wrapperRef.current?.parentElement
     if (!el) return
     const rect = el.getBoundingClientRect()
-    const ESTIMATED_DROPDOWN_HEIGHT = 236 // شريط البحث + أقصى ارتفاع للقائمة + الحواف
+    const ESTIMATED_DROPDOWN_HEIGHT = 236
     const spaceBelow = window.innerHeight - rect.bottom
     setOpenUpward(spaceBelow < ESTIMATED_DROPDOWN_HEIGHT)
   }, [])
@@ -290,6 +288,7 @@ const AddMemberDropdown = memo(function AddMemberDropdown({
 const MemberRow = memo(function MemberRow({
   member,
   isAdmin,
+  canNavigate,
   isSupervisor,
   platformColor,
   categories,
@@ -299,6 +298,7 @@ const MemberRow = memo(function MemberRow({
 }: {
   member: PlatformMemberData
   isAdmin: boolean
+  canNavigate: boolean
   isSupervisor: boolean
   platformColor: string
   categories: PlatformCategoryData[]
@@ -328,8 +328,9 @@ const MemberRow = memo(function MemberRow({
 
   return (
     <div
-      className="relative flex items-center gap-3 px-4 py-3 rounded-xl mx-3 mb-1.5 group cursor-pointer"
+      className={`relative flex items-center gap-3 px-4 py-3 rounded-xl mx-3 mb-1.5 group${canNavigate ? ' cursor-pointer' : ''}`}
       onClick={(e) => {
+        if (!canNavigate) return
         if ((e.target as HTMLElement).closest('button')) return
         router.push(`/profile/${member.id}`)
       }}
@@ -447,6 +448,7 @@ const PlatformPanel = memo(function PlatformPanel({
   platform,
   roster,
   isAdmin,
+  canNavigateToProfiles,
   onBack,
   onAddMember,
   onRemoveMember,
@@ -458,6 +460,7 @@ const PlatformPanel = memo(function PlatformPanel({
   platform: PlatformData
   roster: RosterMemberData[]
   isAdmin: boolean
+  canNavigateToProfiles: boolean
   onBack: () => void
   onAddMember: (platformId: string, memberId: string, categoryId: string) => void
   onRemoveMember: (platformId: string, memberId: string) => void
@@ -476,6 +479,11 @@ const PlatformPanel = memo(function PlatformPanel({
   const [editingLabel, setEditingLabel] = useState<string | null>(null)
   const [draftLabelEn, setDraftLabelEn] = useState('')
   const [draftLabelAr, setDraftLabelAr] = useState('')
+  /*
+    تأكيد الحذف (10 ثواني، زي الأرشيف) بس لو التصنيف فيه أعضاء — حذف
+    كاتيجوري فاضية عادي وفوري، بدون ما نزعج المستخدم بتأكيد لشي بلا أثر.
+  */
+  const [deleteTargetCategory, setDeleteTargetCategory] = useState<PlatformCategoryData | null>(null)
 
   const totalMembers = useMemo(
     () => platform.categories.reduce((acc, c) => acc + c.members.length, 0),
@@ -500,8 +508,26 @@ const PlatformPanel = memo(function PlatformPanel({
     setEditingLabel(null)
   }, [draftLabelEn, draftLabelAr, onRenameCategory, platform.id])
 
+  const requestDeleteCategory = useCallback((category: PlatformCategoryData) => {
+    if (category.members.length === 0) {
+      onDeleteCategory(platform.id, category.id)
+      return
+    }
+    setDeleteTargetCategory(category)
+  }, [onDeleteCategory, platform.id])
+
+  const confirmDeleteCategory = useCallback(() => {
+    if (!deleteTargetCategory) return
+    onDeleteCategory(platform.id, deleteTargetCategory.id)
+    setDeleteTargetCategory(null)
+  }, [deleteTargetCategory, onDeleteCategory, platform.id])
+
+  const cancelDeleteCategory = useCallback(() => {
+    setDeleteTargetCategory(null)
+  }, [])
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       <div
         className="flex items-center gap-3 px-5 py-4 shrink-0"
         style={{
@@ -535,7 +561,7 @@ const PlatformPanel = memo(function PlatformPanel({
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-3" style={{ overscrollBehavior: 'contain', minHeight: 400 }}>
+      <div className="flex-1 min-h-0 overflow-y-auto py-3" style={{ overscrollBehavior: 'contain' }}>
         {platform.categories.map((category, catIndex) => {
           const isSupervisorCategory = catIndex === 0
           const isPending = isTempId(category.id)
@@ -628,7 +654,7 @@ const PlatformPanel = memo(function PlatformPanel({
                         {platform.categories.length > 1 && (
                           <button
                             type="button"
-                            onClick={() => onDeleteCategory(platform.id, category.id)}
+                            onClick={() => requestDeleteCategory(category)}
                             className="p-1 rounded"
                             style={{ color: '#ef4444', cursor: 'pointer', opacity: 0.5, transition: 'opacity 0.12s' }}
                             onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
@@ -655,6 +681,7 @@ const PlatformPanel = memo(function PlatformPanel({
                     <MemberRow
                       member={member}
                       isAdmin={isAdmin}
+                      canNavigate={canNavigateToProfiles}
                       isSupervisor={isSupervisorCategory}
                       platformColor={platform.color}
                       categories={platform.categories}
@@ -738,11 +765,24 @@ const PlatformPanel = memo(function PlatformPanel({
           </div>
         )}
       </div>
+
+      {deleteTargetCategory && (
+        <DeleteConfirmModal
+          label={lang === 'ar' ? deleteTargetCategory.labelAr : deleteTargetCategory.labelEn}
+          message={
+            lang === 'ar'
+              ? `هذا التصنيف يحتوي على ${deleteTargetCategory.members.length} عضو. حذفه سيزيلهم من هذا التصنيف بالمنصة نهائياً.`
+              : `This category has ${deleteTargetCategory.members.length} member${deleteTargetCategory.members.length === 1 ? '' : 's'}. Deleting it will remove them from this category on the platform.`
+          }
+          onConfirm={confirmDeleteCategory}
+          onCancel={cancelDeleteCategory}
+        />
+      )}
     </div>
   )
 })
 
-function MembersCard({ platforms: initialPlatforms, roster, isAdmin }: MembersCardProps) {
+function MembersCard({ platforms: initialPlatforms, roster, isAdmin, canNavigateToProfiles }: MembersCardProps) {
   const { theme } = useTheme()
   const { lang, isRTL } = useLang()
   const isDark = theme === 'dark'
@@ -1097,13 +1137,13 @@ function MembersCard({ platforms: initialPlatforms, roster, isAdmin }: MembersCa
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: isRTL ? 24 : -24 }}
                     transition={SLIDE_TRANSITION}
-                    className="flex flex-col"
-                    style={{ minHeight: 0, maxHeight: '82vh' }}
+                    className="flex flex-col flex-1 min-h-0"
                   >
                     <PlatformPanel
                       platform={activePlatform}
                       roster={roster}
                       isAdmin={isAdmin}
+                      canNavigateToProfiles={canNavigateToProfiles}
                       onBack={handleBack}
                       onAddMember={handleAddMember}
                       onRemoveMember={handleRemoveMember}
@@ -1119,8 +1159,7 @@ function MembersCard({ platforms: initialPlatforms, roster, isAdmin }: MembersCa
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: isRTL ? -24 : 24 }}
                     transition={SLIDE_TRANSITION}
-                    className="flex flex-col"
-                    style={{ minHeight: 0, maxHeight: '82vh' }}
+                    className="flex flex-col flex-1 min-h-0"
                   >
                     <div className="flex items-center justify-between px-6 py-5 shrink-0"
                       style={{ background: headerBg, borderBottom: `1px solid ${divider}` }}>
@@ -1155,8 +1194,8 @@ function MembersCard({ platforms: initialPlatforms, roster, isAdmin }: MembersCa
                       </button>
                     </div>
 
-                    <div className="overflow-y-auto flex-1 px-4 py-3 flex flex-col gap-2"
-                      style={{ overscrollBehavior: 'contain', minHeight: 400 }}>
+                    <div className="overflow-y-auto flex-1 min-h-0 px-4 py-3 flex flex-col gap-2"
+                      style={{ overscrollBehavior: 'contain' }}>
                       {platforms.length === 0 ? (
                         <p className="text-center text-[12px] py-8" style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}>
                           {tx.empty}

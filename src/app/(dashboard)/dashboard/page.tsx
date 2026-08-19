@@ -127,13 +127,6 @@ function toISODate(date: Date): string {
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  /*
-    ⚠️ getSession() مش getUser() هون بقصد: proxy.ts (middleware) أصلاً
-    بيستدعي getUser() الحقيقي (رحلة شبكة فعلية لسيرفر Supabase Auth) على
-    كل طلب صفحة، ويرفض أي جلسة غير صالحة قبل ما توصل هون. فبهاي النقطة
-    الجلسة موثوقة ومتحقق منها فعليًا — getSession() بيقرأ من الـ cookie
-    مباشرة بدون رحلة شبكة إضافية.
-  */
   const { data: { session } } = await supabase.auth.getSession();
   const user = session?.user ?? null;
   if (!user) redirect('/login');
@@ -142,17 +135,6 @@ export default async function DashboardPage() {
   const calendarRangeStart = new Date(today.getFullYear(), today.getMonth() - 2, today.getDate());
   const calendarRangeEnd = new Date(today.getFullYear(), today.getMonth() + 2, today.getDate());
 
-  // ═══════════════════════════════════════════════════════════════════
-  // BATCH 1: كل الاستعلامات المستقلة عن بعضها تنطلق بنفس اللحظة.
-  //
-  // ⚠️ leaderboard / daily verse / studio pulse stats: نفس المحتوى لكل
-  // مستخدم بنفس اللحظة (مش شخصية)، فبتجي من getCachedLeaderboard/
-  // getCachedDailyVerse/getCachedStudioPulseStats (unstable_cache،
-  // src/lib/supabase/cachedQueries.ts) بدل RPC مباشر — أول طلب بيحمّل
-  // من الداتابيز، وأي طلب تاني بنفس دقيقة تقريبًا بياخد الرد الجاهز
-  // فورًا. باقي الاستعلامات هون (team progress, deadlines, platforms,
-  // roster) شخصية أو بتتغيّر بشكل يحتاج دايمًا آخر نسخة، فضلّت مباشرة.
-  // ═══════════════════════════════════════════════════════════════════
   const [
     { data: teamProgressRows },
     { data: deadlineRows },
@@ -303,9 +285,16 @@ export default async function DashboardPage() {
     avatarUrl: row.avatar_url,
   }));
 
-  // ═══════════════════════════════════════════════════════════════════
-  // BATCH 2: يعتمد على نتيجة BATCH 1، بس مستقل داخليًا → بنطلق مع بعض.
-  // ═══════════════════════════════════════════════════════════════════
+  /*
+    التنقل السريع لصفحة أي عضو من MembersCard محصور بالشيف أدمن
+    والديفيلوبر فقط — عمدًا أضيق من canManagePlatforms (تحت)، لأن هاي
+    ميزة "افتح صفحة أي حد بسرعة" لا علاقة إلها بصلاحية إدارة المنصات
+    نفسها (إضافة/إزالة/نقل أعضاء).
+  */
+  const canNavigateToProfiles = Boolean(
+    viewerProfile?.is_chief || viewerProfile?.is_developer
+  );
+
   const [{ data: calendarTaskRows }, canManagePlatforms] = await Promise.all([
     supabase.rpc('get_calendar_tasks', {
       p_member_ids: calendarMembers.map((m) => m.id),
@@ -356,7 +345,12 @@ export default async function DashboardPage() {
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
         <div className="lg:col-span-1 flex flex-col">
-          <MembersCard platforms={platforms} roster={roster} isAdmin={canManagePlatforms} />
+          <MembersCard
+            platforms={platforms}
+            roster={roster}
+            isAdmin={canManagePlatforms}
+            canNavigateToProfiles={canNavigateToProfiles}
+          />
         </div>
         <div className="lg:col-span-2 flex flex-col h-full">
           <StudioPulse verse={verse} stats={studioPulseStats} />
