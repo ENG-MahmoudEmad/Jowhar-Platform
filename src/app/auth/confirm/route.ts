@@ -204,7 +204,7 @@ export async function GET(request: NextRequest) {
     if (!error) {
       await finalizeEmailChange(supabase);
 
-      if (type === 'email') {
+      if (type === 'signup') {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) await notifyAdminsOfNewSignup(user.id);
       }
