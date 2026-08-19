@@ -12,9 +12,9 @@ import LeftPanel from '@/components/auth/LeftPanel';
 import { createClient } from '@/lib/supabase/client';
 
 /*
-  شروط القوة صارت مطابقة للـ Sign Up بالضبط (المستند: "تحقق من نفس شروط
-  القوة تبعت الـ Sign Up"). كانت min(8) بس، وهاد كان بيسمح بكلمة سر
-  أضعف من اللي انقبلت وقت التسجيل.
+  شروط القوة موحّدة مع الـ Sign Up وصفحة البروفايل بالضبط:
+  8 أحرف على الأقل، حرف كبير وصغير ورقم إلزاميين، الرموز اختيارية
+  ومسموحة (مش ممنوعة زي ما كانت قبل).
 */
 const resetSchema = z.object({
   password: z.string()
@@ -22,7 +22,7 @@ const resetSchema = z.object({
     .regex(/[A-Z]/, { message: 'حرف كبير واحد على الأقل' })
     .regex(/[a-z]/, { message: 'حرف صغير واحد على الأقل' })
     .regex(/[0-9]/, { message: 'رقم واحد على الأقل' })
-    .regex(/^[a-zA-Z0-9]*$/, { message: 'أحرف وأرقام إنجليزية فقط' }),
+    .regex(/^[A-Za-z0-9!@#$%^&*()_\-+=[\]{};:,.<>?/~|]*$/, { message: 'أحرف ورموز إنجليزية فقط' }),
   confirmPassword: z.string(),
 }).refine(d => d.password === d.confirmPassword, {
   message: 'كلمات السر غير متطابقة',
@@ -363,6 +363,9 @@ export default function ResetPasswordPage() {
                 {showPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
               </button>
             </div>
+            <p className="text-[10px] leading-relaxed" style={{ color: textMuted }}>
+              At least 8 characters, uppercase + lowercase + number required, symbols optional
+            </p>
           </motion.div>
 
           {/* Confirm Password */}

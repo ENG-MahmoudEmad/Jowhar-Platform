@@ -21,6 +21,9 @@ export type NotificationType =
   | 'task_approved'          // تمت الموافقة على تسليمك
   | 'task_rejected';         // تم رفض تسليمك
 
+/** نوع الخبر — مطابق لعمود news_posts.type (نص حر بالداتابيز، مش enum) */
+export type NewsPostType = 'announcement' | 'update' | 'alert';
+
 export interface AppNotification {
   id: string;
   type: NotificationType;
@@ -37,6 +40,12 @@ export interface AppNotification {
   href: string;
   isRead: boolean;
   createdAt: string; // ISO
+  /**
+   * موجود فقط لإشعارات `news_published` — نوع الخبر (announcement/update/alert)
+   * مستخرج من `entity_type` ('news_post:<type>'). بدونه الواجهة كانت
+   * دايمًا بتقول "published an update" بغض النظر عن النوع الحقيقي.
+   */
+  newsType?: NewsPostType | null;
 }
 
 /* ─── الوقت النسبي ─────────────────────────────────────────────────────────── */

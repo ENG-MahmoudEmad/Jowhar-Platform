@@ -1096,6 +1096,7 @@ export type Database = {
         Args: { actor: string; target: string }
         Returns: boolean
       }
+      cleanup_old_notifications: { Args: never; Returns: undefined }
       complete_email_change: { Args: { p_user_id: string }; Returns: boolean }
       copy_files: {
         Args: { p_file_ids: string[]; p_to_item_id: string }

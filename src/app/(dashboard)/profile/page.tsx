@@ -30,7 +30,7 @@ export default async function ProfilePage() {
     .maybeSingle();
 
   const pendingEmail: PendingEmail | null = request
-? { newEmail: request.new_email, stage: request.status as 'pending_admin' | 'pending_email_verification' }
+    ? { newEmail: request.new_email, stage: request.status as 'pending_admin' | 'pending_email_verification' }
     : null;
 
   /*
@@ -48,13 +48,12 @@ export default async function ProfilePage() {
 
   const cooldown = await getPasswordChangeInfo();
 
-  const name = `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() || '—';
-
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <ProfileClient
         userId={user.id}
-        initialName={name}
+        initialFirstName={profile.first_name ?? ''}
+        initialLastName={profile.last_name ?? ''}
         email={user.email ?? '—'}
         jobTitle={profile.job_title_en ?? undefined}
         jobTitleAr={profile.job_title_ar ?? undefined}
@@ -62,6 +61,7 @@ export default async function ProfilePage() {
         joinedDate={profile.created_at}
         memberColor={profile.color || FALLBACK_COLOR}
         isAdmin={profile.is_chief || profile.is_developer || profile.access_role === 'admin'}
+        isChief={profile.is_chief}
         // الـ Chief والـ Developer يعدّلوا لونهم ومسمّاهم من صفحتهم (مايجريشن 014)
         canEditIdentity={canEditRoles({
           id: user.id,

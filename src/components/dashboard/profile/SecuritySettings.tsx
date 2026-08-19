@@ -39,6 +39,13 @@ function formatDate(iso: string, lang: string): string {
   );
 }
 
+/*
+  نفس شروط كلمة السر المطبّقة بالسيرفر (actions.ts) وبـ Sign up:
+  8 أحرف على الأقل، حرف كبير وصغير ورقم إلزاميين، رمز اختياري،
+  وبس أحرف/أرقام/رموز إنجليزية مسموحة.
+*/
+const PASSWORD_ALLOWED_CHARS_RE = /^[A-Za-z0-9!@#$%^&*()_\-+=[\]{};:,.<>?/~|]*$/;
+
 function getPasswordStrength(password: string): { score: number; label: string; labelAr: string; color: string } {
   if (password.length === 0) return { score: 0, label: '',       labelAr: '',      color: 'transparent' };
   if (password.length < 8)   return { score: 1, label: 'Weak',   labelAr: 'ضعيف',  color: '#ef4444' };
@@ -101,22 +108,33 @@ export default function SecuritySettings({
     errOldRequired: lang === 'ar' ? 'أدخل كلمة المرور الحالية'    : 'Enter your current password',
     errNewRequired: lang === 'ar' ? 'أدخل كلمة المرور الجديدة'    : 'Enter a new password',
     errTooShort:    lang === 'ar' ? 'كلمة المرور قصيرة جداً (8 أحرف على الأقل)' : 'Password too short (min 8 characters)',
+    errNeedsUpper:  lang === 'ar' ? 'حرف كبير واحد على الأقل' : 'At least one uppercase letter',
+    errNeedsLower:  lang === 'ar' ? 'حرف صغير واحد على الأقل' : 'At least one lowercase letter',
+    errNeedsNumber: lang === 'ar' ? 'رقم واحد على الأقل' : 'At least one number',
+    errInvalidChars:lang === 'ar' ? 'أحرف ورموز إنجليزية فقط' : 'English letters, numbers and symbols only',
     errWrongOld:    lang === 'ar' ? 'كلمة المرور الحالية غير صحيحة' : 'Current password is incorrect',
     errSame:        lang === 'ar' ? 'كلمة المرور الجديدة مطابقة للحالية' : 'New password matches the current one',
     errGeneric:     lang === 'ar' ? 'فشل التحديث، حاول مرة أخرى'  : 'Update failed, please try again',
     cooldownTitle:  lang === 'ar' ? 'لا يمكن التغيير الآن'        : 'Can’t change yet',
     lastChanged:    lang === 'ar' ? 'آخر تغيير'                   : 'Last changed',
     nextAllowed:    lang === 'ar' ? 'أقرب موعد للتغيير'           : 'Next change allowed',
+    passwordHint:   lang === 'ar'
+      ? '8 أحرف على الأقل، حرف كبير وصغير ورقم إلزاميين، الرموز اختيارية'
+      : 'At least 8 characters, uppercase + lowercase + number required, symbols optional',
     forgotNote:     lang === 'ar'
       ? 'نسيت كلمة المرور؟ استعادتها متاحة دائماً بدون قيد زمني.'
       : 'Forgot it? Password recovery is always available with no waiting period.',
   };
 
   function messageFor(code: string): string {
-    if (code === 'wrong_current_password') return tx.errWrongOld;
-    if (code === 'password_too_short')     return tx.errTooShort;
-    if (code === 'password_unchanged')     return tx.errSame;
-    if (code === 'password_cooldown')      return tx.cooldownTitle;
+    if (code === 'wrong_current_password')  return tx.errWrongOld;
+    if (code === 'password_too_short')      return tx.errTooShort;
+    if (code === 'password_needs_uppercase') return tx.errNeedsUpper;
+    if (code === 'password_needs_lowercase') return tx.errNeedsLower;
+    if (code === 'password_needs_number')    return tx.errNeedsNumber;
+    if (code === 'password_invalid_chars')   return tx.errInvalidChars;
+    if (code === 'password_unchanged')      return tx.errSame;
+    if (code === 'password_cooldown')       return tx.cooldownTitle;
     return tx.errGeneric;
   }
 
@@ -126,10 +144,14 @@ export default function SecuritySettings({
 
   /* ── validation + submit ── */
   const handleSubmit = async () => {
-    if (!oldPassword)                return setErrorMsg(tx.errOldRequired);
-    if (!newPassword)                return setErrorMsg(tx.errNewRequired);
-    if (newPassword.length < 8)      return setErrorMsg(tx.errTooShort);
-    if (newPassword !== confirmPass) return setErrorMsg(tx.errMismatch);
+    if (!oldPassword)                              return setErrorMsg(tx.errOldRequired);
+    if (!newPassword)                               return setErrorMsg(tx.errNewRequired);
+    if (newPassword.length < 8)                     return setErrorMsg(tx.errTooShort);
+    if (!/[A-Z]/.test(newPassword))                 return setErrorMsg(tx.errNeedsUpper);
+    if (!/[a-z]/.test(newPassword))                 return setErrorMsg(tx.errNeedsLower);
+    if (!/[0-9]/.test(newPassword))                 return setErrorMsg(tx.errNeedsNumber);
+    if (!PASSWORD_ALLOWED_CHARS_RE.test(newPassword)) return setErrorMsg(tx.errInvalidChars);
+    if (newPassword !== confirmPass)                return setErrorMsg(tx.errMismatch);
 
     setErrorMsg('');
     setStatus('saving');
@@ -329,14 +351,22 @@ export default function SecuritySettings({
                 inputBg={inputBg} inputBorder={inputBorder} accentColor={accentColor}
               />
 
-              <PasswordInput
-                label={tx.newPass} value={newPassword} show={showNew}
-                onToggleShow={() => setShowNew(v => !v)} onChange={setNewPassword}
-                disabled={isSaving}
-                lang={lang} isRTL={isRTL} isDark={isDark}
-                textMain={textMain} textMuted={textMuted}
-                inputBg={inputBg} inputBorder={inputBorder} accentColor={accentColor}
-              />
+              <div className="flex flex-col gap-1.5">
+                <PasswordInput
+                  label={tx.newPass} value={newPassword} show={showNew}
+                  onToggleShow={() => setShowNew(v => !v)} onChange={setNewPassword}
+                  disabled={isSaving}
+                  lang={lang} isRTL={isRTL} isDark={isDark}
+                  textMain={textMain} textMuted={textMuted}
+                  inputBg={inputBg} inputBorder={inputBorder} accentColor={accentColor}
+                />
+                <p
+                  className="text-[10px] leading-relaxed"
+                  style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                >
+                  {tx.passwordHint}
+                </p>
+              </div>
 
               {/* Strength meter */}
               {newPassword.length > 0 && (

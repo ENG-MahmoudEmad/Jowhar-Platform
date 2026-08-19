@@ -3,9 +3,20 @@
 import React, { memo, useMemo } from 'react';
 import { LazyMotion, domAnimation, m } from 'framer-motion';
 import { Sparkles, CheckCircle2, Gauge, TrendingUp } from 'lucide-react';
+import { Amiri } from 'next/font/google';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
 import Avatar from '@/components/ui/Avatar';
+
+// خط الآية القرآنية — محمّل هون بس لأنه مستخدم بهالكومبوننت فقط،
+// مش بكل صفحات المشروع. لاحظ الـ variable لازم يطابق
+// var(--font-arabic-quran) المستخدم بالـ style تحت.
+const amiriQuran = Amiri({
+  variable: '--font-arabic-quran',
+  subsets: ['arabic'],
+  display: 'swap',
+  weight: '400',
+});
 
 type Lang = 'en' | 'ar';
 type PulseStyle = React.CSSProperties & Partial<Record<`--pulse-${string}`, string>>;
@@ -195,7 +206,7 @@ function StudioPulse({ verse, stats }: StudioPulseProps) {
         transition={CARD_TRANSITION}
         dir={isRTL ? 'rtl' : 'ltr'}
         aria-labelledby="studio-pulse-title"
-        className="flex h-[372px] w-full flex-col overflow-hidden rounded-2xl"
+        className={`flex h-[372px] w-full flex-col overflow-hidden rounded-2xl ${amiriQuran.variable}`}
         style={palette}
       >
         {/* Header */}

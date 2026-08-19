@@ -24,7 +24,8 @@ import {
 
 export default function MemberProfileClient({
   memberId,
-  name: initialName,
+  firstName: initialFirstName,
+  lastName: initialLastName,
   email,
   jobTitleEn,
   jobTitleAr,
@@ -32,12 +33,14 @@ export default function MemberProfileClient({
   joinedDate,
   initialColor,
   isAdmin,
+  isChief,
   initialRestrictions,
   pendingEmail,
   canEditIdentity,
 }: {
   memberId: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   jobTitleEn: string;
   jobTitleAr: string;
@@ -45,16 +48,18 @@ export default function MemberProfileClient({
   joinedDate: string;
   initialColor: string;
   isAdmin: boolean;
+  /** الشيف أدمن فقط مسموحله يترك Last Name فاضي */
+  isChief: boolean;
   initialRestrictions: MemberRestrictions;
   pendingEmail: PendingEmailChange | null;
   canEditIdentity: boolean;
 }) {
   const router = useRouter();
 
-  const [name, setName] = useState(initialName);
+  const [firstName, setFirstName] = useState(initialFirstName);
+  const [lastName, setLastName]   = useState(initialLastName);
   const [color, setColor] = useState(initialColor);
 
-  // إشعار طلب تغيير إيميل بيودّي لـ `/profile/<id>#email-change-request`
   useScrollToHash();
   const [avatar, setAvatar] = useState(avatarUrl);
   const [uploading, setUploading] = useState(false);
@@ -71,10 +76,6 @@ export default function MemberProfileClient({
     }
   }, [memberId, color]);
 
-  /*
-    نفس مسار الرفع تبع العضو: المجلد الأول لازم يكون uuid **صاحب الصورة**
-    مش الرافع — سياسة الـ bucket بتتحقق من `can_edit_identity(auth.uid(), folder)`.
-  */
   const handleAvatarSelect = useCallback(async (file: File) => {
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return;
     if (file.size > 2 * 1024 * 1024) return;
@@ -103,19 +104,14 @@ export default function MemberProfileClient({
   }, [memberId]);
 
   /*
-    الـ Chief/Developer يعدّلوا اسم العضو — حاجة عملية (اسم مخل، أو عضو
-    بيلعب بالاسم كل يوم). القفل `lock_name` بيوقف العضو نفسه بس، وما
-    بينطبق على اللي حاطه.
+    الـ Chief/Developer يعدّلوا اسم العضو. التحقق (أحرف إنجليزية فقط،
+    استثناء last name الفاضي بس للشيف أدمن) صاير جوا PersonalInfo قبل
+    ما توصل هون — هون بس منحدث الحالة المحلية ومنستدعي السيرفر.
   */
-  const handleSaveName = useCallback(async (fullName: string) => {
-    const parts = fullName.trim().split(/\s+/);
-    if (parts.length < 2) throw new Error('name_needs_two_parts');
-
-    const last = parts.pop() as string;
-    const first = parts.join(' ');
-
+  const handleSaveName = useCallback(async (first: string, last: string) => {
     await setMemberName(memberId, first, last);
-    setName(`${first} ${last}`);
+    setFirstName(first);
+    setLastName(last);
   }, [memberId]);
 
   const handleJobTitleChange = useCallback(async (en: string, ar: string) => {
@@ -135,11 +131,6 @@ export default function MemberProfileClient({
     }
   }, [memberId]);
 
-  /*
-    الموافقة والرفض بيغيّروا حالة الطلب بالسيرفر، والواجهة لازم تعيد الجلب
-    عشان تعرف المرحلة الجديدة. هون `router.refresh()` صحيح — الحالة جاية
-    من السيرفر أصلاً وما في حالة محلية نخسرها.
-  */
   const handleApproveEmail = useCallback(async () => {
     await approveEmailChange(memberId);
     router.refresh();
@@ -155,9 +146,9 @@ export default function MemberProfileClient({
     router.push('/adminControl');
   }, [memberId, router]);
 
-  // العضو المعروض هو صاحب هالمسمّى — الأدمن ما بيعدّل اسمه ولا صورته
   const displayTitle = titles.en || titles.ar;
   const displayTitleAr = titles.ar || titles.en;
+  const displayName = lastName ? `${firstName} ${lastName}` : firstName;
 
   const heroPending: PendingEmail | null = pendingEmail
     ? { newEmail: pendingEmail.newEmail, stage: pendingEmail.stage }
@@ -166,32 +157,33 @@ export default function MemberProfileClient({
   return (
     <>
       <ProfileHero
-        name={name}
+        name={displayName}
         jobTitle={displayTitle}
         jobTitleAr={displayTitleAr}
         avatarUrl={avatar}
         joinedDate={joinedDate}
         memberColor={color}
         isAdmin={isAdmin}
-        // الصورة جزء من الهوية — نفس صلاحية اللون والمسمّى
         canEditAvatar={canEditIdentity}
         uploading={uploading}
         onAvatarSelect={canEditIdentity ? handleAvatarSelect : undefined}
       />
 
       <PersonalInfo
-        name={name}
+        firstName={firstName}
+        lastName={lastName}
         email={email}
         memberColor={color}
         canEditName={canEditIdentity}
         canEditEmail={false}
+        isChief={isChief}
         pendingEmail={heroPending}
         onSaveName={canEditIdentity ? handleSaveName : undefined}
       />
 
       <AdminControls
         memberId={memberId}
-        memberName={name}
+        memberName={displayName}
         memberColor={color}
         jobTitleEn={titles.en}
         jobTitleAr={titles.ar}

@@ -5,11 +5,11 @@ import React, { memo, useCallback, useMemo } from 'react';
 import Image from 'next/image';
 import {
   ListTodo, NotebookPen, MessageSquare, UserPlus, UserCheck,
-  CheckCircle2, XCircle, Mail, Newspaper, Bell,
+  CheckCircle2, XCircle, Mail, Newspaper, Megaphone, TriangleAlert, Bell,
   Send, ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { useLang } from '@/context/LangContext';
-import { relativeTime, type AppNotification, type NotificationType } from '@/lib/notifications';
+import { relativeTime, type AppNotification, type NewsPostType, type NotificationType } from '@/lib/notifications';
 
 /*
   شارة صغيرة على الأفاتار بتقول نوع الحدث — أسرع من قراءة الجملة كاملة
@@ -36,6 +36,17 @@ const TYPE_META: Record<NotificationType, { Icon: React.ComponentType<{ size?: n
   task_rejected:          { Icon: ThumbsDown,    color: '#ef4444' },
 };
 
+/*
+  نفس فكرة TYPE_META بس لنوع الخبر تحديدًا — بتغلب TYPE_META.news_published
+  العامة لما يكون النوع معروف، عشان الشارة كمان تعكس announcement/update/alert
+  مش "خبر" عامة بس.
+*/
+const NEWS_TYPE_META: Record<NewsPostType, { Icon: React.ComponentType<{ size?: number; className?: string }>; color: string }> = {
+  announcement: { Icon: Megaphone,     color: '#3b82f6' },
+  update:       { Icon: Newspaper,     color: '#8b5cf6' },
+  alert:        { Icon: TriangleAlert, color: '#ef4444' },
+};
+
 /* حارس أخير: لو نوع ما بالخريطة لأي سبب، أيقونة محايدة بدل انهيار الصفحة */
 const FALLBACK_META = { Icon: Bell, color: '#458482' };
 
@@ -56,7 +67,12 @@ function NotificationItem({
   const { lang, isRTL } = useLang();
   const arabicFont = lang === 'ar' ? 'var(--font-arabic)' : 'inherit';
 
-  const meta = TYPE_META[notification.type] ?? FALLBACK_META;
+  const meta =
+    (notification.type === 'news_published' && notification.newsType
+      ? NEWS_TYPE_META[notification.newsType]
+      : undefined)
+    ?? TYPE_META[notification.type]
+    ?? FALLBACK_META;
   const { Icon } = meta;
 
   /* الجملة بتتركّب هون مش بتتخزن — تغيير الصياغة ما بيحتاج migration */
@@ -86,7 +102,18 @@ function NotificationItem({
       case 'email_change_rejected':
         return isAr ? 'تم رفض طلب تغيير الإيميل' : 'Your email change was rejected';
       case 'news_published':
-        return isAr ? `${actor} نشر خبراً جديداً` : `${actor} published an update`;
+        // نوع الخبر الحقيقي (announcement/update/alert) — لو مش متوفر
+        // (إشعار قديم من قبل التعديل) بترجع للصياغة العامة القديمة.
+        if (notification.newsType === 'announcement') {
+          return isAr ? `${actor} نشر إعلاناً جديداً` : `${actor} published an announcement`;
+        }
+        if (notification.newsType === 'alert') {
+          return isAr ? `${actor} نشر تنبيهاً جديداً` : `${actor} published an alert`;
+        }
+        if (notification.newsType === 'update') {
+          return isAr ? `${actor} نشر تحديثاً جديداً` : `${actor} published an update`;
+        }
+        return isAr ? `${actor} نشر خبراً جديداً` : `${actor} published a news post`;
       case 'task_submitted':
         return isAr ? `${actor} سلّم مهمة للمراجعة` : `${actor} submitted a task for review`;
       case 'task_approved':
@@ -96,7 +123,7 @@ function NotificationItem({
       default:
         return '';
     }
-  }, [notification.type, notification.actorName, lang]);
+  }, [notification.type, notification.actorName, notification.newsType, lang]);
 
   const handleClick = useCallback(() => onSelect(notification), [onSelect, notification]);
 

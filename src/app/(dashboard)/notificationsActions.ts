@@ -3,16 +3,19 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import type { AppNotification, NotificationType } from '@/lib/notifications';
+import type { AppNotification, NewsPostType, NotificationType } from '@/lib/notifications';
 
 const PANEL_LIMIT = 20;
 const PAGE_SIZE = 25;
 const FALLBACK_COLOR = '#0d9488';
 
+const NEWS_TYPES: readonly NewsPostType[] = ['announcement', 'update', 'alert'];
+
 type Row = {
   id: string;
   type: NotificationType;
   actor_id: string | null;
+  entity_type: string | null;
   subject: string;
   href: string;
   is_read: boolean;
@@ -30,11 +33,24 @@ type Row = {
   الملاحظات: تغيير الاسم أو اللون بينعكس على الإشعارات القديمة تلقائيًا.
 */
 const SELECT_COLUMNS = `
-  id, type, actor_id, subject, href, is_read, created_at,
+  id, type, actor_id, entity_type, subject, href, is_read, created_at,
   actor:profiles!notifications_actor_id_fkey (
     first_name, last_name, color, avatar_url
   )
 `;
+
+/*
+  entity_type لإشعارات الأخبار مخزّن بصيغة 'news_post:<type>' (مايجريشن
+  20260816000000) — هون بنستخرج الجزء الثاني ونتأكد إنه قيمة معروفة.
+  إشعارات أقدم من المايجريشن ('news_post' بدون نوع) بترجع null، والواجهة
+  بترجع للجملة العامة القديمة بهالحالة (تراجع آمن، مش انهيار).
+*/
+function extractNewsType(entityType: string | null): NewsPostType | null {
+  if (!entityType) return null;
+  const [prefix, suffix] = entityType.split(':');
+  if (prefix !== 'news_post' || !suffix) return null;
+  return (NEWS_TYPES as readonly string[]).includes(suffix) ? (suffix as NewsPostType) : null;
+}
 
 function toNotification(row: Row): AppNotification {
   const name = `${row.actor?.first_name ?? ''} ${row.actor?.last_name ?? ''}`.trim();
@@ -48,6 +64,7 @@ function toNotification(row: Row): AppNotification {
     href: row.href,
     isRead: row.is_read,
     createdAt: row.created_at,
+    newsType: row.type === 'news_published' ? extractNewsType(row.entity_type) : null,
   };
 }
 

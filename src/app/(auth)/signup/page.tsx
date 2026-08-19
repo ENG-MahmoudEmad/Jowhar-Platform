@@ -1,5 +1,4 @@
 "use client"
-
 import React, { useState } from 'react';
 import { User, Mail, Lock, ArrowRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
@@ -12,10 +11,20 @@ import { useTheme } from '@/context/ThemeContext';
 import LeftPanel from '@/components/auth/LeftPanel';
 import { createClient } from '@/lib/supabase/client';
 
+// أحرف إنجليزية فقط، بدون أرقام/رموز/مسافات داخلية، تريم تلقائي بالـ transform
+const nameField = (label: string) =>
+  z.string()
+    .transform(v => v.trim())
+    .pipe(
+      z.string()
+        .min(2, { message: `${label} قصير جداً` })
+        .regex(/^[A-Za-z]+$/, { message: `${label}: أحرف إنجليزية فقط، بدون أرقام أو رموز أو مسافات` })
+    )
+    .transform(v => v.charAt(0).toUpperCase() + v.slice(1).toLowerCase());
+
 const signUpSchema = z.object({
-  fullName: z.string()
-    .min(3, { message: 'الاسم قصير جداً' })
-    .regex(/^[a-zA-Z]+\s+[a-zA-Z]+$/, { message: 'الاسم يجب أن يكون من مقطعين بالإنجليزية' }),
+  firstName: nameField('الاسم الأول'),
+  lastName:  nameField('الاسم الأخير'),
   email: z.string()
     .min(1, { message: 'البريد الإلكتروني مطلوب' })
     .email({ message: 'صيغة البريد غير صحيحة' }),
@@ -23,8 +32,7 @@ const signUpSchema = z.object({
     .min(8, { message: '8 خانات على الأقل' })
     .regex(/[A-Z]/, { message: 'حرف كبير واحد على الأقل' })
     .regex(/[a-z]/, { message: 'حرف صغير واحد على الأقل' })
-    .regex(/[0-9]/, { message: 'رقم واحد على الأقل' })
-    .regex(/^[a-zA-Z0-9]*$/, { message: 'أحرف وأرقام إنجليزية فقط' }),
+    .regex(/^[A-Za-z0-9!@#$%^&*()_\-+=[\]{};:,.<>?/~|]*$/, { message: 'أحرف ورموز إنجليزية فقط' }),
 });
 type SignUpFormValues = z.infer<typeof signUpSchema>;
 
@@ -52,10 +60,6 @@ export default function SignUpPage() {
   const onSubmit = async (data: SignUpFormValues) => {
     setServerError(null);
 
-    // فصل الاسم الكامل لـ first_name / last_name
-    const [firstName, ...rest] = data.fullName.trim().split(/\s+/);
-    const lastName = rest.join(' ');
-
     const supabase = createClient();
 
     const { error } = await supabase.auth.signUp({
@@ -63,16 +67,14 @@ export default function SignUpPage() {
       password: data.password,
       options: {
         data: {
-          first_name: firstName,
-          last_name: lastName,
+          first_name: data.firstName,
+          last_name: data.lastName,
         },
-        // يمر عبر route وسيط يحوّل الـ code لجلسة فعلية، وبعدها يوديه pending-approval
         emailRedirectTo: `${window.location.origin}/auth/confirm?next=/pending-approval`,
       },
     });
 
     if (error) {
-      // Supabase بيرجع رسالة محددة لو الإيميل مسجل مسبقًا
       if (error.message.toLowerCase().includes('already registered') ||
           error.message.toLowerCase().includes('already exists')) {
         setServerError('هذا الإيميل مستخدم بالفعل');
@@ -82,7 +84,6 @@ export default function SignUpPage() {
       return;
     }
 
-    // نجاح: نحط علامة مؤقتة تثبت إنه توجه فعلي من التسجيل (مش دخول مباشر بالرابط)
     sessionStorage.setItem('jowhar_signup_flow', 'true');
     router.push('/check-email');
   };
@@ -110,12 +111,20 @@ export default function SignUpPage() {
 
   const fields = [
     {
-      id: 'fullName' as const,
-      label: 'Full Name',
+      id: 'firstName' as const,
+      label: 'First Name',
       icon: User,
       type: 'text',
-      placeholder: 'John Doe',
-      error: errors.fullName,
+      placeholder: 'John',
+      error: errors.firstName,
+    },
+    {
+      id: 'lastName' as const,
+      label: 'Last Name',
+      icon: User,
+      type: 'text',
+      placeholder: 'Doe',
+      error: errors.lastName,
     },
     {
       id: 'email' as const,
@@ -134,16 +143,13 @@ export default function SignUpPage() {
     >
       <LeftPanel subtitle="Welcome to" />
 
-      {/* Right panel */}
       <div className="w-full lg:w-[58%] flex items-center justify-center p-8 relative z-10">
 
-        {/* Ambient glow */}
         <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full opacity-[0.06]"
           style={{ background: 'radial-gradient(circle, #458482 0%, transparent 70%)' }} />
 
         <motion.div variants={container} initial="hidden" animate="show" className="w-full max-w-sm relative">
 
-          {/* Header */}
           <motion.div variants={item} className="mb-10 text-center lg:text-left">
             <h2 className="text-[2.4rem] font-bold tracking-tight mb-2 leading-tight"
               style={{ fontFamily: "'Georgia', serif", color: textMain }}>
@@ -154,7 +160,6 @@ export default function SignUpPage() {
             </p>
           </motion.div>
 
-          {/* Server error */}
           {serverError && (
             <motion.div
               initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
@@ -168,7 +173,6 @@ export default function SignUpPage() {
 
           <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
 
-            {/* Full Name + Email */}
             {fields.map(({ id, label, icon: Icon, type, placeholder, error }) => (
               <motion.div key={id} variants={item} className="space-y-2">
                 <div className="flex justify-between items-center">
@@ -193,7 +197,6 @@ export default function SignUpPage() {
               </motion.div>
             ))}
 
-            {/* Password */}
             <motion.div variants={item} className="space-y-2">
               <div className="flex justify-between items-center">
                 <label className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: textMuted }}>
@@ -221,7 +224,6 @@ export default function SignUpPage() {
               </div>
             </motion.div>
 
-            {/* Submit */}
             <motion.div variants={item}>
               <button disabled={isSubmitting}
                 className="relative w-full overflow-hidden disabled:opacity-50 text-white font-bold

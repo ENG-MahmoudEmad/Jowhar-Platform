@@ -98,13 +98,12 @@ export default async function MemberProfilePage({
     // فشلها ما بيمنع عرض الصفحة
   }
 
-  const name = `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim() || '—';
-
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <MemberProfileClient
         memberId={member.id}
-        name={name}
+        firstName={member.first_name ?? ''}
+        lastName={member.last_name ?? ''}
         email={email}
         jobTitleEn={member.job_title_en ?? ''}
         jobTitleAr={member.job_title_ar ?? ''}
@@ -112,6 +111,7 @@ export default async function MemberProfilePage({
         joinedDate={member.created_at}
         initialColor={member.color || FALLBACK_COLOR}
         isAdmin={member.is_chief || member.is_developer || member.access_role === 'admin'}
+        isChief={member.is_chief}
         initialRestrictions={{
           nameLocked: member.lock_name,
           avatarLocked: member.lock_avatar,

@@ -24,6 +24,13 @@ import {
 
 const CAPABILITY = 'members.manage';
 
+/** أحرف إنجليزية فقط — بدون أرقام أو رموز أو مسافات داخلية. */
+const NAME_PART_RE = /^[A-Za-z]+$/;
+
+function capitalize(v: string): string {
+  return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+}
+
 /**
  * اللون والمسمّى الوظيفي = هوية العضو أمام الفريق كله، مش إجراء إداري
  * على شخص واحد: اللون بيلوّن باراته بكاليندر الداشبورد لكل الأعضاء
@@ -100,18 +107,42 @@ export async function setMemberJobTitle(memberId: string, en: string, ar: string
 // ===========================================================
 // اسم العضو
 // ===========================================================
+/**
+ * الشيف أدمن هو الوحيد المسموحله يترك last_name فاضية. هون بنجيب
+ * is_chief من صف العضو الهدف نفسه (مش actor) — لأنه اللي عم يتعدّل
+ * اسمه هو الـ memberId، مش الأدمن اللي عم يعدّل.
+ */
 export async function setMemberName(memberId: string, firstName: string, lastName: string) {
   const { supabase } = await requireIdentityEditor(memberId);
+
+  const { data: targetProfile } = await supabase
+    .from('profiles')
+    .select('is_chief')
+    .eq('id', memberId)
+    .single();
+
+  const isChief = targetProfile?.is_chief ?? false;
 
   const first = firstName.trim();
   const last = lastName.trim();
 
-  if (!first || !last) throw new Error('name_needs_two_parts');
-  if (first.length > 40 || last.length > 40) throw new Error('name_too_long');
+  if (!first) throw new Error('name_first_required');
+  if (!NAME_PART_RE.test(first)) throw new Error('name_invalid_chars');
+  if (first.length > 40) throw new Error('name_too_long');
+
+  if (!last) {
+    if (!isChief) throw new Error('name_last_required');
+  } else {
+    if (!NAME_PART_RE.test(last)) throw new Error('name_invalid_chars');
+    if (last.length > 40) throw new Error('name_too_long');
+  }
+
+  const normFirst = capitalize(first);
+  const normLast = last ? capitalize(last) : '';
 
   const { error } = await supabase
     .from('profiles')
-    .update({ first_name: first, last_name: last })
+    .update({ first_name: normFirst, last_name: normLast })
     .eq('id', memberId);
 
   if (error) throw new Error('name_update_failed');

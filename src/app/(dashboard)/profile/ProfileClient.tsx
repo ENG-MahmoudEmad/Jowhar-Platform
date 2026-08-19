@@ -22,7 +22,8 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export default function ProfileClient({
   userId,
-  initialName,
+  initialFirstName,
+  initialLastName,
   email,
   jobTitle,
   jobTitleAr,
@@ -30,6 +31,7 @@ export default function ProfileClient({
   joinedDate,
   memberColor,
   isAdmin,
+  isChief,
   canEditName,
   canEditAvatar,
   pendingEmail,
@@ -41,7 +43,8 @@ export default function ProfileClient({
   restrictions,
 }: {
   userId: string;
-  initialName: string;
+  initialFirstName: string;
+  initialLastName: string;
   email: string;
   jobTitle?: string;
   jobTitleAr?: string;
@@ -49,6 +52,8 @@ export default function ProfileClient({
   joinedDate: string;
   memberColor: string;
   isAdmin: boolean;
+  /** الشيف أدمن فقط مسموحله يترك Last Name فاضي */
+  isChief: boolean;
   canEditName: boolean;
   canEditAvatar: boolean;
   pendingEmail: PendingEmail | null;
@@ -59,7 +64,8 @@ export default function ProfileClient({
   initialJobTitleAr: string;
   restrictions: MemberRestrictions;
 }) {
-  const [name, setName] = useState(initialName);
+  const [firstName, setFirstName] = useState(initialFirstName);
+  const [lastName, setLastName]   = useState(initialLastName);
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
 
   useScrollToHash();
@@ -67,26 +73,14 @@ export default function ProfileClient({
   const [color, setColor] = useState(memberColor);
   const [titles, setTitles] = useState({ en: initialJobTitleEn, ar: initialJobTitleAr });
 
-  const handleSaveName = useCallback(async (fullName: string) => {
-    const parts = fullName.trim().split(/\s+/);
-    if (parts.length < 2) throw new Error('name_needs_two_parts');
-
-    const last = parts.pop() as string;
-    const first = parts.join(' ');
-
+  // التحقق (أحرف إنجليزية فقط) والـ auto-capitalize صايرين جوا PersonalInfo
+  // نفسها قبل ما توصل هون — هون بس منحدث الحالة المحلية ومنستدعي السيرفر.
+  const handleSaveName = useCallback(async (first: string, last: string) => {
     await updateMyName(first, last);
-    setName(`${first} ${last}`);
+    setFirstName(first);
+    setLastName(last);
   }, []);
 
-  /*
-    الرفع من المتصفح مباشرة لـ Storage — الملف ما بيمر بالسيرفر إطلاقًا.
-    مسار الملف لازم يبدأ بـ {userId}/ عشان سياسة الـ bucket تتحقق من الملكية.
-
-    🆕 قبل الرفع، بنصغّر الصورة لـ400×400 ونحولها WebP بجودة 85% عبر
-    Canvas API بالمتصفح — عشان نقطع الحجم الضايع بين الصورة الأصلية
-    (غالبًا 1000×1000+) وأكبر حجم فعلي بيتعرض فيه الأفاتار بالتطبيق.
-    هاد كله client-side، ما بيضيف أي حمل على السيرفر.
-  */
   const handleAvatarSelect = useCallback(async (file: File) => {
     if (!ALLOWED_TYPES.includes(file.type)) return;
     if (file.size > MAX_AVATAR_BYTES) return;
@@ -96,8 +90,6 @@ export default function ProfileClient({
 
     try {
       const resizedBlob = await resizeAvatarFile(file);
-      // 🆕 اسم ثابت لكل مستخدم بدل timestamp — كل رفعة بتستبدل الملف
-      // القديم تلقائيًا (upsert: true) عوض ما تراكم ملفات يتيمة بالـStorage.
       const path = `${userId}/avatar.webp`;
 
       const { error: uploadError } = await supabase.storage
@@ -107,8 +99,6 @@ export default function ProfileClient({
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-      // 🆕 cache-busting query param — عشان المتصفح/الـCDN ما يعرض نسخة
-      // مخزّنة قديمة بعد الاستبدال (نفس الـURL أصلًا بسبب الاسم الثابت).
       const bustedUrl = `${data.publicUrl}?v=${Date.now()}`;
       await updateMyAvatar(bustedUrl);
       setAvatarUrl(bustedUrl);
@@ -146,10 +136,12 @@ export default function ProfileClient({
     throw new Error('forbidden');
   }, []);
 
+  const displayName = lastName ? `${firstName} ${lastName}` : firstName;
+
   return (
     <>
       <ProfileHero
-        name={name}
+        name={displayName}
         jobTitle={titles.en || titles.ar}
         jobTitleAr={titles.ar || titles.en}
         avatarUrl={avatarUrl}
@@ -162,11 +154,13 @@ export default function ProfileClient({
       />
 
       <PersonalInfo
-        name={name}
+        firstName={firstName}
+        lastName={lastName}
         email={email}
         memberColor={color}
         canEditName={canEditName}
         canEditEmail
+        isChief={isChief}
         pendingEmail={pendingEmail}
         onSaveName={handleSaveName}
         onRequestEmail={handleRequestEmail}
@@ -181,7 +175,7 @@ export default function ProfileClient({
       {canEditIdentity && (
         <AdminControls
           memberId={userId}
-          memberName={name}
+          memberName={displayName}
           memberColor={color}
           jobTitleEn={titles.en}
           jobTitleAr={titles.ar}

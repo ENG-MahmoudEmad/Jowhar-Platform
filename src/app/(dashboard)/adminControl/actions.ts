@@ -16,6 +16,12 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { canManage } from '@/lib/permissions/hierarchy';
 import { requireAdminActor, loadTarget, logAudit } from './guards';
 
+/*
+  نفس الستايل الداكن تبع قالب "Confirm your email" (Supabase Auth
+  template) — بس بأبعاد مستطيلة عرضية (600px) بدل المربّعة (420px)
+  المستخدمة بقالب التأكيد، وبمحتوى ثنائي اللغة (عربي/إنجليزي)، ويودّي
+  على الموقع مباشرة بدل رابط تأكيد بتوكن.
+*/
 async function sendAccountApprovedEmail(email: string) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL;
@@ -29,16 +35,75 @@ async function sendAccountApprovedEmail(email: string) {
     '',
     'Your account has been approved.',
     'You can now sign in and use your account.',
+    '',
+    'https://www.jowharhub.com/',
   ].join('\n');
 
   const html = `
-    <div style="direction:rtl;font-family:Arial,sans-serif;line-height:1.7;color:#1f2937;background:#f8fafc;padding:24px">
-      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:32px">
-        <div style="font-size:20px;font-weight:700;margin-bottom:16px">تم تفعيل حسابك</div>
-        <p style="margin:0 0 12px">تم تفعيل حسابك بنجاح. يمكنك الآن تسجيل الدخول إلى المنصة واستخدام حسابك.</p>
-        <p style="margin:0;color:#4b5563">Your account has been approved. You can now sign in and use your account.</p>
-      </div>
-    </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<title>Your account was approved</title>
+</head>
+<body style="margin:0; padding:0; background-color:#0a0f0f; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0f0f; padding:48px 24px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#12191a; border-radius:12px; overflow:hidden; border:1px solid #1f2b2b;">
+
+          <!-- Logo mark -->
+          <tr>
+            <td align="center" style="padding:36px 48px 0 48px;">
+              <img src="https://www.jowharhub.com/logo.jpg" width="40" height="40" alt="Jowhar" style="border-radius:10px; display:block;">
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:20px 56px 36px 56px; text-align:center;">
+              <h1 style="margin:0 0 10px 0; font-size:19px; line-height:26px; color:#f3f4f4; font-weight:600;">
+                تم تفعيل حسابك
+              </h1>
+              <p style="margin:0 0 6px 0; font-size:14px; line-height:21px; color:#8b9a99; direction:rtl;">
+                تم تفعيل حسابك بنجاح. يمكنك الآن تسجيل الدخول إلى المنصة واستخدام حسابك.
+              </p>
+              <p style="margin:0 0 26px 0; font-size:13px; line-height:20px; color:#5a6666;">
+                Your account has been approved. You can now sign in and use your account.
+              </p>
+
+              <table role="presentation" cellpadding="0" cellspacing="0" align="center">
+                <tr>
+                  <td align="center" style="border-radius:8px; background-color:#458482;">
+                    <a href="https://www.jowharhub.com/"
+                       target="_blank"
+                       style="display:inline-block; padding:12px 40px; font-size:14px; font-weight:600; color:#ffffff; text-decoration:none; border-radius:8px;">
+                      Go to Jowhar
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 48px 28px 48px; border-top:1px solid #1f2b2b; text-align:center;">
+              <p style="margin:0; font-size:11px; line-height:16px; color:#454e4e;">
+                &copy; 2026 Jowhar &nbsp;·&nbsp; Animation Studio Workspace
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
   `;
 
   const response = await fetch('https://api.resend.com/emails', {

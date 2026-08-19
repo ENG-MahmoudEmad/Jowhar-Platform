@@ -12,6 +12,13 @@ import { createAdminClient } from '@/lib/supabase/admin';
 /** المواصفات: تغيير طوعي لكلمة السر مرة كل 7 أيام. */
 const PASSWORD_CHANGE_COOLDOWN_DAYS = 7;
 
+/** أحرف إنجليزية فقط — بدون أرقام أو رموز أو مسافات داخلية. */
+const NAME_PART_RE = /^[A-Za-z]+$/;
+
+function capitalize(v: string): string {
+  return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+}
+
 async function requireUser() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -22,18 +29,42 @@ async function requireUser() {
 // ===========================================================
 // الاسم
 // ===========================================================
+/**
+ * الشيف أدمن هو الوحيد المسموحله يترك last_name فاضية — كل عضو تاني
+ * لازم الخانتين معبّيتين. الفحص هون بيتأكد من is_chief بالداتابيز
+ * (مش بيوثق بأي قيمة جايّة من الواجهة).
+ */
 export async function updateMyName(firstName: string, lastName: string) {
   const { supabase, user } = await requireUser();
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_chief')
+    .eq('id', user.id)
+    .single();
+
+  const isChief = profile?.is_chief ?? false;
 
   const first = firstName.trim();
   const last = lastName.trim();
 
-  if (!first || !last) throw new Error('name_needs_two_parts');
-  if (first.length > 40 || last.length > 40) throw new Error('name_too_long');
+  if (!first) throw new Error('name_first_required');
+  if (!NAME_PART_RE.test(first)) throw new Error('name_invalid_chars');
+  if (first.length > 40) throw new Error('name_too_long');
+
+  if (!last) {
+    if (!isChief) throw new Error('name_last_required');
+  } else {
+    if (!NAME_PART_RE.test(last)) throw new Error('name_invalid_chars');
+    if (last.length > 40) throw new Error('name_too_long');
+  }
+
+  const normFirst = capitalize(first);
+  const normLast = last ? capitalize(last) : '';
 
   const { error } = await supabase
     .from('profiles')
-    .update({ first_name: first, last_name: last })
+    .update({ first_name: normFirst, last_name: normLast })
     .eq('id', user.id);
 
   if (error) {
@@ -165,10 +196,21 @@ export async function getPasswordChangeInfo(): Promise<PasswordChangeInfo> {
   };
 }
 
+/**
+ * شروط كلمة السر (موحّدة مع signup وforgot-password):
+ * 8 أحرف على الأقل، حرف كبير وصغير إلزاميين، أرقام إلزامية،
+ * رموز اختيارية، وبس أحرف/أرقام/رموز إنجليزية مسموحة.
+ */
+const PASSWORD_ALLOWED_CHARS_RE = /^[A-Za-z0-9!@#$%^&*()_\-+=[\]{};:,.<>?/~|]*$/;
+
 export async function changeMyPassword(currentPassword: string, newPassword: string) {
   const { supabase, user } = await requireUser();
 
   if (newPassword.length < 8) throw new Error('password_too_short');
+  if (!/[A-Z]/.test(newPassword)) throw new Error('password_needs_uppercase');
+  if (!/[a-z]/.test(newPassword)) throw new Error('password_needs_lowercase');
+  if (!/[0-9]/.test(newPassword)) throw new Error('password_needs_number');
+  if (!PASSWORD_ALLOWED_CHARS_RE.test(newPassword)) throw new Error('password_invalid_chars');
   if (currentPassword === newPassword) throw new Error('password_unchanged');
 
   const info = await getPasswordChangeInfo();

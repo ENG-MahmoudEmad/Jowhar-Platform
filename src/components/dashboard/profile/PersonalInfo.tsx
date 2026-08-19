@@ -1,4 +1,3 @@
-//src\components\dashboard\profile\PersonalInfo.tsx
 "use client"
 
 import React, { useState } from 'react';
@@ -12,28 +11,58 @@ type FieldStatus = 'idle' | 'editing' | 'saving' | 'saved';
 
 export type PendingEmail = {
   newEmail: string;
-  /** `pending_admin` = بانتظار الأدمن · `pending_email_verification` = بانتظار ضغط الرابط */
   stage: 'pending_admin' | 'pending_email_verification';
 };
 
 interface PersonalInfoProps {
-  name:          string;
+  firstName:     string;
+  lastName:      string;
   email:         string;
-  memberColor?:  string;  // read-only — set by admin only
+  memberColor?:  string;
   canEditName?:  boolean;
   canEditEmail?: boolean;
+  /** الشيف أدمن فقط مسموحله يترك Last Name فاضية */
+  isChief?:      boolean;
   pendingEmail?: PendingEmail | null;
-  onSaveName?:   (fullName: string) => Promise<void>;
+  onSaveName?:   (firstName: string, lastName: string) => Promise<void>;
   onRequestEmail?: (newEmail: string) => Promise<void>;
+}
+
+/* ─── Name validation helpers ─── */
+const NAME_RE = /^[A-Za-z]+$/;
+
+function normalizeNamePart(v: string): string {
+  const trimmed = v.trim();
+  if (!trimmed) return '';
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
+function validateNameParts(first: string, last: string, isChief: boolean): string | null {
+  const f = first.trim();
+  const l = last.trim();
+
+  if (!f) return 'name_first_required';
+  if (!NAME_RE.test(f)) return 'name_invalid_chars';
+
+  if (!l) {
+    // بس الشيف أدمن مسموحله يترك Last Name فاضية
+    if (isChief) return null;
+    return 'name_last_required';
+  }
+  if (!NAME_RE.test(l)) return 'name_invalid_chars';
+
+  return null;
 }
 
 /* ══════════════════════════════════════════════ */
 export default function PersonalInfo({
-  name,
+  firstName,
+  lastName,
   email,
   memberColor,
   canEditName  = true,
   canEditEmail = true,
+  isChief      = false,
   pendingEmail = null,
   onSaveName,
   onRequestEmail,
@@ -43,7 +72,8 @@ export default function PersonalInfo({
   const isDark = theme === 'dark';
 
   /* ── field states ── */
-  const [nameDraft,  setNameDraft]  = useState(name);
+  const [firstDraft, setFirstDraft] = useState(firstName);
+  const [lastDraft,  setLastDraft]  = useState(lastName);
   const [emailDraft, setEmailDraft] = useState(email);
 
   const [nameStatus,  setNameStatus]  = useState<FieldStatus>('idle');
@@ -65,7 +95,8 @@ export default function PersonalInfo({
   const tx: Record<string, string> = {
     title:           lang === 'ar' ? 'المعلومات الشخصية'         : 'Personal Info',
     subtitle:        lang === 'ar' ? 'بياناتك الأساسية في المنصة' : 'Your basic details on the platform',
-    nameLabel:       lang === 'ar' ? 'الاسم'                      : 'Full Name',
+    firstNameLabel:  lang === 'ar' ? 'الاسم الأول'                : 'First Name',
+    lastNameLabel:   lang === 'ar' ? 'الاسم الأخير'               : 'Last Name',
     emailLabel:      lang === 'ar' ? 'البريد الإلكتروني'          : 'Email',
     colorLabel:      lang === 'ar' ? 'لونك في الفريق'             : 'Your Color',
     colorNote:       lang === 'ar' ? 'هذا اللون يحدده الأدمن فقط' : 'This color is set by admin only',
@@ -79,9 +110,11 @@ export default function PersonalInfo({
       ? 'تغيير الإيميل يحتاج موافقة الأدمن، ثم تأكيد من الإيميل الجديد'
       : 'Email changes need admin approval, then confirmation from the new inbox',
     nameNote:        lang === 'ar'
-      ? 'الاسم يظهر دائماً بالإنجليزية بغض النظر عن لغة الواجهة'
-      : 'Your name always appears in English regardless of interface language',
-    errName:         lang === 'ar' ? 'الاسم لازم يكون مقطعين (أول وأخير)' : 'Name must be two parts (first and last)',
+      ? 'أحرف إنجليزية فقط، بدون أرقام أو رموز. أول حرف يكبر تلقائياً'
+      : 'English letters only, no numbers or symbols. First letter capitalizes automatically',
+    errNameFirstRequired: lang === 'ar' ? 'الاسم الأول مطلوب' : 'First name is required',
+    errNameLastRequired:  lang === 'ar' ? 'الاسم الأخير مطلوب' : 'Last name is required',
+    errNameInvalidChars:  lang === 'ar' ? 'أحرف إنجليزية فقط، بدون أرقام أو رموز' : 'English letters only, no numbers or symbols',
     errEmail:        lang === 'ar' ? 'صيغة الإيميل غير صحيحة'     : 'Invalid email format',
     errTaken:        lang === 'ar' ? 'هذا الإيميل مستخدم بالفعل'  : 'This email is already in use',
     errLocked:       lang === 'ar' ? 'الأدمن قفل تعديل هذا الحقل' : 'Admin has locked this field',
@@ -89,32 +122,58 @@ export default function PersonalInfo({
   };
 
   function messageFor(code: string): string {
-    if (code === 'name_needs_two_parts') return tx.errName;
+    if (code === 'name_first_required')    return tx.errNameFirstRequired;
+    if (code === 'name_last_required')     return tx.errNameLastRequired;
+    if (code === 'name_invalid_chars')     return tx.errNameInvalidChars;
     if (code === 'invalid_email' || code === 'same_email') return tx.errEmail;
-    if (code === 'email_taken') return tx.errTaken;
+    if (code === 'email_taken')            return tx.errTaken;
     if (code === 'name_locked' || code === 'avatar_locked') return tx.errLocked;
     return tx.errGeneric;
   }
 
   /* ── handlers ── */
-  const startEdit = (field: 'name' | 'email') => {
+  const startEditName = () => {
     setError(null);
-    if (field === 'name') { setNameDraft(name); setNameStatus('editing'); }
-    else                  { setEmailDraft(email); setEmailStatus('editing'); }
+    setFirstDraft(firstName);
+    setLastDraft(lastName);
+    setNameStatus('editing');
   };
 
-  const cancelEdit = (field: 'name' | 'email') => {
+  const cancelEditName = () => {
     setError(null);
-    if (field === 'name') { setNameDraft(name); setNameStatus('idle'); }
-    else                  { setEmailDraft(email); setEmailStatus('idle'); }
+    setFirstDraft(firstName);
+    setLastDraft(lastName);
+    setNameStatus('idle');
+  };
+
+  const startEditEmail = () => {
+    setError(null);
+    setEmailDraft(email);
+    setEmailStatus('editing');
+  };
+
+  const cancelEditEmail = () => {
+    setError(null);
+    setEmailDraft(email);
+    setEmailStatus('idle');
   };
 
   const saveName = async () => {
     if (!onSaveName) return;
     setError(null);
+
+    const localErr = validateNameParts(firstDraft, lastDraft, isChief);
+    if (localErr) {
+      setError(messageFor(localErr));
+      return;
+    }
+
+    const normFirst = normalizeNamePart(firstDraft);
+    const normLast  = lastDraft.trim() ? normalizeNamePart(lastDraft) : '';
+
     setNameStatus('saving');
     try {
-      await onSaveName(nameDraft);
+      await onSaveName(normFirst, normLast);
       setNameStatus('saved');
       setTimeout(() => setNameStatus('idle'), 2000);
     } catch (e) {
@@ -136,12 +195,11 @@ export default function PersonalInfo({
     }
   };
 
-  /*
-    حالة الإيميل بتجي من الداتابيز مش من الواجهة — الكارد كان بيبدأ
-    `pending` مكتوبة يدويًا، فكان بيوعد بطلب مش موجود.
-  */
   const emailBadge: FieldStatus | 'pending' =
     pendingEmail ? 'pending' : emailStatus;
+
+  const isNameEditing = nameStatus === 'editing' || nameStatus === 'saving';
+  const isNameSaving  = nameStatus === 'saving';
 
   return (
     <div
@@ -179,77 +237,188 @@ export default function PersonalInfo({
       {/* ── Fields ── */}
       <div className="px-6 py-5 flex flex-col gap-5">
 
-        {/* ── Full Name ── */}
-        <FieldRow
-          label={tx.nameLabel}
-          icon={<User className="w-3.5 h-3.5" />}
-          value={name}
-          draft={nameDraft}
-          status={nameStatus}
-          canEdit={canEditName && Boolean(onSaveName)}
-          // شارة "مقفل من الأدمن" تظهر فقط لو في قفل فعلي — مش لمجرد
-          // إن المستخدم الحالي ما بيقدر يعدّل
-          lockedLabel={!canEditName ? tx.lockedByAdmin : undefined}
-          note={tx.nameNote}
-          tx={tx}
-          lang={lang}
-          isRTL={isRTL}
-          isDark={isDark}
-          textMain={textMain}
-          textMuted={textMuted}
-          inputBg={inputBg}
-          inputBorder={inputBorder}
-          focusBorder={focusBorder}
-          onDraftChange={setNameDraft}
-          onEdit={() => startEdit('name')}
-          onSave={saveName}
-          onCancel={() => cancelEdit('name')}
-        />
+        {/* ── Name (First + Last) — خانتين جنب بعض دائماً، بوضع العرض وبوضع التعديل ── */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5" style={{ color: 'var(--foreground-muted)' }} />
+              <span
+                className="text-[11px] font-bold uppercase tracking-widest"
+                style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+              >
+                {tx.firstNameLabel} / {tx.lastNameLabel}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {nameStatus === 'saved' && (
+                <span
+                  className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: '#10b98122', color: '#10b981', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+                >
+                  <Check className="w-2.5 h-2.5" /> {tx.saved}
+                </span>
+              )}
+              {!isNameEditing && (
+                canEditName && onSaveName ? (
+                  <button
+                    onClick={startEditName}
+                    className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                      color: textMuted,
+                      fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#45848222'; e.currentTarget.style.color = '#458482'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'; e.currentTarget.style.color = textMuted; }}
+                  >
+                    <Pencil className="w-2.5 h-2.5" />
+                    {tx.edit}
+                  </button>
+                ) : !canEditName ? (
+                  <span
+                    className="flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-lg"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                      color: textMuted,
+                      fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
+                    }}
+                  >
+                    <AlertCircle className="w-2.5 h-2.5" />
+                    {tx.lockedByAdmin}
+                  </span>
+                ) : null
+              )}
+            </div>
+          </div>
+
+          {/* الخانتين — نفس اللاي-أوت بوضع العرض وبوضع التعديل، الفرق بس إنه بالتعديل قابلة للكتابة */}
+          <div className="flex items-center gap-2">
+            {isNameEditing ? (
+              <>
+                <input
+                  autoFocus
+                  type="text"
+                  value={firstDraft}
+                  disabled={isNameSaving}
+                  placeholder={tx.firstNameLabel}
+                  onChange={e => setFirstDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEditName(); }}
+                  className="flex-1 px-3 py-2.5 rounded-xl text-sm font-medium outline-none transition-all duration-150"
+                  style={{
+                    background: inputBg,
+                    border:     `1px solid ${inputBorder}`,
+                    color:      textMain,
+                    fontFamily: 'inherit',
+                    direction:  'ltr',
+                    opacity:    isNameSaving ? 0.6 : 1,
+                  }}
+                />
+                <input
+                  type="text"
+                  value={lastDraft}
+                  disabled={isNameSaving}
+                  placeholder={isChief ? `${tx.lastNameLabel} (${lang === 'ar' ? 'اختياري' : 'optional'})` : tx.lastNameLabel}
+                  onChange={e => setLastDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') cancelEditName(); }}
+                  className="flex-1 px-3 py-2.5 rounded-xl text-sm font-medium outline-none transition-all duration-150"
+                  style={{
+                    background: inputBg,
+                    border:     `1px solid ${inputBorder}`,
+                    color:      textMain,
+                    fontFamily: 'inherit',
+                    direction:  'ltr',
+                    opacity:    isNameSaving ? 0.6 : 1,
+                  }}
+                />
+                <button
+                  onClick={saveName}
+                  disabled={isNameSaving}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all duration-150 cursor-pointer"
+                  style={{ background: '#458482', color: '#fff' }}
+                >
+                  {isNameSaving
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Check className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={cancelEditName}
+                  disabled={isNameSaving}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all duration-150 cursor-pointer"
+                  style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: textMuted }}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <div
+                  className="flex-1 px-3 py-2.5 rounded-xl"
+                  style={{ background: inputBg, border: `1px solid ${inputBorder}` }}
+                >
+                  <span
+                    className="text-sm font-medium"
+                    style={{ color: textMain, fontFamily: 'inherit', direction: 'ltr' }}
+                  >
+                    {firstName}
+                  </span>
+                </div>
+                <div
+                  className="flex-1 px-3 py-2.5 rounded-xl"
+                  style={{ background: inputBg, border: `1px solid ${inputBorder}` }}
+                >
+                  <span
+                    className="text-sm font-medium"
+                    style={{ color: lastName ? textMain : textMuted, fontFamily: 'inherit', direction: 'ltr' }}
+                  >
+                    {lastName || '—'}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          <p
+            className="text-[10px] leading-relaxed"
+            style={{ color: textMuted, fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit' }}
+          >
+            {tx.nameNote}
+          </p>
+        </div>
 
         <div style={{ height: '1px', background: divider }} />
 
         {/* ── Email ── */}
-        {/*
-          id للإشعارات: تمت الموافقة/الرفض على تغيير الإيميل بتودّي
-          لـ `/profile#email-field` — hook التوهيج العام بيدوّر عليه.
-        */}
         <div id="email-field">
-        <FieldRow
-          label={tx.emailLabel}
-          icon={<Mail className="w-3.5 h-3.5" />}
-          value={email}
-          draft={emailDraft}
-          status={emailBadge as FieldStatus}
-          canEdit={canEditEmail && Boolean(onRequestEmail) && !pendingEmail}
-          /*
-            الإيميل ما بينقفل من الأدمن أصلاً — ما حدا بيغيّره مباشرة،
-            ولا حتى الـ Developer. التغيير بطلب من العضو + تأكيد من
-            صندوقه الجديد. "Locked by admin" هون كانت بتكذب.
-          */
-          lockedLabel={undefined}
-          note={tx.emailNote}
-          tx={tx}
-          lang={lang}
-          isRTL={isRTL}
-          isDark={isDark}
-          textMain={textMain}
-          textMuted={textMuted}
-          inputBg={inputBg}
-          inputBorder={inputBorder}
-          focusBorder={focusBorder}
-          pendingLabel={
-            pendingEmail
-              ? (pendingEmail.stage === 'pending_admin' ? tx.pendingApproval : tx.pendingVerify)
-              : undefined
-          }
-          onDraftChange={setEmailDraft}
-          onEdit={() => startEdit('email')}
-          onSave={saveEmail}
-          onCancel={() => cancelEdit('email')}
-        />
+          <FieldRow
+            label={tx.emailLabel}
+            icon={<Mail className="w-3.5 h-3.5" />}
+            value={email}
+            draft={emailDraft}
+            status={emailBadge as FieldStatus}
+            canEdit={canEditEmail && Boolean(onRequestEmail) && !pendingEmail}
+            lockedLabel={undefined}
+            note={tx.emailNote}
+            tx={tx}
+            lang={lang}
+            isRTL={isRTL}
+            isDark={isDark}
+            textMain={textMain}
+            textMuted={textMuted}
+            inputBg={inputBg}
+            inputBorder={inputBorder}
+            focusBorder={focusBorder}
+            pendingLabel={
+              pendingEmail
+                ? (pendingEmail.stage === 'pending_admin' ? tx.pendingApproval : tx.pendingVerify)
+                : undefined
+            }
+            onDraftChange={setEmailDraft}
+            onEdit={startEditEmail}
+            onSave={saveEmail}
+            onCancel={cancelEditEmail}
+          />
         </div>
 
-        {/* الإيميل الجديد المطلوب — معلومة مهمة كانت مخفية تمامًا */}
         {pendingEmail && (
           <div
             className="px-3 py-2 rounded-xl -mt-2"
@@ -337,7 +506,7 @@ export default function PersonalInfo({
 }
 
 /* ══════════════════════════════════════════════
-   Sub-component: FieldRow
+   Sub-component: FieldRow (email only)
    ══════════════════════════════════════════════ */
 interface FieldRowProps {
   label:         string;
@@ -357,7 +526,6 @@ interface FieldRowProps {
   inputBorder:   string;
   focusBorder:   string;
   pendingLabel?: string;
-  /** سبب منع التعديل. `undefined` = ما في شارة (الحقل غير قابل للتعديل بطبيعته) */
   lockedLabel?:  string;
   onDraftChange: (v: string) => void;
   onEdit:        () => void;
