@@ -258,3 +258,50 @@ export async function liftSuspension(memberId: string) {
 
   revalidatePath('/adminControl');
 }
+
+// ===========================================================
+// Hard delete member — الديفيلوبر فقط، حذف نهائي لا رجعة فيه
+// ===========================================================
+/**
+ * بخلاف softDeleteMember (متاحة لباقي الأدمنية، بس بتحط deleted_at)،
+ * هاد حذف حقيقي: يمسح صف العضو من auth.users وكل الجداول المرتبطة فيه
+ * تمامًا. محصور بالديفيلوبر فقط — مش canManage عادي، فحص isDeveloper
+ * صريح، لأن هاد فعل لا رجعة فيه أخطر من أي فعل تاني بالملف.
+ *
+ * محمي: ما تقدر تحذف نفسك، ولا الشيف أدمن (نفس حماية requireIdentityEditor
+ * بملف البروفايل — الشيف أدمن ما حدا بيمسّه، حتى الديفيلوبر).
+ */
+export async function hardDeleteMember(memberId: string) {
+  const { supabase, actor } = await requireAdminActor();
+
+  if (!actor.isDeveloper) throw new Error('forbidden');
+  if (memberId === actor.id) throw new Error('cannot_delete_self');
+
+  const target = await loadTarget(supabase, memberId);
+  if (target.isChief) throw new Error('cannot_delete_chief');
+
+  const adminClient = createAdminClient();
+
+  // 1) ننضّف كل الجداول المرتبطة بالسكيما public عبر الدالة الديناميكية
+  //    (service_role فقط، عشان هيك بنستخدم adminClient هون مش supabase
+  //    العادي — الدالة نفسها محجوبة عن authenticated بالمايجريشن).
+  const { error: cleanupError } = await adminClient.rpc('hard_delete_member', {
+    p_member_id: memberId,
+  });
+  if (cleanupError) throw new Error(`hard_delete_cleanup_failed: ${cleanupError.message}`);
+
+  // 2) حذف المستخدم فعليًا من auth.users — بعد ما كل شي بـ public انحذف،
+  //    ما لازم يبقى أي FK يوقّف هالخطوة.
+  const { error: authError } = await adminClient.auth.admin.deleteUser(memberId);
+  if (authError) throw new Error(`hard_delete_auth_failed: ${authError.message}`);
+
+  /*
+    ما في audit log لهالفعل بعمود target_id عادي — صف العضو نفسه انمسح
+    فاسمعنا الـ FK constraint. best-effort: نسجّل بدون target_id حقيقي
+    (null) لو الدالة بتسمح، وإلا نكتفي بسجل الخادم (console). التتبّع
+    الأهم هون هو نفس مبدأ باقي logAudit: ثانوي، ما لازم يوقف الفعل.
+  */
+  console.info('member_hard_deleted', { memberId, byActor: actor.id, at: new Date().toISOString() });
+
+  revalidatePath('/adminControl');
+}

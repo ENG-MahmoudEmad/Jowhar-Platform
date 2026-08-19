@@ -81,6 +81,20 @@ export default function CheckEmailPage() {
             الرابط صالح لمدة 24 ساعة. لم يصلك شيء؟ تفقد مجلد الرسائل غير المرغوب فيها (Spam).
           </motion.p>
 
+          {/*
+            لا نؤكد صراحةً إن الإيميل مسجل مسبقًا (user enumeration) —
+            بس نلمّح بشكل عام: لو الشخص أصلاً عنده حساب، ما رح يوصله شي
+            هون، فهاد السطر بيوجّهه لمسار بديل بدون ما يكشف معلومة لأي
+            طرف يجرّب إيميلات عشوائية.
+          */}
+          <motion.p variants={item} className="mt-4 text-xs font-medium leading-relaxed" style={{ color: textMuted, opacity: 0.85 }}>
+            إذا كان لديك حساب مسبقاً على هذا البريد، جرّب{' '}
+            <Link href="/login" className="font-semibold text-[#5ea8a4] hover:text-white transition-colors duration-150">
+              تسجيل الدخول
+            </Link>{' '}
+            بدلاً من ذلك.
+          </motion.p>
+
           <motion.p variants={item} className="mt-10 text-center lg:text-left text-sm" style={{ color: textMuted }}>
             <Link href="/login" className="font-semibold text-[#5ea8a4] hover:text-white transition-colors duration-150">
               العودة لتسجيل الدخول

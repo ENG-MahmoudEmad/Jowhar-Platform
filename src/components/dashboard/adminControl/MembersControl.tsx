@@ -2,12 +2,13 @@
 
 import React, { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { LazyMotion, domAnimation, m, AnimatePresence } from 'framer-motion';
-import { Search, Check, X, ShieldAlert, ChevronRight, ChevronDown, Lock } from 'lucide-react';
+import { Search, Check, X, ShieldAlert, ChevronRight, ChevronDown, Lock, Trash2 } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useLang } from '@/context/LangContext';
 import { useCurrentUser } from '@/context/UserContext';
 import Avatar from '@/components/ui/Avatar';
-import { acceptMember, rejectMember, suspendMember, liftSuspension } from '@/app/(dashboard)/adminControl/actions';
+import DeleteConfirmModal from '@/components/dashboard/archive/DeleteConfirmModal';
+import { acceptMember, rejectMember, suspendMember, liftSuspension, hardDeleteMember } from '@/app/(dashboard)/adminControl/actions';
 import { canManage, canOpen, type Actor, type Target } from '@/lib/permissions/hierarchy';
 
 type Lang = 'en' | 'ar';
@@ -43,11 +44,12 @@ type MembersControlStyle = React.CSSProperties & Record<`--mc-${string}`, string
 type RowStyle = React.CSSProperties & Record<'--member-color', string>;
 
 // ---- Layout constants ----
-// Fixed row height so the list always shows exactly 5 rows worth of space,
-// regardless of how many members actually exist (1 or 50).
 const ROW_HEIGHT_PX = 64;
 const VISIBLE_ROWS = 5;
 const LIST_HEIGHT_PX = ROW_HEIGHT_PX * VISIBLE_ROWS;
+
+/** حذف نهائي للعضو — احتكاك أعلى من حذف الأرشيف العادي (10 ثواني) */
+const HARD_DELETE_COUNTDOWN_SECONDS = 15;
 
 // ---- Animation ----
 const CARD_TRANSITION = {
@@ -92,6 +94,9 @@ const TEXT = {
     errReject: 'Could not reject the request — it was restored.',
     errSuspend: 'Could not suspend — the change was reverted.',
     errLift: 'Could not lift the suspension — the change was reverted.',
+    errDelete: 'Could not delete the member — please try again.',
+    deleteLabel: 'Delete permanently',
+    deleteModalMessage: 'This permanently removes the account and everything linked to it — tasks, notes, notifications, and audit history. This cannot be undone.',
   },
   ar: {
     pendingTitle: 'طلبات معلقة',
@@ -123,6 +128,9 @@ const TEXT = {
     errReject: 'تعذّر رفض الطلب — تم استرجاعه.',
     errSuspend: 'تعذّر الإيقاف — تم التراجع عن التغيير.',
     errLift: 'تعذّر إلغاء الإيقاف — تم التراجع عن التغيير.',
+    errDelete: 'تعذّر حذف العضو — حاول مرة أخرى.',
+    deleteLabel: 'حذف نهائي',
+    deleteModalMessage: 'هذا سيحذف الحساب نهائياً مع كل ما هو مرتبط فيه — المهام، الملاحظات، الإشعارات، وسجل النشاط. لا يمكن التراجع عن هذا.',
   },
 } satisfies Record<Lang, Record<string, string>>;
 
@@ -310,6 +318,7 @@ const MemberRow = memo(function MemberRow({
   isRTL,
   lang,
   canManage,
+  canDelete,
   isSelected,
   isCurrentUser,
   isLocked,
@@ -322,18 +331,20 @@ const MemberRow = memo(function MemberRow({
   onCancelSuspend,
   onLiftSuspend,
   onSelect,
+  onRequestDelete,
 }: {
   member: Member;
   isLast: boolean;
   isRTL: boolean;
   lang: Lang;
   canManage: boolean;
+  /** ديفيلوبر بس، ومش على نفسه ولا على الشيف أدمن */
+  canDelete: boolean;
   isSelected: boolean;
   isCurrentUser: boolean;
   isLocked: boolean;
   isEditingSuspend: boolean;
   suspendDays: number;
-  /** تاسكات قيد المراجعة + ردود ملاحظات جديدة — 0 يعني ما فيه شي يستاهل تنبيه */
   badgeCount: number;
   onSuspendDaysChange: (v: number) => void;
   onStartSuspend: (id: string) => void;
@@ -341,6 +352,7 @@ const MemberRow = memo(function MemberRow({
   onCancelSuspend: () => void;
   onLiftSuspend: (id: string) => void;
   onSelect: (id: string) => void;
+  onRequestDelete: (id: string) => void;
 }) {
   const copy = TEXT[lang];
   const rowStyle: RowStyle = {
@@ -374,11 +386,6 @@ const MemberRow = memo(function MemberRow({
       }`}
       style={rowStyle}
     >
-      {/*
-        Avatar المشترك — نفس الكومبوننت والمنطق المستخدم في TeamProgress:
-        صورة حقيقية لو avatarUrl موجود، وإلا رجوع تلقائي للأحرف (initials)
-        بلون العضو. ما في حاجة نتعامل معها يدويًا هون.
-      */}
       <Avatar
         avatarUrl={member.avatarUrl}
         initials={member.initials}
@@ -436,7 +443,6 @@ const MemberRow = memo(function MemberRow({
         </p>
       </div>
 
-      {/* بادج الإشعارات — دائرة حمرا فيها رقم، بس لو فيه شي فعلاً يستاهل تنبيه */}
       {badgeCount > 0 && (
         <span
           className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-black text-white"
@@ -523,7 +529,20 @@ const MemberRow = memo(function MemberRow({
         </div>
       )}
 
-      {/* قفل للصفوف اللي ما بيقدر يديرها، وسهم للباقي (الصف كامل قابل للضغط) */}
+      {/* حذف نهائي — ديفيلوبر بس، مش على نفسه ولا الشيف أدمن. معزول
+          بلون وأيقونة مختلفة عن باقي أزرار الإدارة عشان ما يصير خلط. */}
+      {canDelete && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRequestDelete(member.id); }}
+          title={copy.deleteLabel}
+          aria-label={copy.deleteLabel}
+          className="shrink-0 cursor-pointer rounded-lg p-1.5 text-[var(--mc-text-muted)] opacity-0 transition-colors group-hover:opacity-100 hover:bg-[rgba(239,68,68,0.1)] hover:text-[#ef4444]"
+        >
+          <Trash2 size={14} aria-hidden="true" />
+        </button>
+      )}
+
       {isLocked ? (
         <Lock size={14} aria-hidden="true" className="shrink-0 text-[var(--mc-text-muted)]" />
       ) : (
@@ -550,17 +569,12 @@ function MembersControl({
   selectedMemberId,
   badgesByMember,
 }: {
-  /*
-    الحالة مرفوعة للأب (AdminControlClient) عشان تغييرات الدور من كومبوننت
-    Roles & Permissions تنعكس فورًا على بادچ العضو بالقائمة، والعكس صحيح.
-  */
   pending: PendingRequest[];
   members: Member[];
   onPendingChange: (next: PendingRequest[]) => void;
   onMembersChange: (next: Member[]) => void;
   onSelectMember?: (memberId: string) => void;
   selectedMemberId?: string | null;
-  /** تاسكات قيد المراجعة + ردود ملاحظات جديدة لكل عضو — memberId → عدد */
   badgesByMember?: Record<string, number>;
 }) {
   const { theme } = useTheme();
@@ -575,6 +589,8 @@ function MembersControl({
   const [suspendTargetId, setSuspendTargetId] = useState<string | null>(null);
   const [suspendDays, setSuspendDays] = useState(1);
   const [actionError, setActionError] = useState<keyof typeof TEXT.en | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const filteredMembers = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -589,16 +605,6 @@ function MembersControl({
       return matchesQuery && matchesRole;
     });
 
-    /*
-      ترتيب ثابت بالأولوية:
-        1. Chief Admin  (دايمًا أول، مهما كان)
-        2. Developer
-        3. الشخص اللي فاتح الصفحة حاليًا (لو مش واحد من فوق)
-        4. الباقي — حسب تاريخ التسجيل، الأقدم أولاً
-
-      الترتيب بيصير هون مش بالـ SQL لأن المرتبة الثالثة تعتمد على
-      "مين فاتح الصفحة" — وهذا معروف بالواجهة بس.
-    */
     const rank = (m: Member): number => {
       if (m.isChief) return 0;
       if (m.isDeveloper) return 1;
@@ -609,19 +615,9 @@ function MembersControl({
     return [...matched].sort((a, b) => {
       const diff = rank(a) - rank(b);
       if (diff !== 0) return diff;
-      // نفس المرتبة (الفئة الرابعة) → الأقدم تسجيلاً أولاً
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
   }, [members, query, roleFilter, currentUser?.id, badgesByMember]);
-
-  /*
-    كل معالج تحت بيمشي بنفس النمط:
-    1) يحدّث الواجهة فورًا (optimistic) — بدون انتظار السيرفر ولا تعطيل الأزرار
-    2) يبعت للسيرفر بالخلفية
-    3) يتراجع عن التغيير + يعرض رسالة فقط لو فشل الطلب
-    ما في router.refresh() عمدًا: كان بيجبر إعادة جلب كامل للصفحة بعد كل
-    ضغطة، فيحس المستخدم بتعليق وإعادة رسم.
-  */
 
   const handleAccept = useCallback((id: string) => {
     setActionError(null);
@@ -687,6 +683,40 @@ function MembersControl({
     });
   }, [members, onMembersChange]);
 
+  const handleRequestDelete = useCallback((id: string) => {
+    setActionError(null);
+    setDeleteTargetId(id);
+  }, []);
+
+  const handleCancelDelete = useCallback(() => {
+    setDeleteTargetId(null);
+  }, []);
+
+  /*
+    مش optimistic عمدًا — فعل لا رجعة فيه، فمنستنى تأكيد السيرفر فعليًا
+    قبل ما نشيل العضو من القائمة (بخلاف باقي المعالجات فوق).
+  */
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTargetId) return;
+    const id = deleteTargetId;
+
+    setDeletingId(id);
+    try {
+      await hardDeleteMember(id);
+      onMembersChange(members.filter((m) => m.id !== id));
+      setDeleteTargetId(null);
+    } catch {
+      setActionError('errDelete');
+    } finally {
+      setDeletingId(null);
+    }
+  }, [deleteTargetId, members, onMembersChange]);
+
+  const deleteTargetMember = useMemo(
+    () => (deleteTargetId ? members.find((m) => m.id === deleteTargetId) ?? null : null),
+    [deleteTargetId, members]
+  );
+
   return (
     <LazyMotion features={domAnimation}>
       <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
@@ -696,10 +726,8 @@ function MembersControl({
           </div>
         )}
 
-        {/* ---- Pending Approvals ---- */}
         {pending.length > 0 && (
           <m.section
-            // id للإشعارات: طلب تسجيل جديد بيودّي لـ `/adminControl#pending-approvals`
             id="pending-approvals"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -742,7 +770,6 @@ function MembersControl({
           </m.section>
         )}
 
-        {/* ---- Members List ---- */}
         <m.section
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -783,11 +810,6 @@ function MembersControl({
             </div>
           </div>
 
-          {/*
-            Fixed-height viewport = exactly 5 rows (ROW_HEIGHT_PX * VISIBLE_ROWS).
-            This keeps the card's footprint constant whether there's 1 member or 50 —
-            fewer than 5 just leaves empty space below, more than 5 scrolls internally.
-          */}
           <div
             className="bg-[var(--mc-bg)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--mc-scrollbar-thumb)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[var(--mc-scrollbar-thumb)]"
             style={{ height: LIST_HEIGHT_PX }}
@@ -798,14 +820,6 @@ function MembersControl({
               </div>
             ) : (
               filteredMembers.map((m, i) => {
-                /*
-                  القواعد مستوردة من '@/lib/permissions/hierarchy' — نفس الملف
-                  اللي بتستخدمه الـ Server Actions، فما يصير انحراف بين اللي
-                  بيُعرض بالواجهة واللي بيُسمح فعليًا بالسيرفر.
-
-                  canOpen   = يفتح تفاصيل العضو (Add Task / Director Notes)
-                  canManage = يوقّف/يغيّر دور العضو
-                */
                 const actor: Actor | null = currentUser
                   ? {
                       id: currentUser.id,
@@ -825,6 +839,10 @@ function MembersControl({
                 const rowCanOpen = actor ? canOpen(actor, target) : false;
                 const rowCanManage = actor ? canManage(actor, target) : false;
 
+                // حذف نهائي: ديفيلوبر بس، مش على نفسه ولا على الشيف أدمن
+                const rowCanDelete =
+                  Boolean(currentUser?.isDeveloper) && m.id !== currentUser?.id && !m.isChief;
+
                 return (
                   <MemberRow
                     key={m.id}
@@ -833,6 +851,7 @@ function MembersControl({
                     isRTL={isRTL}
                     lang={lang as Lang}
                     canManage={rowCanManage}
+                    canDelete={rowCanDelete}
                     isLocked={!rowCanOpen}
                     isSelected={selectedMemberId === m.id}
                     isCurrentUser={m.id === currentUser?.id}
@@ -845,12 +864,23 @@ function MembersControl({
                     onCancelSuspend={handleCancelSuspend}
                     onLiftSuspend={handleLiftSuspend}
                     onSelect={onSelectMember ?? (() => {})}
+                    onRequestDelete={handleRequestDelete}
                   />
                 );
               })
             )}
           </div>
         </m.section>
+
+        {deleteTargetMember && (
+          <DeleteConfirmModal
+            label={deleteTargetMember.name}
+            message={copy.deleteModalMessage}
+            countdownSeconds={HARD_DELETE_COUNTDOWN_SECONDS}
+            onConfirm={() => { if (!deletingId) void handleConfirmDelete(); }}
+            onCancel={() => { if (!deletingId) handleCancelDelete(); }}
+          />
+        )}
       </div>
     </LazyMotion>
   );

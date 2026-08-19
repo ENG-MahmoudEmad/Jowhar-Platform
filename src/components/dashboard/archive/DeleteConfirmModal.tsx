@@ -8,7 +8,7 @@ import { AlertTriangle } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { useLang } from '@/context/LangContext'
 
-const COUNTDOWN_SECONDS = 10
+const DEFAULT_COUNTDOWN_SECONDS = 10
 
 const MODAL_OVERLAY_STYLE: React.CSSProperties = {
   background: 'rgba(0,0,0,0.7)',
@@ -19,11 +19,15 @@ const MODAL_OVERLAY_STYLE: React.CSSProperties = {
 /**
  * Replaces the earlier "hide immediately + undo toast" pattern for deletes.
  * Nothing is removed until the person explicitly clicks Confirm — and
- * Confirm stays disabled, counting down, for a forced 10 seconds first. This
+ * Confirm stays disabled, counting down, for a forced countdown first. This
  * is deliberately heavier friction than an undo toast: deleting a section,
  * item, or file takes everything nested inside it with it, so the ask was
  * to make it hard to do by accident rather than easy to reverse after the
  * fact.
+ *
+ * `countdownSeconds` defaults to 10 (archive deletions). Heavier actions —
+ * like permanently deleting a member account — can pass a longer countdown
+ * (e.g. 15) via the prop without touching this default.
  *
  * Clicking the backdrop cancels, same as the Cancel button — no separate
  * wiring needed by callers.
@@ -31,6 +35,7 @@ const MODAL_OVERLAY_STYLE: React.CSSProperties = {
 const DeleteConfirmModal = memo(function DeleteConfirmModal({
   label,
   message,
+  countdownSeconds = DEFAULT_COUNTDOWN_SECONDS,
   onConfirm,
   onCancel,
 }: {
@@ -40,6 +45,8 @@ const DeleteConfirmModal = memo(function DeleteConfirmModal({
       depending on what's being deleted (a section/item warns about nested
       content; a single file doesn't need that clause). */
   message: string
+  /** Forced wait before Confirm becomes clickable. Defaults to 10s. */
+  countdownSeconds?: number
   onConfirm: () => void
   onCancel:  () => void
 }) {
@@ -52,7 +59,7 @@ const DeleteConfirmModal = memo(function DeleteConfirmModal({
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
-  const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_SECONDS)
+  const [secondsLeft, setSecondsLeft] = useState(countdownSeconds)
   const canConfirm = secondsLeft <= 0
 
   useEffect(() => {

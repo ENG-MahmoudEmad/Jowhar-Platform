@@ -1300,6 +1300,7 @@ export type Database = {
           sections_count: number
         }[]
       }
+      hard_delete_member: { Args: { p_member_id: string }; Returns: undefined }
       has_admin_capability: { Args: { p_key: string }; Returns: boolean }
       has_permission: {
         Args: { perm_key: string; uid: string }
