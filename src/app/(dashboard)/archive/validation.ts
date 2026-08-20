@@ -12,6 +12,9 @@
 import { z } from 'zod';
 
 const name = z.string().trim().min(1, 'required').max(200, 'too_long');
+/** يستخدم فقط بـItem — الاسم الإنجليزي هون اختياري (لا يوجد slug يعتمد
+    عليه على مستوى العنصر، بعكس Platform/Work اللي بيولّدوا slug منه). */
+const optionalName = z.string().trim().max(200, 'too_long').optional().default('');
 const description = z.string().trim().max(2000, 'too_long');
 // الوصف اختياري ببعض الأماكن (Work/Item) — سلسلة فاضية مقبولة، بس مش أطول من الحد
 const optionalDescription = z.string().trim().max(2000, 'too_long');
@@ -47,7 +50,7 @@ export const sectionPayloadSchema = z.object({
 });
 
 export const itemPayloadSchema = z.object({
-  nameEn: name,
+  nameEn: optionalName,
   nameAr: name,
   description: optionalDescription,
   descriptionAr: optionalDescription,

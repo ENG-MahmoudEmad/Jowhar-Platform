@@ -212,7 +212,8 @@ const AddItemModal = memo(function AddItemModal({
   const tx = useMemo(() => ({
     titleAdd: lang === 'ar' ? 'إضافة عنصر جديد'     : 'Add New Item',
     titleEdit:lang === 'ar' ? 'تعديل العنصر'        : 'Edit Item',
-    nameEn:   lang === 'ar' ? 'الاسم بالإنجليزي'    : 'English Name',
+    // الاسم الإنجليزي اختياري بمستوى العنصر — ما في slug بيعتمد عليه هون
+    nameEn:   lang === 'ar' ? 'الاسم بالإنجليزي (اختياري)' : 'English Name (optional)',
     nameAr:   lang === 'ar' ? 'الاسم بالعربي'       : 'Arabic Name',
     descEn:   lang === 'ar' ? 'الوصف بالإنجليزي'    : 'English Description',
     descAr:   lang === 'ar' ? 'الوصف بالعربي'       : 'Arabic Description',
@@ -329,9 +330,10 @@ const AddItemModal = memo(function AddItemModal({
     fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
   }), [lang]);
 
+  // ── الاسم الإنجليزي صار اختياري: بس العربي ورابط الدرايف إجباريين ──
   const isAddDisabled = useMemo(
-    () => !nameEn.trim() || !nameAr.trim() || !driveUrl.trim() || uploading,
-    [nameEn, nameAr, driveUrl, uploading],
+    () => !nameAr.trim() || !driveUrl.trim() || uploading,
+    [nameAr, driveUrl, uploading],
   );
 
   const addButtonStyle = useMemo<React.CSSProperties>(() => ({
@@ -420,6 +422,7 @@ const AddItemModal = memo(function AddItemModal({
   const handleSubmit = () => {
     if (isAddDisabled) return
     const payload: ItemActionPayload = {
+      // لو الإنجليزي فاضي منسيب السيرفر يعمل fallback للعربي (addItemAction)
       nameEn:        nameEn.trim(),
       nameAr:        nameAr.trim(),
       description:   description.trim(),

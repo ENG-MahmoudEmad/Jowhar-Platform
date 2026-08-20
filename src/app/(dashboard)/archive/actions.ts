@@ -397,12 +397,16 @@ export async function addItemAction(
   }
 
   const validated = parseOrThrow(itemPayloadSchema, payload);
+  // الاسم الإنجليزي اختياري بالواجهة — لو انترك فاضي منستخدم الاسم
+  // العربي بدلاً منه، تحسبًا لأي قيد NOT NULL على name_en بالجدول أو أي
+  // كود تاني (بحث، فرز...) بيتوقع قيمة موجودة بهاد العمود دايمًا.
+  const nameEnFinal = validated.nameEn || validated.nameAr;
 
   const { data, error } = await supabase
     .from('items')
     .insert({
       section_id: sectionDbId,
-      name_en: validated.nameEn,
+      name_en: nameEnFinal,
       name_ar: validated.nameAr,
       description_en: validated.description,
       description_ar: validated.descriptionAr,
@@ -442,11 +446,12 @@ export async function updateItemAction(
   }
 
   const validated = parseOrThrow(itemPayloadSchema, updates);
+  const nameEnFinal = validated.nameEn || validated.nameAr;
 
   const { error } = await supabase
     .from('items')
     .update({
-      name_en: validated.nameEn,
+      name_en: nameEnFinal,
       name_ar: validated.nameAr,
       description_en: validated.description,
       description_ar: validated.descriptionAr,
