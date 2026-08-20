@@ -56,6 +56,623 @@ export type Database = {
           },
         ]
       }
+      chat_attachments: {
+        Row: {
+          created_at: string
+          duration_seconds: number | null
+          file_name: string
+          file_size: number | null
+          file_type: string
+          height: number | null
+          id: string
+          message_id: string
+          r2_key: string
+          uploaded_by: string
+          width: number | null
+        }
+        Insert: {
+          created_at?: string
+          duration_seconds?: number | null
+          file_name: string
+          file_size?: number | null
+          file_type: string
+          height?: number | null
+          id?: string
+          message_id: string
+          r2_key: string
+          uploaded_by: string
+          width?: number | null
+        }
+        Update: {
+          created_at?: string
+          duration_seconds?: number | null
+          file_name?: string
+          file_size?: number | null
+          file_type?: string
+          height?: number | null
+          id?: string
+          message_id?: string
+          r2_key?: string
+          uploaded_by?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_attachments_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_attachments_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_channel_members: {
+        Row: {
+          added_at: string
+          added_by: string
+          channel_id: string
+          is_muted: boolean
+          member_id: string
+          muted_at: string | null
+        }
+        Insert: {
+          added_at?: string
+          added_by: string
+          channel_id: string
+          is_muted?: boolean
+          member_id: string
+          muted_at?: string | null
+        }
+        Update: {
+          added_at?: string
+          added_by?: string
+          channel_id?: string
+          is_muted?: boolean
+          member_id?: string
+          muted_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_channel_members_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_channel_members_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "chat_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_channel_members_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_channel_moderators: {
+        Row: {
+          channel_id: string
+          granted_at: string
+          granted_by: string
+          member_id: string
+          permission_key: string
+        }
+        Insert: {
+          channel_id: string
+          granted_at?: string
+          granted_by: string
+          member_id: string
+          permission_key: string
+        }
+        Update: {
+          channel_id?: string
+          granted_at?: string
+          granted_by?: string
+          member_id?: string
+          permission_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_channel_moderators_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "chat_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_channel_moderators_granted_by_fkey"
+            columns: ["granted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_channel_moderators_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_channel_moderators_permission_key_fkey"
+            columns: ["permission_key"]
+            isOneToOne: false
+            referencedRelation: "chat_permissions"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      chat_channels: {
+        Row: {
+          archived_at: string | null
+          archived_by: string | null
+          created_at: string
+          created_by: string
+          description_ar: string | null
+          description_en: string | null
+          id: string
+          is_archived: boolean
+          name_ar: string
+          name_en: string
+          retention_months: number
+          slow_mode_seconds: number
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
+          created_at?: string
+          created_by: string
+          description_ar?: string | null
+          description_en?: string | null
+          id?: string
+          is_archived?: boolean
+          name_ar: string
+          name_en: string
+          retention_months?: number
+          slow_mode_seconds?: number
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          archived_by?: string | null
+          created_at?: string
+          created_by?: string
+          description_ar?: string | null
+          description_en?: string | null
+          id?: string
+          is_archived?: boolean
+          name_ar?: string
+          name_en?: string
+          retention_months?: number
+          slow_mode_seconds?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_channels_archived_by_fkey"
+            columns: ["archived_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_channels_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_deletion_log: {
+        Row: {
+          created_at: string
+          executed_at: string | null
+          id: string
+          messages_deleted: number | null
+          range_end: string
+          range_start: string
+          warning_sent_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          executed_at?: string | null
+          id?: string
+          messages_deleted?: number | null
+          range_end: string
+          range_start: string
+          warning_sent_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          executed_at?: string | null
+          id?: string
+          messages_deleted?: number | null
+          range_end?: string
+          range_start?: string
+          warning_sent_at?: string | null
+        }
+        Relationships: []
+      }
+      chat_member_restrictions: {
+        Row: {
+          allowed_emojis: string[] | null
+          can_send_messages: boolean
+          can_send_voice: boolean
+          channel_id: string
+          member_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          allowed_emojis?: string[] | null
+          can_send_messages?: boolean
+          can_send_voice?: boolean
+          channel_id: string
+          member_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          allowed_emojis?: string[] | null
+          can_send_messages?: boolean
+          can_send_voice?: boolean
+          channel_id?: string
+          member_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_member_restrictions_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "chat_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_member_restrictions_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_member_restrictions_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_message_reactions: {
+        Row: {
+          created_at: string
+          emoji: string
+          member_id: string
+          message_id: string
+        }
+        Insert: {
+          created_at?: string
+          emoji: string
+          member_id: string
+          message_id: string
+        }
+        Update: {
+          created_at?: string
+          emoji?: string
+          member_id?: string
+          message_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_message_reactions_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_message_reactions_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_message_reads: {
+        Row: {
+          member_id: string
+          message_id: string
+          read_at: string
+        }
+        Insert: {
+          member_id: string
+          message_id: string
+          read_at?: string
+        }
+        Update: {
+          member_id?: string
+          message_id?: string
+          read_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_message_reads_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_message_reads_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_messages: {
+        Row: {
+          attachment_type: string | null
+          attachment_url: string | null
+          channel_id: string
+          content: string | null
+          created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
+          edited_at: string | null
+          forwarded_from_channel_id: string | null
+          forwarded_from_message_id: string | null
+          forwarded_from_sender_id: string | null
+          id: string
+          is_pinned: boolean
+          mentions_everyone: boolean
+          mentions_here: boolean
+          pinned_at: string | null
+          pinned_by: string | null
+          reply_to_message_id: string | null
+          sender_id: string
+        }
+        Insert: {
+          attachment_type?: string | null
+          attachment_url?: string | null
+          channel_id: string
+          content?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          edited_at?: string | null
+          forwarded_from_channel_id?: string | null
+          forwarded_from_message_id?: string | null
+          forwarded_from_sender_id?: string | null
+          id?: string
+          is_pinned?: boolean
+          mentions_everyone?: boolean
+          mentions_here?: boolean
+          pinned_at?: string | null
+          pinned_by?: string | null
+          reply_to_message_id?: string | null
+          sender_id: string
+        }
+        Update: {
+          attachment_type?: string | null
+          attachment_url?: string | null
+          channel_id?: string
+          content?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          edited_at?: string | null
+          forwarded_from_channel_id?: string | null
+          forwarded_from_message_id?: string | null
+          forwarded_from_sender_id?: string | null
+          id?: string
+          is_pinned?: boolean
+          mentions_everyone?: boolean
+          mentions_here?: boolean
+          pinned_at?: string | null
+          pinned_by?: string | null
+          reply_to_message_id?: string | null
+          sender_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "chat_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_forwarded_from_channel_id_fkey"
+            columns: ["forwarded_from_channel_id"]
+            isOneToOne: false
+            referencedRelation: "chat_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_forwarded_from_message_id_fkey"
+            columns: ["forwarded_from_message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_forwarded_from_sender_id_fkey"
+            columns: ["forwarded_from_sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_pinned_by_fkey"
+            columns: ["pinned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_reply_to_message_id_fkey"
+            columns: ["reply_to_message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_notifications: {
+        Row: {
+          actor_id: string | null
+          channel_id: string | null
+          created_at: string
+          href: string
+          id: string
+          is_read: boolean
+          message_id: string | null
+          read_at: string | null
+          recipient_id: string
+          subject: string
+          type: Database["public"]["Enums"]["chat_notification_type"]
+        }
+        Insert: {
+          actor_id?: string | null
+          channel_id?: string | null
+          created_at?: string
+          href: string
+          id?: string
+          is_read?: boolean
+          message_id?: string | null
+          read_at?: string | null
+          recipient_id: string
+          subject?: string
+          type: Database["public"]["Enums"]["chat_notification_type"]
+        }
+        Update: {
+          actor_id?: string | null
+          channel_id?: string | null
+          created_at?: string
+          href?: string
+          id?: string
+          is_read?: boolean
+          message_id?: string | null
+          read_at?: string | null
+          recipient_id?: string
+          subject?: string
+          type?: Database["public"]["Enums"]["chat_notification_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_notifications_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_notifications_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "chat_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_notifications_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_notifications_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_permissions: {
+        Row: {
+          category: string
+          key: string
+          label_ar: string
+          label_en: string
+        }
+        Insert: {
+          category?: string
+          key: string
+          label_ar: string
+          label_en: string
+        }
+        Update: {
+          category?: string
+          key?: string
+          label_ar?: string
+          label_en?: string
+        }
+        Relationships: []
+      }
+      chat_retention_settings: {
+        Row: {
+          id: number
+          retention_months: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: number
+          retention_months?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: number
+          retention_months?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_retention_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_verses: {
         Row: {
           arabic_text: string
@@ -1056,6 +1673,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_chat_channel_members: {
+        Args: { p_channel_id: string; p_member_ids: string[] }
+        Returns: undefined
+      }
       add_file_type: {
         Args: { p_color: string; p_key: string }
         Returns: {
@@ -1097,6 +1718,10 @@ export type Database = {
         Returns: boolean
       }
       cleanup_old_notifications: { Args: never; Returns: undefined }
+      clear_chat_messages: {
+        Args: { p_channel_id: string; p_count?: number }
+        Returns: number
+      }
       complete_email_change: { Args: { p_user_id: string }; Returns: boolean }
       copy_files: {
         Args: { p_file_ids: string[]; p_to_item_id: string }
@@ -1145,11 +1770,45 @@ export type Database = {
         Args: { p_section_id: string; p_to_work_id: string }
         Returns: undefined
       }
+      delete_chat_message: {
+        Args: { p_message_id: string }
+        Returns: undefined
+      }
       delete_file: { Args: { p_file_id: string }; Returns: undefined }
       delete_item: { Args: { p_item_id: string }; Returns: undefined }
       delete_platform: { Args: { p_platform_id: string }; Returns: undefined }
       delete_section: { Args: { p_section_id: string }; Returns: undefined }
       delete_work: { Args: { p_work_id: string }; Returns: undefined }
+      forward_chat_message: {
+        Args: { p_message_id: string; p_to_channel_id: string }
+        Returns: {
+          attachment_type: string | null
+          attachment_url: string | null
+          channel_id: string
+          content: string | null
+          created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
+          edited_at: string | null
+          forwarded_from_channel_id: string | null
+          forwarded_from_message_id: string | null
+          forwarded_from_sender_id: string | null
+          id: string
+          is_pinned: boolean
+          mentions_everyone: boolean
+          mentions_here: boolean
+          pinned_at: string | null
+          pinned_by: string | null
+          reply_to_message_id: string | null
+          sender_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "chat_messages"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       get_admin_member_badges: {
         Args: never
         Returns: {
@@ -1302,6 +1961,10 @@ export type Database = {
       }
       hard_delete_member: { Args: { p_member_id: string }; Returns: undefined }
       has_admin_capability: { Args: { p_key: string }; Returns: boolean }
+      has_chat_permission: {
+        Args: { p_channel_id: string; p_key: string; uid: string }
+        Returns: boolean
+      }
       has_permission: {
         Args: { perm_key: string; uid: string }
         Returns: boolean
@@ -1309,6 +1972,11 @@ export type Database = {
       is_active_member: { Args: never; Returns: boolean }
       is_active_user: { Args: { uid: string }; Returns: boolean }
       is_admin: { Args: { uid: string }; Returns: boolean }
+      is_chat_channel_member: {
+        Args: { p_channel_id: string; uid: string }
+        Returns: boolean
+      }
+      is_chat_super_admin: { Args: { uid: string }; Returns: boolean }
       is_chief: { Args: { uid: string }; Returns: boolean }
       is_developer: { Args: { uid?: string }; Returns: boolean }
       is_effectively_suspended: { Args: { uid: string }; Returns: boolean }
@@ -1342,6 +2010,18 @@ export type Database = {
           p_href: string
           p_subject: string
           p_type: Database["public"]["Enums"]["notification_type"]
+        }
+        Returns: undefined
+      }
+      notify_chat_user: {
+        Args: {
+          p_actor: string
+          p_channel_id: string
+          p_href: string
+          p_message_id: string
+          p_recipient: string
+          p_subject: string
+          p_type: Database["public"]["Enums"]["chat_notification_type"]
         }
         Returns: undefined
       }
@@ -1380,12 +2060,65 @@ export type Database = {
         Args: { p_key: string; p_resolver: string }
         Returns: number
       }
+      run_chat_retention_cycle: {
+        Args: never
+        Returns: {
+          action: string
+          affected: number
+          range_end: string
+          range_start: string
+        }[]
+      }
+      send_chat_message: {
+        Args: {
+          p_channel_id: string
+          p_content: string
+          p_mentions_everyone?: boolean
+          p_mentions_here?: boolean
+          p_reply_to_message_id?: string
+        }
+        Returns: {
+          attachment_type: string | null
+          attachment_url: string | null
+          channel_id: string
+          content: string | null
+          created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
+          edited_at: string | null
+          forwarded_from_channel_id: string | null
+          forwarded_from_message_id: string | null
+          forwarded_from_sender_id: string | null
+          id: string
+          is_pinned: boolean
+          mentions_everyone: boolean
+          mentions_here: boolean
+          pinned_at: string | null
+          pinned_by: string | null
+          reply_to_message_id: string | null
+          sender_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "chat_messages"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       set_archive_view_mode: { Args: { p_mode: string }; Returns: undefined }
       shares_platform_with: {
         Args: { p_actor_id: string; p_target_id: string }
         Returns: boolean
       }
       stamp_password_change: { Args: { p_user_id: string }; Returns: undefined }
+      toggle_chat_channel_archive: {
+        Args: { p_archive: boolean; p_channel_id: string }
+        Returns: undefined
+      }
+      toggle_pin_chat_message: {
+        Args: { p_message_id: string; p_pin: boolean }
+        Returns: undefined
+      }
       toggle_post_like: {
         Args: { p_post_id: number }
         Returns: {
@@ -1393,10 +2126,23 @@ export type Database = {
           likes_count: number
         }[]
       }
+      update_chat_retention_months: {
+        Args: { p_months: number }
+        Returns: undefined
+      }
     }
     Enums: {
       access_role: "member" | "admin"
       account_status: "pending_approval" | "active" | "rejected"
+      chat_notification_type:
+        | "mention"
+        | "mention_everyone"
+        | "mention_here"
+        | "reply"
+        | "added_to_channel"
+        | "channel_archived"
+        | "channel_unarchived"
+        | "deletion_warning"
       email_change_status:
         | "pending_admin"
         | "pending_email_verification"
@@ -1548,6 +2294,16 @@ export const Constants = {
     Enums: {
       access_role: ["member", "admin"],
       account_status: ["pending_approval", "active", "rejected"],
+      chat_notification_type: [
+        "mention",
+        "mention_everyone",
+        "mention_here",
+        "reply",
+        "added_to_channel",
+        "channel_archived",
+        "channel_unarchived",
+        "deletion_warning",
+      ],
       email_change_status: [
         "pending_admin",
         "pending_email_verification",
