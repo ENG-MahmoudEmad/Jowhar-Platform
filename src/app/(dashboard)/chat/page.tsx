@@ -13,17 +13,24 @@ export default async function ChatPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('is_developer, is_chief')
+    .select('first_name, last_name, color, avatar_url, is_developer, is_chief')
     .eq('id', user.id)
     .single()
 
   const isSuperAdmin = !!(profile?.is_developer || profile?.is_chief)
 
+  const currentUserDisplay = {
+    name: `${profile?.first_name ?? ''} ${profile?.last_name ?? ''}`.trim(),
+    initials: `${(profile?.first_name ?? '')[0] ?? ''}${(profile?.last_name ?? '')[0] ?? ''}`.toUpperCase(),
+    color: profile?.color ?? '#458482',
+    avatarUrl: profile?.avatar_url ?? null,
+  }
+
   // القنوات المرئية للمستخدم — الـ RLS (is_chat_channel_member) بتفلتر
   // تلقائياً القنوات اللي هو مو عضو فيها، فما بتظهر أصلاً.
   const { data: memberships } = await supabase
     .from('chat_channel_members')
-    .select('is_muted, channel:chat_channels(id, name_en, name_ar, is_archived)')
+    .select('is_muted, channel:chat_channels(id, name_en, name_ar, is_archived, image_url, allowed_reaction_emojis)')
     .eq('member_id', user.id)
 
   const channels: ChatChannelSummary[] = (memberships ?? [])
@@ -35,6 +42,8 @@ export default async function ChatPage() {
       isArchived: m.channel.is_archived,
       unreadCount: 0, // TODO: يُحسب لاحقاً من chat_message_reads مقابل chat_messages
       isMuted: m.is_muted,
+      imageUrl: m.channel.image_url,
+      allowedReactionEmojis: m.channel.allowed_reaction_emojis,
     }))
     .filter((c) => !c.isArchived)
 
@@ -47,8 +56,10 @@ export default async function ChatPage() {
       <ChatClient
         channels={channels}
         currentUserId={user.id}
+        currentUserDisplay={currentUserDisplay}
         canDeleteOthersMessages={canDeleteOthersMessages}
         canPinMessages={canPinMessages}
+        canManageChannels={isSuperAdmin}
       />
     </div>
   )

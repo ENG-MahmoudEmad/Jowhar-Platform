@@ -1,7 +1,7 @@
 // src/components/dashboard/chat/ChatComposer.tsx
 "use client"
 
-import React, { memo, useCallback, useState } from 'react'
+import React, { memo, useCallback, useState, useRef, useEffect } from 'react'
 import { Send, X, CornerUpLeft } from 'lucide-react'
 import { useLang } from '@/context/LangContext'
 import { useTheme } from '@/context/ThemeContext'
@@ -13,11 +13,25 @@ interface ChatComposerProps {
   onSend: (content: string, replyToMessageId?: string) => void
 }
 
+const LINE_HEIGHT_PX = 20
+const MAX_LINES = 12
+const MAX_HEIGHT_PX = LINE_HEIGHT_PX * MAX_LINES
+
 function ChatComposer({ replyingTo, onCancelReply, onSend }: ChatComposerProps) {
   const { lang, isRTL } = useLang()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const [value, setValue] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // إعادة حساب ارتفاع الصندوق تلقائياً مع كل تغيير نص، لحد 12 سطر
+  // (زي تيليجرام) وبعدها يصير scroll داخلي بدل ما يكبر أكتر.
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`
+  }, [value])
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setValue(e.target.value)
@@ -27,6 +41,7 @@ function ChatComposer({ replyingTo, onCancelReply, onSend }: ChatComposerProps) 
     if (!value.trim()) return
     onSend(value.trim(), replyingTo?.id)
     setValue('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }, [value, replyingTo, onSend])
 
   const handleKeyDown = useCallback(
@@ -62,18 +77,20 @@ function ChatComposer({ replyingTo, onCancelReply, onSend }: ChatComposerProps) 
 
       <div className="flex items-end gap-2">
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           rows={1}
           placeholder={lang === 'ar' ? 'اكتب رسالة...' : 'Type a message...'}
-          className="flex-1 resize-none rounded-xl px-3.5 py-2.5 text-[13px] outline-none"
+          className="flex-1 resize-none rounded-xl px-3.5 py-2.5 text-[13px] outline-none overflow-y-auto custom-scrollbar"
           style={{
             background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
             border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
             color: 'var(--foreground)',
             fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'inherit',
-            maxHeight: '120px',
+            lineHeight: `${LINE_HEIGHT_PX}px`,
+            maxHeight: `${MAX_HEIGHT_PX}px`,
           }}
         />
         <button

@@ -217,6 +217,7 @@ export type Database = {
       }
       chat_channels: {
         Row: {
+          allowed_reaction_emojis: string[] | null
           archived_at: string | null
           archived_by: string | null
           created_at: string
@@ -224,6 +225,7 @@ export type Database = {
           description_ar: string | null
           description_en: string | null
           id: string
+          image_url: string | null
           is_archived: boolean
           name_ar: string
           name_en: string
@@ -232,6 +234,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          allowed_reaction_emojis?: string[] | null
           archived_at?: string | null
           archived_by?: string | null
           created_at?: string
@@ -239,6 +242,7 @@ export type Database = {
           description_ar?: string | null
           description_en?: string | null
           id?: string
+          image_url?: string | null
           is_archived?: boolean
           name_ar: string
           name_en: string
@@ -247,6 +251,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          allowed_reaction_emojis?: string[] | null
           archived_at?: string | null
           archived_by?: string | null
           created_at?: string
@@ -254,6 +259,7 @@ export type Database = {
           description_ar?: string | null
           description_en?: string | null
           id?: string
+          image_url?: string | null
           is_archived?: boolean
           name_ar?: string
           name_en?: string
@@ -2125,6 +2131,14 @@ export type Database = {
           liked: boolean
           likes_count: number
         }[]
+      }
+      update_chat_channel_emoji_whitelist: {
+        Args: { p_channel_id: string; p_emojis: string[] }
+        Returns: undefined
+      }
+      update_chat_channel_image: {
+        Args: { p_channel_id: string; p_image_url: string }
+        Returns: undefined
       }
       update_chat_retention_months: {
         Args: { p_months: number }

@@ -11,8 +11,8 @@ import type { ChatMessageData } from '@/components/dashboard/chat/ChatMessageBub
 
   ⚠️ ملاحظة: PostgREST ما بيدعم nested embed لجدول جوا نفسه بسهولة
   (chat_messages داخل chat_messages للرد/الفوروورد) — لهيك بنجيب رسائل
-  الأساس أول، وبعدين كويري ثاني منفصل لجلب "رسائل الرد" اللي محتاجينها
-  بس، ونربطهم بالكود بدل الاعتماد على embed معقّد وهش.
+  الأساس أول، وبعدين كويريات ثانية منفصلة لجلب "رسائل الرد"، التفاعلات،
+  وحالة القراءة، ونربطهم بالكود بدل الاعتماد على embed معقّد وهش.
 */
 export async function GET(
   _request: Request,
@@ -20,6 +20,8 @@ export async function GET(
 ) {
   const { channelId } = await params
   const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
 
   const { data, error } = await supabase
     .from('chat_messages')
@@ -40,10 +42,10 @@ export async function GET(
   }
 
   const rows = data ?? []
+  const messageIds = rows.map((r: any) => r.id)
 
-  // نجيب رسائل "الرد على" اللي فعلاً محتاجينها بكويري منفصل
+  // رسائل "الرد على" اللي فعلاً محتاجينها
   const replyIds = [...new Set(rows.map((r: any) => r.reply_to_message_id).filter(Boolean))]
-
   const repliesMap = new Map<string, { id: string; content: string | null; senderName: string }>()
 
   if (replyIds.length > 0) {
@@ -58,6 +60,48 @@ export async function GET(
         content: r.content,
         senderName: `${(r.sender as any)?.first_name ?? ''} ${(r.sender as any)?.last_name ?? ''}`.trim(),
       })
+    }
+  }
+
+  // تفاعلات كل رسائل القناة، مجمّعة بالكود حسب message_id
+  const reactionsByMessage = new Map<
+    string,
+    { emoji: string; count: number; reactedByMe: boolean; reactorNames: string[] }[]
+  >()
+
+  // عدد القراء (غير المرسل) لكل رسالة — لحالة التيكين
+  const readCountByMessage = new Map<string, number>()
+
+  if (messageIds.length > 0) {
+    const { data: reactionRows } = await supabase
+      .from('chat_message_reactions')
+      .select('message_id, emoji, member_id, profiles!chat_message_reactions_member_id_fkey(first_name, last_name)')
+      .in('message_id', messageIds)
+
+    for (const r of reactionRows ?? []) {
+      const list = reactionsByMessage.get(r.message_id) ?? []
+      const name = `${(r.profiles as any)?.first_name ?? ''} ${(r.profiles as any)?.last_name ?? ''}`.trim()
+      let entry = list.find((x) => x.emoji === r.emoji)
+      if (!entry) {
+        entry = { emoji: r.emoji, count: 0, reactedByMe: false, reactorNames: [] }
+        list.push(entry)
+      }
+      entry.count += 1
+      entry.reactorNames.push(name)
+      if (r.member_id === user?.id) entry.reactedByMe = true
+      reactionsByMessage.set(r.message_id, list)
+    }
+
+    const { data: readRows } = await supabase
+      .from('chat_message_reads')
+      .select('message_id, member_id')
+      .in('message_id', messageIds)
+
+    const senderByMessageId = new Map(rows.map((r: any) => [r.id, r.sender_id]))
+    for (const r of readRows ?? []) {
+      if (r.member_id !== senderByMessageId.get(r.message_id)) {
+        readCountByMessage.set(r.message_id, (readCountByMessage.get(r.message_id) ?? 0) + 1)
+      }
     }
   }
 
@@ -80,6 +124,8 @@ export async function GET(
           senderName: `${row.forwarded_sender?.first_name ?? ''} ${row.forwarded_sender?.last_name ?? ''}`.trim(),
         }
       : null,
+    reactions: reactionsByMessage.get(row.id) ?? [],
+    readByCount: readCountByMessage.get(row.id) ?? 0,
   }))
 
   return NextResponse.json(messages)

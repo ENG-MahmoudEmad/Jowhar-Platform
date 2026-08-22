@@ -3,37 +3,92 @@
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LazyMotion, domAnimation } from 'framer-motion'
-import { MessageSquare } from 'lucide-react'
+import { MessageSquare, Settings } from 'lucide-react'
 import { useLang } from '@/context/LangContext'
 import { useTheme } from '@/context/ThemeContext'
 import ChatChannelList, { type ChatChannelSummary } from './ChatChannelList'
 import ChatMessageBubble, { type ChatMessageData } from './ChatMessageBubble'
 import ChatComposer from './ChatComposer'
+import ChatForwardPicker from './ChatForwardPicker'
+import ChatChannelSettings from './ChatChannelSettings'
+import { DEFAULT_QUICK_EMOJIS } from './ChatMessageReactions'
 import { useChatChannel } from '@/lib/chat/useChatChannel'
 
 interface ChatClientProps {
   channels: ChatChannelSummary[]
   currentUserId: string
+  currentUserDisplay: { name: string; initials: string; color: string; avatarUrl: string | null }
   canDeleteOthersMessages: boolean
   canPinMessages: boolean
+  /** Chief/Developer فقط — يقدروا يديروا صورة القناة وقائمة الإيموجي */
+  canManageChannels: boolean
 }
 
-function ChatClient({ channels, currentUserId, canDeleteOthersMessages, canPinMessages }: ChatClientProps) {
+function ChatClient({
+  channels: initialChannels,
+  currentUserId,
+  currentUserDisplay,
+  canDeleteOthersMessages,
+  canPinMessages,
+  canManageChannels,
+}: ChatClientProps) {
   const { lang, isRTL } = useLang()
   const { theme } = useTheme()
   const isDark = theme === 'dark'
 
+  const [channels, setChannels] = useState<ChatChannelSummary[]>(initialChannels)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
   const [activeChannelId, setActiveChannelId] = useState<string | null>(channels[0]?.id ?? null)
   const [replyingTo, setReplyingTo] = useState<ChatMessageData | null>(null)
+  const [forwardTarget, setForwardTarget] = useState<ChatMessageData | null>(null)
 
-  const { messages, loading, sendMessage, deleteMessage, togglePin, forwardMessage } =
-    useChatChannel(activeChannelId, currentUserId)
+  const { messages, loading, sendMessage, retryMessage, deleteMessage, togglePin, forwardMessage, reactMessage, markRead } =
+    useChatChannel(activeChannelId, currentUserId, currentUserDisplay)
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const pendingReadIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages.length])
+
+  // نجمّع كل الرسائل اللي دخلت الشاشة خلال 1.5 ثانية ونبعتهم دفعة وحدة
+  // بدل نداء منفصل لكل رسالة — نفس فلسفة "تعليم قراءة عند الدخول
+  // الفعلي" اللي تيليجرام يعتمدها.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (pendingReadIds.current.size === 0) return
+      const ids = Array.from(pendingReadIds.current)
+      pendingReadIds.current.clear()
+      void markRead(ids)
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [markRead])
+
+  const observeMessageRef = useCallback(
+    (node: HTMLDivElement | null, messageId: string, isOwn: boolean) => {
+      if (!node || isOwn) return // ما نعلّم رسائلنا كمقروءة من عندنا
+
+      if (!observerRef.current) {
+        observerRef.current = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                const id = entry.target.getAttribute('data-message-id')
+                if (id) pendingReadIds.current.add(id)
+              }
+            }
+          },
+          { threshold: 0.6 },
+        )
+      }
+      node.setAttribute('data-message-id', messageId)
+      observerRef.current.observe(node)
+    },
+    [],
+  )
 
   const handleSelectChannel = useCallback((channelId: string) => {
     setActiveChannelId(channelId)
@@ -51,19 +106,45 @@ function ChatClient({ channels, currentUserId, canDeleteOthersMessages, canPinMe
     [sendMessage],
   )
 
-  const handleForward = useCallback(
-    (message: ChatMessageData) => {
-      // اختيار القناة الوجهة بواجهة لاحقة (قائمة منسدلة) — مؤقتاً لأول قناة تانية متاحة
-      const target = channels.find((c) => c.id !== activeChannelId)
-      if (target) void forwardMessage(message.id, target.id)
+  const handleForward = useCallback((message: ChatMessageData) => setForwardTarget(message), [])
+
+  const handleConfirmForward = useCallback(
+    (toChannelId: string) => {
+      if (forwardTarget) void forwardMessage(forwardTarget.id, toChannelId)
+      setForwardTarget(null)
     },
-    [channels, activeChannelId, forwardMessage],
+    [forwardTarget, forwardMessage],
+  )
+
+  const handleCloseForwardPicker = useCallback(() => setForwardTarget(null), [])
+
+  const handleOpenSettings = useCallback(() => setSettingsOpen(true), [])
+  const handleCloseSettings = useCallback(() => setSettingsOpen(false), [])
+
+  const handleChannelUpdated = useCallback(
+    (patch: { imageUrl?: string; allowedReactionEmojis?: string[] }) => {
+      if (!activeChannelId) return
+      setChannels((prev) =>
+        prev.map((c) =>
+          c.id === activeChannelId
+            ? {
+                ...c,
+                imageUrl: patch.imageUrl ?? c.imageUrl,
+                allowedReactionEmojis: patch.allowedReactionEmojis ?? c.allowedReactionEmojis,
+              }
+            : c,
+        ),
+      )
+    },
+    [activeChannelId],
   )
 
   const activeChannel = useMemo(
     () => channels.find((c) => c.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   )
+
+  const allowedEmojis = activeChannel?.allowedReactionEmojis ?? DEFAULT_QUICK_EMOJIS
 
   const channelDisplayName = activeChannel ? (lang === 'ar' ? activeChannel.nameAr : activeChannel.nameEn) : ''
 
@@ -101,11 +182,22 @@ function ChatClient({ channels, currentUserId, canDeleteOthersMessages, canPinMe
                 style={{ borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}
               >
                 <h2
-                  className="text-[13px] font-black"
+                  className="text-[13px] font-black flex-1"
                   style={{ color: 'var(--foreground)', fontFamily: lang === 'ar' ? 'var(--font-arabic)' : 'var(--font-display)' }}
                 >
                   {channelDisplayName}
                 </h2>
+                {canManageChannels && (
+                  <button
+                    type="button"
+                    onClick={handleOpenSettings}
+                    className="p-1.5 rounded-lg"
+                    style={{ color: 'var(--foreground-muted)', cursor: 'pointer' }}
+                    title={lang === 'ar' ? 'إعدادات القناة' : 'Channel settings'}
+                  >
+                    <Settings size={15} />
+                  </button>
+                )}
               </div>
 
               <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto py-2">
@@ -119,18 +211,25 @@ function ChatClient({ channels, currentUserId, canDeleteOthersMessages, canPinMe
                   </div>
                 ) : (
                   messages.map((message) => (
-                    <ChatMessageBubble
+                    <div
                       key={message.id}
-                      message={message}
-                      isOwn={message.senderId === currentUserId}
-                      isHighlightedAsReplyTarget={replyingTo?.id === message.id}
-                      canDeleteOthers={canDeleteOthersMessages}
-                      canPin={canPinMessages}
-                      onReply={handleReply}
-                      onForward={handleForward}
-                      onDelete={deleteMessage}
-                      onTogglePin={togglePin}
-                    />
+                      ref={(node) => observeMessageRef(node, message.id, message.senderId === currentUserId)}
+                    >
+                      <ChatMessageBubble
+                        message={message}
+                        isOwn={message.senderId === currentUserId}
+                        isHighlightedAsReplyTarget={replyingTo?.id === message.id}
+                        canDeleteOthers={canDeleteOthersMessages}
+                        canPin={canPinMessages}
+                        onReply={handleReply}
+                        onForward={handleForward}
+                        onDelete={deleteMessage}
+                        onTogglePin={togglePin}
+                        onRetry={retryMessage}
+                        onReact={reactMessage}
+                        allowedEmojis={allowedEmojis}
+                      />
+                    </div>
                   ))
                 )}
               </div>
@@ -140,6 +239,25 @@ function ChatClient({ channels, currentUserId, canDeleteOthersMessages, canPinMe
           )}
         </div>
       </div>
+
+      <ChatForwardPicker
+        open={!!forwardTarget}
+        channels={channels}
+        excludeChannelId={activeChannelId}
+        onClose={handleCloseForwardPicker}
+        onSelect={handleConfirmForward}
+      />
+
+      {settingsOpen && activeChannel && (
+        <ChatChannelSettings
+          channelId={activeChannel.id}
+          channelName={channelDisplayName}
+          currentImageUrl={activeChannel.imageUrl}
+          currentAllowedEmojis={activeChannel.allowedReactionEmojis}
+          onClose={handleCloseSettings}
+          onUpdated={handleChannelUpdated}
+        />
+      )}
     </LazyMotion>
   )
 }

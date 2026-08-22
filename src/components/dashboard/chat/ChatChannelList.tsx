@@ -2,6 +2,7 @@
 "use client"
 
 import React, { memo, useMemo, useCallback } from 'react'
+import Image from 'next/image'
 import { m } from 'framer-motion'
 import { Hash, Lock } from 'lucide-react'
 import { useLang } from '@/context/LangContext'
@@ -14,6 +15,8 @@ export interface ChatChannelSummary {
   isArchived: boolean
   unreadCount: number
   isMuted: boolean
+  imageUrl: string | null
+  allowedReactionEmojis: string[] | null
 }
 
 interface ChatChannelListProps {
@@ -58,11 +61,17 @@ const ChannelRow = memo(function ChannelRow({
       className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-start"
       style={rowStyle}
     >
-      <Hash
-        size={15}
-        className="shrink-0"
-        style={{ color: isActive ? CHANNEL_COLOR : 'var(--foreground-muted)' }}
-      />
+      {channel.imageUrl ? (
+        <div className="relative w-6 h-6 rounded-md overflow-hidden shrink-0">
+          <Image src={channel.imageUrl} alt="" fill sizes="24px" className="object-cover" unoptimized />
+        </div>
+      ) : (
+        <Hash
+          size={15}
+          className="shrink-0"
+          style={{ color: isActive ? CHANNEL_COLOR : 'var(--foreground-muted)' }}
+        />
+      )}
 
       <span
         className="flex-1 min-w-0 truncate text-[12.5px] font-bold"
