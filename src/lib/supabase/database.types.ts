@@ -2061,6 +2061,10 @@ export type Database = {
       }
       purge_deleted_profiles: { Args: never; Returns: number }
       purge_old_notifications: { Args: never; Returns: number }
+      remove_chat_channel_member: {
+        Args: { p_channel_id: string; p_member_id: string }
+        Returns: undefined
+      }
       request_password_reset: { Args: { p_email: string }; Returns: boolean }
       resolve_notification_group: {
         Args: { p_key: string; p_resolver: string }

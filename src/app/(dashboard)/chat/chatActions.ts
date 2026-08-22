@@ -320,3 +320,131 @@ export async function updateChatChannelEmojiWhitelistAction(
     allowedReactionEmojis: emojis,
   })
 }
+
+/*
+  إنشاء قناة جديدة — حصراً Chief/Developer (تُفرض بـRLS على chat_channels
+  نفسها، chat_channels_insert). بعد الإنشاء، منضيف صاحب القرار نفسه
+  كعضو تلقائياً عشان يقدر يشوفها فوراً بقائمته.
+*/
+export async function createChatChannelAction(
+  nameEn: string,
+  nameAr: string,
+  memberIds: string[],
+): Promise<{ id: string; nameEn: string; nameAr: string }> {
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('unauthenticated')
+
+  const { data: channel, error } = await supabase
+    .from('chat_channels')
+    .insert({ name_en: nameEn, name_ar: nameAr, created_by: user.id })
+    .select('id, name_en, name_ar')
+    .single()
+  if (error) throw error
+
+  const allMemberIds = [...new Set([user.id, ...memberIds])]
+
+  const { error: addError } = await supabase.rpc('add_chat_channel_members', {
+    p_channel_id: channel.id,
+    p_member_ids: allMemberIds,
+  })
+  if (addError) throw addError
+
+  return { id: channel.id, nameEn: channel.name_en, nameAr: channel.name_ar }
+}
+
+/*
+  إضافة أعضاء لقناة موجودة — غلاف حول add_chat_channel_members RPC
+  (اللي أصلاً بترسل إشعار added_to_channel تلقائياً لكل عضو منضاف).
+*/
+export async function addChatChannelMembersAction(
+  channelId: string,
+  memberIds: string[],
+): Promise<void> {
+  const supabase = await createClient()
+
+  const { error } = await supabase.rpc('add_chat_channel_members', {
+    p_channel_id: channelId,
+    p_member_ids: memberIds,
+  })
+  if (error) throw error
+
+  await pusherServer.trigger(`chat-channel-${channelId}`, 'members-updated', {
+    action: 'added',
+    memberIds,
+  })
+}
+
+/*
+  إزالة عضو من قناة — حصراً Chief/Developer.
+*/
+export async function removeChatChannelMemberAction(
+  channelId: string,
+  memberId: string,
+): Promise<void> {
+  const supabase = await createClient()
+
+  const { error } = await supabase.rpc('remove_chat_channel_member', {
+    p_channel_id: channelId,
+    p_member_id: memberId,
+  })
+  if (error) throw error
+
+  await pusherServer.trigger(`chat-channel-${channelId}`, 'members-updated', {
+    action: 'removed',
+    memberIds: [memberId],
+  })
+}
+
+/*
+  جلب قائمة كل الأعضاء النشطين بالمنصة (للـpicker وقت إنشاء قناة أو
+  إضافة أعضاء) — بيانات عامة بسيطة، بدون فحص صلاحيات إضافي هون لأنها
+  قراءة فقط لبيانات عرض أصلاً مسموحة (نفس roster المستخدم بـMembersCard).
+*/
+export async function listAllActiveMembersAction(): Promise<
+  { id: string; name: string; initials: string; color: string; avatarUrl: string | null }[]
+> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, color, avatar_url')
+    .eq('status', 'active')
+    .is('deleted_at', null)
+    .order('first_name')
+  if (error) throw error
+
+  return (data ?? []).map((p) => ({
+    id: p.id,
+    name: `${p.first_name} ${p.last_name}`.trim(),
+    initials: `${p.first_name?.[0] ?? ''}${p.last_name?.[0] ?? ''}`.toUpperCase(),
+    color: p.color,
+    avatarUrl: p.avatar_url,
+  }))
+}
+
+/*
+  أعضاء قناة معينة (لعرضهم بلوحة الإدارة وإزالتهم).
+*/
+export async function listChatChannelMembersAction(
+  channelId: string,
+): Promise<{ id: string; name: string; initials: string; color: string; avatarUrl: string | null }[]> {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('chat_channel_members')
+    .select('member:profiles!chat_channel_members_member_id_fkey(id, first_name, last_name, color, avatar_url)')
+    .eq('channel_id', channelId)
+  if (error) throw error
+
+  return (data ?? [])
+    .filter((r: any) => r.member)
+    .map((r: any) => ({
+      id: r.member.id,
+      name: `${r.member.first_name} ${r.member.last_name}`.trim(),
+      initials: `${r.member.first_name?.[0] ?? ''}${r.member.last_name?.[0] ?? ''}`.toUpperCase(),
+      color: r.member.color,
+      avatarUrl: r.member.avatar_url,
+    }))
+}

@@ -1,15 +1,20 @@
 // src/components/dashboard/chat/ChatChannelSettings.tsx
 "use client"
 
-import React, { memo, useCallback, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { m, AnimatePresence } from 'framer-motion'
-import { X, Upload, Plus, Settings } from 'lucide-react'
+import { X, Upload, Plus, Settings, UserMinus, Users } from 'lucide-react'
 import { useLang } from '@/context/LangContext'
 import { useTheme } from '@/context/ThemeContext'
+import Avatar from '@/components/ui/Avatar'
+import ChatMemberPicker, { type RosterMember } from './ChatMemberPicker'
 import {
   uploadChatChannelImageAction,
   updateChatChannelEmojiWhitelistAction,
+  listChatChannelMembersAction,
+  addChatChannelMembersAction,
+  removeChatChannelMemberAction,
 } from '@/app/(dashboard)/chat/chatActions'
 
 // نفس المجموعة الافتراضية بالواجهة — الشيف أدمن بيقدر يبدّلها بالكامل
@@ -20,6 +25,7 @@ interface ChatChannelSettingsProps {
   channelName: string
   currentImageUrl: string | null
   currentAllowedEmojis: string[] | null
+  roster: RosterMember[]
   onClose: () => void
   onUpdated: (patch: { imageUrl?: string; allowedReactionEmojis?: string[] }) => void
 }
@@ -29,6 +35,7 @@ function ChatChannelSettings({
   channelName,
   currentImageUrl,
   currentAllowedEmojis,
+  roster,
   onClose,
   onUpdated,
 }: ChatChannelSettingsProps) {
@@ -42,6 +49,58 @@ function ChatChannelSettings({
   const [emojis, setEmojis] = useState<string[]>(currentAllowedEmojis ?? DEFAULT_EMOJIS)
   const [newEmoji, setNewEmoji] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const [members, setMembers] = useState<RosterMember[]>([])
+  const [membersLoading, setMembersLoading] = useState(true)
+  const [showAddPicker, setShowAddPicker] = useState(false)
+  const [pickerSelection, setPickerSelection] = useState<string[]>([])
+  const [addingMembers, setAddingMembers] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    listChatChannelMembersAction(channelId)
+      .then((rows) => { if (active) setMembers(rows) })
+      .catch(() => { if (active) setMembers([]) })
+      .finally(() => { if (active) setMembersLoading(false) })
+    return () => { active = false }
+  }, [channelId])
+
+  const handleTogglePickerMember = useCallback((id: string) => {
+    setPickerSelection((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }, [])
+
+  const handleOpenAddPicker = useCallback(() => { setShowAddPicker(true); setPickerSelection([]) }, [])
+  const handleCloseAddPicker = useCallback(() => setShowAddPicker(false), [])
+
+  const handleConfirmAddMembers = useCallback(async () => {
+    if (pickerSelection.length === 0) return
+    setAddingMembers(true)
+    const previous = members
+    const added = roster.filter((m) => pickerSelection.includes(m.id))
+    setMembers((prev) => [...prev, ...added])
+    setShowAddPicker(false)
+
+    try {
+      await addChatChannelMembersAction(channelId, pickerSelection)
+    } catch {
+      setMembers(previous)
+    } finally {
+      setAddingMembers(false)
+    }
+  }, [pickerSelection, channelId, members, roster])
+
+  const handleRemoveMember = useCallback(
+    async (memberId: string) => {
+      const previous = members
+      setMembers((prev) => prev.filter((m) => m.id !== memberId))
+      try {
+        await removeChatChannelMemberAction(channelId, memberId)
+      } catch {
+        setMembers(previous)
+      }
+    },
+    [channelId, members],
+  )
 
   const handleChooseFile = useCallback(() => fileInputRef.current?.click(), [])
 
@@ -139,6 +198,76 @@ function ChatChannelSettings({
                 </button>
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
               </div>
+            </div>
+
+            {/* إدارة الأعضاء */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2" style={{ color: 'var(--foreground-muted)' }}>
+                <Users size={11} />
+                {lang === 'ar' ? `الأعضاء (${members.length})` : `Members (${members.length})`}
+              </label>
+
+              {membersLoading ? (
+                <p className="text-[11px] text-center py-3" style={{ color: 'var(--foreground-muted)' }}>...</p>
+              ) : (
+                <div className="max-h-40 overflow-y-auto space-y-1 mb-2">
+                  {members.map((m) => (
+                    <div key={m.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg" style={{ background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}>
+                      <Avatar avatarUrl={m.avatarUrl} initials={m.initials} name={m.name} size={24} color={m.color} className="text-white font-bold" />
+                      <span className="flex-1 text-[11.5px] font-medium truncate" style={{ color: 'var(--foreground)' }}>{m.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveMember(m.id)}
+                        className="p-1 rounded"
+                        style={{ color: '#ef4444', cursor: 'pointer' }}
+                        title={lang === 'ar' ? 'إزالة' : 'Remove'}
+                      >
+                        <UserMinus size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!showAddPicker ? (
+                <button
+                  type="button"
+                  onClick={handleOpenAddPicker}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold w-full justify-center"
+                  style={{ background: 'rgba(69,132,130,0.14)', color: '#458482', cursor: 'pointer' }}
+                >
+                  <Plus size={12} />
+                  {lang === 'ar' ? 'إضافة أعضاء' : 'Add Members'}
+                </button>
+              ) : (
+                <div className="rounded-lg p-2" style={{ background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
+                  <ChatMemberPicker
+                    roster={roster}
+                    excludeIds={members.map((m) => m.id)}
+                    selectedIds={pickerSelection}
+                    onToggle={handleTogglePickerMember}
+                  />
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={handleConfirmAddMembers}
+                      disabled={pickerSelection.length === 0 || addingMembers}
+                      className="flex-1 py-1.5 rounded-lg text-[11px] font-bold"
+                      style={{ background: '#458482', color: '#fff', cursor: pickerSelection.length === 0 ? 'not-allowed' : 'pointer', opacity: pickerSelection.length === 0 ? 0.5 : 1 }}
+                    >
+                      {lang === 'ar' ? 'إضافة' : 'Add'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCloseAddPicker}
+                      className="flex-1 py-1.5 rounded-lg text-[11px] font-bold"
+                      style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)', color: 'var(--foreground-muted)', cursor: 'pointer' }}
+                    >
+                      {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* قائمة الإيموجي المسموحة */}

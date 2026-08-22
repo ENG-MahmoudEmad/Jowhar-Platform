@@ -3,7 +3,7 @@
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LazyMotion, domAnimation } from 'framer-motion'
-import { MessageSquare, Settings } from 'lucide-react'
+import { MessageSquare, Settings, Plus } from 'lucide-react'
 import { useLang } from '@/context/LangContext'
 import { useTheme } from '@/context/ThemeContext'
 import ChatChannelList, { type ChatChannelSummary } from './ChatChannelList'
@@ -11,7 +11,9 @@ import ChatMessageBubble, { type ChatMessageData } from './ChatMessageBubble'
 import ChatComposer from './ChatComposer'
 import ChatForwardPicker from './ChatForwardPicker'
 import ChatChannelSettings from './ChatChannelSettings'
+import ChatCreateChannelModal from './ChatCreateChannelModal'
 import { DEFAULT_QUICK_EMOJIS } from './ChatMessageReactions'
+import type { RosterMember } from './ChatMemberPicker'
 import { useChatChannel } from '@/lib/chat/useChatChannel'
 
 interface ChatClientProps {
@@ -22,6 +24,7 @@ interface ChatClientProps {
   canPinMessages: boolean
   /** Chief/Developer فقط — يقدروا يديروا صورة القناة وقائمة الإيموجي */
   canManageChannels: boolean
+  roster: RosterMember[]
 }
 
 function ChatClient({
@@ -31,6 +34,7 @@ function ChatClient({
   canDeleteOthersMessages,
   canPinMessages,
   canManageChannels,
+  roster,
 }: ChatClientProps) {
   const { lang, isRTL } = useLang()
   const { theme } = useTheme()
@@ -38,6 +42,7 @@ function ChatClient({
 
   const [channels, setChannels] = useState<ChatChannelSummary[]>(initialChannels)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [createChannelOpen, setCreateChannelOpen] = useState(false)
 
   const [activeChannelId, setActiveChannelId] = useState<string | null>(channels[0]?.id ?? null)
   const [replyingTo, setReplyingTo] = useState<ChatMessageData | null>(null)
@@ -120,6 +125,13 @@ function ChatClient({
 
   const handleOpenSettings = useCallback(() => setSettingsOpen(true), [])
   const handleCloseSettings = useCallback(() => setSettingsOpen(false), [])
+  const handleOpenCreateChannel = useCallback(() => setCreateChannelOpen(true), [])
+  const handleCloseCreateChannel = useCallback(() => setCreateChannelOpen(false), [])
+
+  const handleChannelCreated = useCallback((channel: ChatChannelSummary) => {
+    setChannels((prev) => [...prev, channel])
+    setActiveChannelId(channel.id)
+  }, [])
 
   const handleChannelUpdated = useCallback(
     (patch: { imageUrl?: string; allowedReactionEmojis?: string[] }) => {
@@ -165,6 +177,19 @@ function ChatClient({
           className="w-64 shrink-0 hidden md:flex flex-col"
           style={{ borderInlineEnd: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}` }}
         >
+          {canManageChannels && (
+            <div className="p-2 pb-0">
+              <button
+                type="button"
+                onClick={handleOpenCreateChannel}
+                className="w-full flex items-center gap-1.5 justify-center px-3 py-2 rounded-xl text-[11px] font-bold"
+                style={{ background: 'rgba(69,132,130,0.14)', color: '#458482', cursor: 'pointer' }}
+              >
+                <Plus size={13} />
+                {lang === 'ar' ? 'قناة جديدة' : 'New Channel'}
+              </button>
+            </div>
+          )}
           <ChatChannelList channels={channels} activeChannelId={activeChannelId} onSelect={handleSelectChannel} />
         </div>
 
@@ -254,8 +279,18 @@ function ChatClient({
           channelName={channelDisplayName}
           currentImageUrl={activeChannel.imageUrl}
           currentAllowedEmojis={activeChannel.allowedReactionEmojis}
+          roster={roster}
           onClose={handleCloseSettings}
           onUpdated={handleChannelUpdated}
+        />
+      )}
+
+      {createChannelOpen && (
+        <ChatCreateChannelModal
+          roster={roster}
+          currentUserId={currentUserId}
+          onClose={handleCloseCreateChannel}
+          onCreated={handleChannelCreated}
         />
       )}
     </LazyMotion>

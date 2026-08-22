@@ -47,6 +47,22 @@ export default async function ChatPage() {
     }))
     .filter((c) => !c.isArchived)
 
+  // كل الأعضاء النشطين — للـpicker وقت إنشاء قناة أو إضافة أعضاء
+  const { data: rosterRows } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, color, avatar_url')
+    .eq('status', 'active')
+    .is('deleted_at', null)
+    .order('first_name')
+
+  const roster = (rosterRows ?? []).map((p) => ({
+    id: p.id,
+    name: `${p.first_name} ${p.last_name}`.trim(),
+    initials: `${p.first_name?.[0] ?? ''}${p.last_name?.[0] ?? ''}`.toUpperCase(),
+    color: p.color,
+    avatarUrl: p.avatar_url,
+  }))
+
   // صلاحيات إشراف عامة (مبسّطة لهاي المرحلة — لاحقاً تُحسب لكل قناة تحديداً)
   const canDeleteOthersMessages = isSuperAdmin
   const canPinMessages = isSuperAdmin
@@ -60,6 +76,7 @@ export default async function ChatPage() {
         canDeleteOthersMessages={canDeleteOthersMessages}
         canPinMessages={canPinMessages}
         canManageChannels={isSuperAdmin}
+        roster={roster}
       />
     </div>
   )
